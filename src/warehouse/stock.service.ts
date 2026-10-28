@@ -1,0 +1,91 @@
+import { Injectable } from '@nestjs/common';
+import { EntityManager } from 'typeorm';
+import { Warehouse } from '../branches/warehouse.entity';
+import type { MovementKind } from '../common/enums';
+import { fail } from '../common/errors';
+import { newId } from '../common/ids';
+import type { Product } from '../menu/product.entity';
+import { StockMovement } from './stock-movement.entity';
+
+/** Qoldiq o'zgarishi, asosiy birlikda: musbat — kirim, manfiy — chiqim. */
+export interface StockDelta {
+  ingredientId: string;
+  qty: number;
+}
+
+/** Bir xil mahsulot o'zgarishlarini qo'shib, nollarini tashlaydi; id bo'yicha tartiblangan (qulflar bir xil tartibda). */
+export function mergeDeltas(deltas: StockDelta[]): Map<string, number> {
+  const merged = new Map<string, number>();
+  for (const delta of deltas) merged.set(delta.ingredientId, (merged.get(delta.ingredientId) ?? 0) + delta.qty);
+  return new Map([...merged].filter(([, qty]) => qty !== 0).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+/** Taomlar retsepti bo'yicha kerak bo'ladigan mahsulotlar (asosiy birlikda). [sign] = -1 — sotuv uchun chiqim. */
+export function recipeDeltas(
+  products: Map<string, Product>,
+  items: { productId: string; qty: number }[],
+  sign: 1 | -1,
+): StockDelta[] {
+  const deltas: StockDelta[] = [];
+  for (const item of items) {
+    const product = products.get(item.productId);
+    if (!product) continue;
+    for (const line of product.recipe) deltas.push({ ingredientId: line.ingredientId, qty: sign * line.qty * item.qty });
+  }
+  return deltas;
+}
+
+@Injectable()
+export class StockService {
+  /**
+   * Omborga o'zgarishlarni qo'llaydi va har bir mahsulot uchun harakat yozadi. Qoldiq manfiyga tushishi mumkin (savdo
+   * to'xtamaydi). Bitta SQL bilan qo'shiladi (`qty = qty + delta`) — bir vaqtdagi buyurtmalar bir-birini o'chirmaydi.
+   */
+  async applyDeltas(
+    em: EntityManager,
+    warehouseId: string,
+    deltas: StockDelta[],
+    kind: MovementKind,
+    refId: string,
+    at: Date,
+  ): Promise<void> {
+    const merged = mergeDeltas(deltas);
+    if (merged.size === 0) return;
+    const ids = [...merged.keys()];
+    const qtys = [...merged.values()];
+    await em.query(
+      `INSERT INTO stock ("warehouseId", "ingredientId", "qty", "minQty")
+       SELECT $1, u.id, u.qty, 0 FROM unnest($2::varchar[], $3::int[]) AS u(id, qty)
+       ON CONFLICT ("warehouseId", "ingredientId") DO UPDATE SET "qty" = stock."qty" + EXCLUDED."qty"`,
+      [warehouseId, ids, qtys],
+    );
+    await em.insert(
+      StockMovement,
+      ids.map((ingredientId, index) => ({
+        id: newId('mov'),
+        warehouseId,
+        ingredientId,
+        qty: qtys[index],
+        kind,
+        refId,
+        createdAt: at,
+      })),
+    );
+  }
+
+  /** Qoldiqlar (asosiy birlikda), qatorlar tranzaksiya oxirigacha qulflanadi — tekshiruvdan keyin o'zgarib qolmasin. */
+  async lockQty(em: EntityManager, warehouseId: string, ingredientIds: string[]): Promise<Map<string, number>> {
+    const rows: { ingredientId: string; qty: number }[] = await em.query(
+      `SELECT "ingredientId", "qty" FROM stock WHERE "warehouseId" = $1 AND "ingredientId" = ANY($2)
+       ORDER BY "ingredientId" FOR UPDATE`,
+      [warehouseId, [...ingredientIds].sort()],
+    );
+    return new Map(rows.map((row) => [row.ingredientId, row.qty]));
+  }
+
+  async branchWarehouse(em: EntityManager, branchId: string): Promise<Warehouse> {
+    return (
+      (await em.findOneBy(Warehouse, { kind: 'branch', branchId })) ?? fail('not_found', `warehouse of ${branchId}`)
+    );
+  }
+}
