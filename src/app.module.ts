@@ -3,8 +3,9 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
+import { AiModule } from './ai/ai.module';
 import { AuthModule } from './auth/auth.module';
 import { Public } from './auth/decorators';
 import { BranchesModule } from './branches/branches.module';
@@ -20,6 +21,7 @@ import { OrdersModule } from './orders/orders.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { ReportsModule } from './reports/reports.module';
 import { ShiftsModule } from './shifts/shifts.module';
+import { TelegramModule } from './telegram/telegram.module';
 import { UsersModule } from './users/users.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
 
@@ -33,21 +35,21 @@ class HealthController {
 }
 
 /**
- * Taom, kategoriya va ikonka rasmlari — `/images/...` (menyudagi `image` / `icon` yo'llari shunday). Hozircha web
- * ilovaning `public/images` papkasidan; papka bo'lmasa berilmaydi. Ro'yxat va yuklash — `ImagesModule` (`/api/images`).
+ * Taom va kategoriya rasmlari — `/images/products/...`, `/images/categories/...` (menyudagi `image` yo'llari shunday),
+ * backendning `uploads` papkasidan (`IMAGES_DIR`); papka bo'lmasa yaratiladi. Ro'yxat va yuklash — `ImagesModule`
+ * (`/api/images`). Bu yerda topilmagan fayl keyingisiga o'tadi (`exclude`): kategoriya ikonkalari (`/images/icons/...`)
+ * — web ilovaning o'zida, `uiModule` beradi.
  */
 function imagesModule(): DynamicModule[] {
   const rootPath = imagesDir();
-  if (!existsSync(rootPath)) {
-    new Logger('Images').warn(`Rasmlar papkasi topilmadi (${rootPath}) — /images berilmaydi`);
-    return [];
-  }
-  return [ServeStaticModule.forRoot({ rootPath, serveRoot: '/images' })];
+  mkdirSync(rootPath, { recursive: true });
+  return [ServeStaticModule.forRoot({ rootPath, serveRoot: '/images', exclude: ['/images/{*path}'] })];
 }
 
 /**
- * Tayyor web ilova (`UI_DIST`, standart — `../ReactJS_NYFF/dist`) — `/` da; `/api`, `/socket.io`, `/images` dan
- * tashqari hamma yo'l index.html ga (SPA). Papka bo'lmasa — faqat API (ishlab chiqishda UI Vite'da, 5173).
+ * Tayyor web ilova (`UI_DIST`, standart — `../ReactJS_NYFF/dist`) — `/` da (ikonkalar `/images/icons/...` ham shu
+ * yerdan); `/api`, `/socket.io`, `/images` dan tashqari hamma yo'l index.html ga (SPA). Papka bo'lmasa — faqat API
+ * (ishlab chiqishda UI Vite'da, 5173).
  */
 function uiModule(): DynamicModule[] {
   const dir = process.env.UI_DIST || '../ReactJS_NYFF/dist';
@@ -88,6 +90,8 @@ const jobs = process.env.JOBS === 'off' ? [] : [ScheduleModule.forRoot()];
     CourierModule,
     ExpensesModule,
     ReportsModule,
+    AiModule,
+    TelegramModule,
     DemoModule,
     ...imagesModule(),
     ...uiModule(),

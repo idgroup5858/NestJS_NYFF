@@ -5,7 +5,7 @@ import { join, parse } from 'node:path';
 import { fail } from '../common/errors';
 import { imagesDir } from './images-dir';
 
-/** Admin rasm tanlaydigan papkalar (`icons` — kategoriya ikonkalari, alohida to'plam, bu yerga kirmaydi). */
+/** Admin rasm tanlaydigan papkalar (`uploads` ichida; kategoriya ikonkalari — web ilovaning o'zida, bu yerda yo'q). */
 export const IMAGE_FOLDERS = ['products', 'categories'] as const;
 export type ImageFolder = (typeof IMAGE_FOLDERS)[number];
 

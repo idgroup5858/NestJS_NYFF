@@ -1,3 +1,4 @@
+import { AiMessage } from '../ai/ai-message.entity';
 import { Branch } from '../branches/branch.entity';
 import { Warehouse } from '../branches/warehouse.entity';
 import { Expense } from '../expenses/expense.entity';
@@ -5,6 +6,7 @@ import { Category } from '../menu/category.entity';
 import { Product } from '../menu/product.entity';
 import { Order } from '../orders/order.entity';
 import { Shift } from '../shifts/shift.entity';
+import { TelegramChat } from '../telegram/telegram-chat.entity';
 import { User } from '../users/user.entity';
 import { Ingredient } from '../warehouse/ingredient.entity';
 import { Purchase } from '../warehouse/purchase.entity';
@@ -30,4 +32,6 @@ export const ENTITIES = [
   Shift,
   Order,
   Expense,
+  AiMessage,
+  TelegramChat,
 ];

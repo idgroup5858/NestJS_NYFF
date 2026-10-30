@@ -45,7 +45,13 @@ export type ErrorCode =
   | 'wrong_login'
   | 'invalid_login'
   | 'invalid_password'
-  | 'login_taken';
+  | 'login_taken'
+  // ── AI yordamchi va Telegram bot ──
+  | 'ai_not_configured'
+  | 'ai_failed'
+  | 'telegram_token_invalid'
+  | 'telegram_unreachable'
+  | 'telegram_not_connected';
 
 const STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   unauthorized: HttpStatus.UNAUTHORIZED,
@@ -66,7 +72,11 @@ const STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   courier_busy: HttpStatus.CONFLICT,
   not_ready: HttpStatus.CONFLICT,
   login_taken: HttpStatus.CONFLICT,
+  telegram_not_connected: HttpStatus.CONFLICT,
   too_many_attempts: HttpStatus.TOO_MANY_REQUESTS,
+  ai_failed: HttpStatus.BAD_GATEWAY,
+  telegram_unreachable: HttpStatus.BAD_GATEWAY,
+  ai_not_configured: HttpStatus.SERVICE_UNAVAILABLE,
 };
 
 /** `message` — o'zbekcha standart matn (loglar va matnni o'zi tarjima qilmaydigan mijozlar uchun). */
@@ -109,6 +119,11 @@ const MESSAGES: Record<ErrorCode, string> = {
   invalid_login: 'Login 3–40 belgi: lotin harflari, raqam, «.», «_», «-»',
   invalid_password: "Parol kamida 6 belgidan iborat bo'lishi kerak",
   login_taken: 'Bu login band — boshqasini tanlang',
+  ai_not_configured: "AI sozlanmagan — serverning .env faylida GEMINI_API_KEY yo'q",
+  ai_failed: "AI hozir javob bera olmadi — birozdan keyin qayta urinib ko'ring",
+  telegram_token_invalid: "Bot tokeni noto'g'ri — @BotFather bergan tokenni to'liq nusxalang",
+  telegram_unreachable: "Telegram serveriga ulanib bo'lmadi — internetni tekshiring",
+  telegram_not_connected: 'Avval bot tokenini kiriting',
 };
 
 /** Javob tanasi: `{ statusCode, code, message, detail? }`. `detail` — texnik izoh (qaysi taom, qaysi id). */

@@ -1,6 +1,6 @@
 # NYFF backend — API ma'lumotnomasi
 
-NestJS 11 · PostgreSQL · Socket.IO 4. Kod bilan tekshirilgan holat: **2026-10-27**. API o'zgarsa — shu fayl ham
+NestJS 11 · PostgreSQL · Socket.IO 4. Kod bilan tekshirilgan holat: **2026-10-29**. API o'zgarsa — shu fayl ham
 yangilanadi (`CLAUDE.md`).
 
 Kimlar uchun: **Android ilova** (Kotlin + Jetpack Compose — mijoz ilovasi, [5-bo'lim](#5-mobil-ilova-oqimi-android)),
@@ -21,6 +21,7 @@ TV, kiosk, ombor, admin; [9-bo'lim](#9-web-ilovani-ulash)).
 10. [Demo ma'lumot](#10-demo-malumot)
 11. [Cheklovlar va noaniq joylar](#11-cheklovlar-va-noaniq-joylar)
 12. [Kuryer ilovasi (Android)](#12-kuryer-ilovasi-android)
+13. [AI yordamchi va Telegram bot](#13-ai-yordamchi-va-telegram-bot)
 
 ---
 
@@ -29,7 +30,7 @@ TV, kiosk, ombor, admin; [9-bo'lim](#9-web-ilovani-ulash)).
 | | |
 |---|---|
 | REST | `http://<server>:3000/api/...` (global prefiks `api`) |
-| Rasmlar | `http://<server>:3000/images/...` — prefikssiz. Menyudagi `image` / `icon` — `/images/...` bilan boshlanadigan yo'l yoki bo'sh satr; to'liq URL = `http://<server>:3000` + yo'l. Fayllar web ilovaning `public/images` papkasidan beriladi (`IMAGES_DIR`); papka topilmasa `/images` umuman ishlamaydi (logda ogohlantirish). Admin ro'yxati va yuklash — `GET` / `POST /api/images` ([7.3](#73-menyu)) |
+| Rasmlar | `http://<server>:3000/images/...` — prefikssiz. Menyudagi `image` / `icon` — `/images/...` bilan boshlanadigan yo'l yoki bo'sh satr; to'liq URL = `http://<server>:3000` + yo'l. Taom va kategoriya rasmlari (`/images/products/...`, `/images/categories/...`) — backendning `uploads` papkasidan (`IMAGES_DIR`, server ishga tushganda yo'q bo'lsa yaratiladi). Kategoriya ikonkalari (`/images/icons/...`) — web ilovaning o'zida: server tayyor web ilovani bersa (`UI_DIST`) — shu manzildan, aks holda yo'q (404). Admin ro'yxati va yuklash — `GET` / `POST /api/images` ([7.3](#73-menyu)) |
 | Socket.IO | shu port, standart yo'l `/socket.io`, standart namespace `/` (`api` prefiksi socket'ga tegishli emas) |
 | Tinglash | `0.0.0.0` — lokal tarmoqdagi kassa, TV, kiosk va telefonlar ulanadi |
 | Tekshirish | `GET /api/health` → `{ "ok": true }` (bazani tekshirmaydi) |
@@ -50,9 +51,14 @@ ruxsati kerak (`android:usesCleartextTraffic="true"` yoki `network_security_conf
 | `ONLINE_REQUIRE_KASSA` | `1` | `0` — filial ochiqligi uchun "kassa ekrani ulangan" sharti o'chiq ([8.4](#84-kassa-ulangan-va-filial-online-holati)) |
 | `JOBS` | yoqilgan | `off` — fon ishi (mobil buyurtmaning 5 daqiqalik qabul muddati) ishlamaydi |
 | `THROTTLE` | yoqilgan | `off` — IP bo'yicha urinishlar chegarasi o'chiq (testlar) |
-| `IMAGES_DIR` | `../ReactJS_NYFF/public/images` | rasmlar papkasi (nisbiy — ishga tushirilgan papkaga nisbatan) |
-
-`THROTTLE` va `IMAGES_DIR` `.env.example` da yo'q, lekin kod o'qiydi.
+| `IMAGES_DIR` | `uploads` | taom va kategoriya rasmlari papkasi, admin yuklaganlari ham (nisbiy — ishga tushirilgan papkaga nisbatan; git'ga kirmaydi) |
+| `GEMINI_API_KEY` | bo'sh | Google AI Studio kaliti; bo'sh — AI o'chiq (`ai_not_configured`, [13](#13-ai-yordamchi-va-telegram-bot)) |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini modeli |
+| `AI_VOICE_REPLY` | yoqilgan | `off` — Telegram'da ovozli savolga javob matn bilan (ovozli javob — sinov rejimi) |
+| `GEMINI_TTS_MODEL` | `gemini-3.8-flash-lite-tts` | ovozli javob modeli (o'zbekcha) |
+| `GEMINI_TTS_FALLBACK_MODEL` | `gemini-3.8-flash-tts` | asosiy TTS modelining limiti tugasa (429) — shu model. Bepul tarifda har TTS modeliga kuniga 10 ta so'rov; ikkalasi ham tugasa — javob matn bilan |
+| `GEMINI_TTS_VOICE` | `Kore` (ayol) | ovoz turi (Gemini TTS ovozlari; erkak — masalan `Charon`, `Iapetus`, `Orus`) |
+| `TELEGRAM` | yoqilgan | `off` — Telegram bot tinglanmaydi (testlar; token saqlanadi, lekin polling yo'q) |
 
 ---
 
@@ -151,6 +157,11 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `invalid_login` | 400 | ✔ | Login 3–40 belgi: lotin harflari, raqam, «.», «_», «-» | admin kuryer qo'shadi / tahrirlaydi |
 | `invalid_password` | 400 | ✔ | Parol kamida 6 belgidan iborat bo'lishi kerak | yangi kuryer yoki boshqa roldan kuryerga o'tkazishda parol majburiy |
 | `login_taken` | 409 | ✔ | Bu login band — boshqasini tanlang | login katta-kichik harfni farqlamaydi |
+| `ai_not_configured` | 503 | ✔ | AI sozlanmagan — serverning .env faylida GEMINI_API_KEY yo'q | `POST /ai/messages` |
+| `ai_failed` | 502 | ✔ | AI hozir javob bera olmadi — birozdan keyin qayta urinib ko'ring | Gemini xatosi / limit / 60 s dan ortiq (`detail`: Gemini xabari) yoki model 6 bosqichdan ko'p tool chaqirdi |
+| `telegram_token_invalid` | 400 | ✔ | Bot tokeni noto'g'ri — @BotFather bergan tokenni to'liq nusxalang | `PUT /telegram/token`: shakli `123456789:AA…` emas yoki Telegram rad etdi |
+| `telegram_unreachable` | 502 | ✔ | Telegram serveriga ulanib bo'lmadi — internetni tekshiring | tokenni tekshirishda tarmoq xatosi |
+| `telegram_not_connected` | 409 | ✔ | Avval bot tokenini kiriting | `POST /telegram/link` — bot yo'q |
 
 ---
 
@@ -678,7 +689,7 @@ hudud o'chiriladi; 1–2 nuqta — `zone_too_small`; `fallbackBranchId` filialni
 | `POST /products` | admin | `{ categoryId, name: LocalizedText, image: string ≤255, recipe: { ingredientId, qty }[], price: number, unavailableBranchIds: string[], active: boolean }` | `201 Product` | `name_required`, `invalid_price` (narx butun > 0 emas), `not_found` (kategoriya / mahsulot / filial), `invalid_qty` (qty butun ≥ 1 emas), `recipe_required` |
 | `PATCH /products/:id` | admin | xuddi shunday (to'liq) | `Product` | xuddi shunday |
 | `POST /products/:id/move` | admin | `{ direction: -1 \| 1 }` — o'z kategoriyasi ichida | `204` | `not_found` |
-| `GET /images` | admin | | `ImageFile[]` — `IMAGES_DIR` dagi `products` va `categories` papkalaridagi rasmlar (qo'lda tashlanganlari ham; `icons` kirmaydi), eng yangisi birinchi | |
+| `GET /images` | admin | | `ImageFile[]` — `IMAGES_DIR` (`uploads`) dagi `products` va `categories` papkalaridagi rasmlar (qo'lda tashlanganlari ham), eng yangisi birinchi | |
 | `POST /images` | admin | `multipart/form-data`: `file` (bitta rasm), `folder: 'products' \| 'categories'` | `201 ImageFile` — nom tozalanadi (`Cola Zero (1).PNG` → `cola-zero-1.png`), band bo'lsa `-2`, `-3`; kengaytma faylning haqiqiy turidan | `invalid_image`, `invalid_input` (`folder`) |
 
 `ImageFile`: `{ path: string, folder: 'products' | 'categories', name: string, size: number, modifiedAt: string }` —
@@ -1110,3 +1121,81 @@ joyi):
 
 **Socket** ([8](#8-socketio)): `auth: { token }` → `couriers` (har mobil dostavka o'zgarganda `CourierSignal`) va
 `courier:<userId>` (o'z buyurtmasi — `CourierOrder`). Har xabarda va qayta ulanishda ro'yxatlarni REST'dan qayta oling.
+
+---
+
+## 13. AI yordamchi va Telegram bot
+
+Faqat **admin** (direktor) uchun (2026-10-29). Direktor savol yozadi ("Bugungi tushum qancha?", "Shu haftada dostavkadan
+qancha tushdi?", "Qaysi mahsulotlar kam qoldi?", "Hozir qaysi filiallar ishlayapti?") — server Gemini'ga (`@google/genai`,
+model — `GEMINI_MODEL`) yuboradi, model kerakli ma'lumotni **tool**'lar orqali so'raydi, server ularni bajaradi va natija
+asosida model javob yozadi. Ikki kanal: admin paneldagi chat va Telegram bot — ikkalasi bitta `AiService`.
+
+- **Tool'lar faqat o'qiydi** (hech narsani o'zgartirmaydi): `sales_report` (davr tushumi, to'lov / buyurtma turi / manba
+  bo'yicha, kommunal chiqimlar va sof, filiallar, har taom sotuvi va sotilmaganlar, gavjum soatlar, kunlar yoki oylar),
+  `current_status` (filiallar: ishlayaptimi — ochiq smena, kassirlar, faol buyurtmalar, online holati; ishdagi kuryerlar),
+  `shifts` (smena jami — butun smena uchun, bir necha kunga cho'zilishi mumkin), `expenses`, `purchases` (masalliq xaridlari),
+  `stock` (qoldiq, kam qolganlar — o'z birligida; filial ombori — filialning hozirgi nomi bilan), `orders`, `menu`
+  (kategoriyalar tartibida taomlar va narxlar, filialda sotilmaydiganlari, o'chirilganlari).
+- Modelga **mijoz ismi, telefoni va manzili yuborilmaydi**; filial, kassir, mahsulot — nomi bilan.
+- Javob — **oddiy matn** (Markdown belgilari olib tashlanadi, ro'yxat «•»), **doim Xorazm shevasida** (savol adabiy,
+  shevada, ruscha yoki inglizcha bo'lishi mumkin). Ikki so'rov: tool'lar bilan adabiy javob → alohida so'rov uni direktor
+  lug'ati (`src/ai/xorazm.ts`) bo'yicha shevaga o'giradi; o'girish xato bersa — adabiy javob. Bitta savol ≈ 3 ta Gemini
+  so'rovi (bepul tarifda 15 ta / daqiqa).
+- **Tarix saqlanmaydi va ko'rsatilmaydi** (2026-10-29): web chat har ochilganda (yangilanganda ham) yangi suhbat —
+  oldingisi bazadan o'chadi, xabarlar faqat sahifada; Telegram'da yozishmani Telegram o'zi saqlaydi. Bazada
+  (`ai_messages`) faqat AI xotirasi — har chatda oxirgi 20 ta xabar (suhbat ichida "kecha-chi?" kabi savollar uchun) va
+  bugungi salom; eskilari har savoldan keyin o'chadi. Har adminning web chati va har Telegram chati alohida. Gemini xato
+  bersa savol ham saqlanmaydi. Demo tiklash hammasini va ulangan chatlarni o'chiradi.
+- **Salom** — "Assalomu aleykum og'a! Yaxshimisiz, sog'liqlariz yaxshimi? Nagapla?" (AI yozmaydi, doim shu matn): har
+  chatda kunning birinchi savolida (Toshkent vaqti) javobdan oldin alohida xabar va yangi suhbat boshlanganda darhol
+  (web'da — sahifa har ochilganda). Modelga yuborilmaydi.
+
+```ts
+interface AiMessage {
+  id: string; userId: string
+  chat: string            // 'web' | 'tg:<chatId>'
+  role: 'user' | 'model'  // savol | javob
+  text: string; createdAt: string
+}
+
+interface TelegramStatus {
+  bot: { id: number; username: string; name: string } | null   // null — token kiritilmagan
+  running: boolean        // server botni tinglayaptimi
+  link: string | null     // shu adminning start linki: https://t.me/<bot>?start=<kod>
+  chats: { chatId: string; userId: string; userName: string; username: string | null; name: string; linkedAt: string }[]
+}
+```
+
+| Metod va yo'l | So'rov | Javob | Xatolar |
+|---|---|---|---|
+| `POST /ai/chat` | | `201 { configured: boolean, greeting: AiMessage }` — yangi web suhbat: sahifa har ochilganda va "Yangi suhbat" da; oldingisi o'chadi. `configured: false` — `GEMINI_API_KEY` yo'q | |
+| `POST /ai/messages` | `{ text: string ≤4000 }` | `201 { question: AiMessage, greeting: AiMessage \| null, answer: AiMessage }` — odatda 2–5 s; `greeting` — shu chatda kunning birinchi savoli bo'lsa salom (alohida xabar, javobdan oldin) | `invalid_input` (bo'sh), `ai_not_configured`, `ai_failed` |
+| `POST /ai/waiting` | `{ text: string ≤4000 }` | `200 { text: string }` — javob kutilayotganda ko'rsatiladigan xorazmcha ibora, savol turiga qarab (`src/ai/waiting.ts`: qoldiq → "Hozir og'a, sklata borib sonabarin…", ombor → "Hozir og'a, omborni qorabarin…", pul / tushum → "Hozir yisoplabarin og'a, ozg'ona sabr ating…", boshqasi — umumiy iboralardan tasodifiy). Kalit so'zlar bilan, darhol (AI'ga so'rov yo'q); UI `POST /ai/messages` bilan bir vaqtda so'raydi | `invalid_input` |
+| `GET /telegram` | | `TelegramStatus` | |
+| `PUT /telegram/token` | `{ token: string }` | `TelegramStatus` — token `getMe` bilan tekshiriladi, saqlanadi, bot qayta ishga tushadi. Boshqa bot bo'lsa ulangan chatlar va linklar o'chadi | `telegram_token_invalid`, `telegram_unreachable` |
+| `DELETE /telegram/token` | | `204` — bot to'xtaydi, token, chatlar va linklar o'chadi | |
+| `POST /telegram/link` | | `200 TelegramStatus` — yangi start link; eskisi ishlamaydi, ulangan chatlar qoladi | `telegram_not_connected` |
+| `DELETE /telegram/chats/:chatId` | | `204` — chat uziladi (unga xabar boradi) | `not_found` |
+
+Hamma endpoint — faqat `admin` (boshqa rolga `403 forbidden`). Token javobda hech qachon qaytmaydi.
+
+**Telegram oqimi.** Admin @BotFather'da bot ochadi → tokenni "AI → Telegram" ga kiritadi → panelda start link (QR bilan)
+chiqadi, muddati yo'q → direktor linkni ochib "Start" bosadi → bot `/start <kod>` oladi va chatni shu adminga bog'laydi →
+keyin istalgan savol yozadi. Server botni **long polling** bilan tinglaydi (`getUpdates`; webhook ochiq HTTPS manzil
+talab qiladi). Faqat shaxsiy chatlar; guruh xabarlari e'tiborsiz.
+
+| Xabar | Bot javobi |
+|---|---|
+| `/start <to'g'ri kod>` | salom, keyin "Ulandingiz, <ism>!" va savol namunalari (yangi suhbat) |
+| `/start` (kodsiz) | ulangan bo'lsa — salom, aks holda rad matni |
+| `/start <noto'g'ri / eski kod>` | "Link noto'g'ri yoki yangilangan…" |
+| `/new` | yangi suhbat (tarix o'chadi) — salom |
+| `/tushum`, `/kecha`, `/hafta`, `/oy`, `/qoldiq`, `/filiallar`, `/smenalar`, `/dostavka`, `/menyu` | «Menu» tugmasidagi tez savollar (`src/telegram/commands.ts`, token kiritilganda va server ishga tushganda `setMyCommands` bilan yuboriladi): buyruq tayyor savolni AI'ga yuboradi — keyin oddiy savoldagidek. `/buyruq@bot_nomi` ham |
+| noma'lum buyruq (`/yordam` va h.k.) | buyruqlar ro'yxati |
+| ovozli xabar | 20 soniyadan uzun — "Og'aaa, shuncha narsani nedan bilaman man, oddiyroq savol so'rivaring…". Aks holda Gemini matnga o'giradi (sheva → adabiy; direktorga ko'rsatilmaydi), kutish iborasi, keyin javob **ovozli xabar** bilan (Gemini TTS → MP3; ovoz — adabiy o'zbekchada, ostidagi izoh — shevada; 1500 belgidan uzun javob yoki TTS xatosi — matn). Tushunarsiz — qayta yuborishni so'raydi. `AI_VOICE_REPLY=off` — javob matn bilan. Bitta ovozli savol ≈ 5 ta Gemini so'rovi, 15–20 s |
+| boshqa matn | ulangan chat va xodim **faol admin** bo'lsa — darhol: salom (kunning birinchi savolida) va savolga qarab kutish xabari (`POST /ai/waiting` dagi ibora, chatda qoladi), keyin "yozmoqda…" va AI javobi; aks holda rad matni. Xodim bloklansa yoki roli o'zgarsa bot darhol javob bermay qo'yadi |
+
+Bitta botni bir vaqtda faqat bitta server tinglay oladi — ikkinchisi ishga tushsa Telegram `409` beradi (logda
+ogohlantirish, bot kutadi).
+
