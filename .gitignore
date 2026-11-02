@@ -5,3 +5,5 @@
 coverage
 # admin yuklagan taom / kategoriya rasmlari — serverning o'z ma'lumoti (IMAGES_DIR)
 /uploads
+# yuk testi natijalari (npm run load)
+/test/load/results

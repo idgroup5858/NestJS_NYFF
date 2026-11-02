@@ -48,7 +48,7 @@ export class ShiftsController {
   @Roles('admin')
   @Post(':id/close')
   @HttpCode(200)
-  close(@Param('id') id: string) {
-    return this.shifts.close(id);
+  close(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.shifts.close(id, new Date(), user);
   }
 }

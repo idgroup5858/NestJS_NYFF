@@ -27,7 +27,7 @@ export interface TgMessage {
 }
 
 export interface TgUpload {
-  /** forma maydoni (`voice`) */
+  /** forma maydoni (`document`) */
   field: string;
   filename: string;
   contentType: string;
@@ -65,7 +65,7 @@ export class TelegramApi {
     return this.result<T>(response);
   }
 
-  /** Fayl bilan (multipart) — masalan `sendVoice`. */
+  /** Fayl bilan (multipart) — masalan `sendDocument`. */
   async upload<T>(token: string, method: string, fields: Record<string, string>, file: TgUpload): Promise<T> {
     const form = new FormData();
     for (const [key, value] of Object.entries(fields)) form.append(key, value);

@@ -9,6 +9,7 @@ import { Order } from '../orders/order.entity';
 import { orderView } from '../orders/order.views';
 import { Shift } from './shift.entity';
 import { ShiftListQuery } from './shift.dto';
+import { ShiftEvents } from './shift-events';
 import { shiftSummaries, type ShiftSummary } from './shift-summary';
 
 export type ShiftWithSummary = Shift & { summary: ShiftSummary };
@@ -24,7 +25,10 @@ export interface ShiftsSummary {
 
 @Injectable()
 export class ShiftsService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly events: ShiftEvents,
+  ) {}
 
   /** Kassir kirganda: ochiq smenasi bo'lsa davom etadi, bo'lmasa yangisi ochiladi. */
   async openOrResume(cashierId: string, branchId: string, now = new Date()): Promise<Shift> {
@@ -51,12 +55,12 @@ export class ShiftsService {
   /** "Smenani topshirish" — kassir o'z smenasini yopadi; hisobot uchun jami bilan qaytadi. */
   async closeOwn(user: AuthUser, now = new Date()): Promise<ShiftWithSummary> {
     const shift = (await this.current(user)) ?? fail('shift_not_open');
-    return this.close(shift.id, now);
+    return this.close(shift.id, now, user);
   }
 
-  /** Smenani yopish (admin — kassir yopmay ketgan smenani ham). */
-  async close(shiftId: string, now = new Date()): Promise<ShiftWithSummary> {
-    return this.dataSource.transaction(async (em) => {
+  /** Smenani yopish (admin — kassir yopmay ketgan smenani ham). Yopilgach — Telegram botga hisobot (`ShiftEvents`). */
+  async close(shiftId: string, now = new Date(), closedBy: AuthUser | null = null): Promise<ShiftWithSummary> {
+    const closed = await this.dataSource.transaction(async (em) => {
       const shift =
         (await em.findOne(Shift, { where: { id: shiftId }, lock: { mode: 'pessimistic_write' } })) ??
         fail('not_found', `shift ${shiftId}`);
@@ -65,6 +69,8 @@ export class ShiftsService {
       await em.update(Shift, shift.id, { closedAt: now });
       return this.withSummary(em, shift);
     });
+    this.events.closed({ shiftId: closed.id, closedBy });
+    return closed;
   }
 
   /**

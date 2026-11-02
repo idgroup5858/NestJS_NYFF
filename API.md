@@ -53,12 +53,9 @@ ruxsati kerak (`android:usesCleartextTraffic="true"` yoki `network_security_conf
 | `THROTTLE` | yoqilgan | `off` — IP bo'yicha urinishlar chegarasi o'chiq (testlar) |
 | `IMAGES_DIR` | `uploads` | taom va kategoriya rasmlari papkasi, admin yuklaganlari ham (nisbiy — ishga tushirilgan papkaga nisbatan; git'ga kirmaydi) |
 | `GEMINI_API_KEY` | bo'sh | Google AI Studio kaliti; bo'sh — AI o'chiq (`ai_not_configured`, [13](#13-ai-yordamchi-va-telegram-bot)) |
-| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini modeli |
-| `AI_VOICE_REPLY` | yoqilgan | `off` — Telegram'da ovozli savolga javob matn bilan (ovozli javob — sinov rejimi) |
-| `GEMINI_TTS_MODEL` | `gemini-3.8-flash-lite-tts` | ovozli javob modeli (o'zbekcha) |
-| `GEMINI_TTS_FALLBACK_MODEL` | `gemini-3.8-flash-tts` | asosiy TTS modelining limiti tugasa (429) — shu model. Bepul tarifda har TTS modeliga kuniga 10 ta so'rov; ikkalasi ham tugasa — javob matn bilan |
-| `GEMINI_TTS_VOICE` | `Kore` (ayol) | ovoz turi (Gemini TTS ovozlari; erkak — masalan `Charon`, `Iapetus`, `Orus`) |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini modeli (javob, shevaga o'girish, ovozli savolni matnga o'girish) |
 | `TELEGRAM` | yoqilgan | `off` — Telegram bot tinglanmaydi (testlar; token saqlanadi, lekin polling yo'q) |
+| `PG_DUMP` | PATH dagi `pg_dump` | oylik zaxira nusxa uchun `pg_dump` yo'li; Windows'da PATH da bo'lmasa `C:\Program Files\PostgreSQL\<eng yangi>\bin\pg_dump.exe` ([13](#13-ai-yordamchi-va-telegram-bot)) |
 
 ---
 
@@ -755,6 +752,8 @@ Tafsilotlar:
 Bitta kassirning bitta filialda bittadan ortiq ochiq smenasi bo'lmaydi. Smena yopilsa filial `no_shift` bo'lishi
 mumkin (boshqa ochiq smena bo'lmasa) — mobil buyurtma olmaydi. Smena summasiga faqat shu smenaga yozilgan buyurtmalar
 kiradi (kioskda karta / Click bilan to'langanlar — kirmaydi, [11](#11-cheklovlar-va-noaniq-joylar)).
+Smena yopilgach (ikkala endpoint) Telegram botga hisobot ketadi — [13](#13-ai-yordamchi-va-telegram-bot); javob
+uni kutmaydi.
 
 ### 7.6 Ombor
 
@@ -1193,8 +1192,30 @@ talab qiladi). Faqat shaxsiy chatlar; guruh xabarlari e'tiborsiz.
 | `/new` | yangi suhbat (tarix o'chadi) — salom |
 | `/tushum`, `/kecha`, `/hafta`, `/oy`, `/qoldiq`, `/filiallar`, `/smenalar`, `/dostavka`, `/menyu` | «Menu» tugmasidagi tez savollar (`src/telegram/commands.ts`, token kiritilganda va server ishga tushganda `setMyCommands` bilan yuboriladi): buyruq tayyor savolni AI'ga yuboradi — keyin oddiy savoldagidek. `/buyruq@bot_nomi` ham |
 | noma'lum buyruq (`/yordam` va h.k.) | buyruqlar ro'yxati |
-| ovozli xabar | 20 soniyadan uzun — "Og'aaa, shuncha narsani nedan bilaman man, oddiyroq savol so'rivaring…". Aks holda Gemini matnga o'giradi (sheva → adabiy; direktorga ko'rsatilmaydi), kutish iborasi, keyin javob **ovozli xabar** bilan (Gemini TTS → MP3; ovoz — adabiy o'zbekchada, ostidagi izoh — shevada; 1500 belgidan uzun javob yoki TTS xatosi — matn). Tushunarsiz — qayta yuborishni so'raydi. `AI_VOICE_REPLY=off` — javob matn bilan. Bitta ovozli savol ≈ 5 ta Gemini so'rovi, 15–20 s |
+| ovozli xabar | 20 soniyadan uzun — "Og'aaa, shuncha narsani nedan bilaman man, oddiyroq savol so'rivaring…". Aks holda Gemini matnga o'giradi (sheva → adabiy; direktorga ko'rsatilmaydi), kutish iborasi, keyin javob **matn** bilan (shevada; ovozli javob yo'q). Tushunarsiz — qayta yuborishni so'raydi. Bitta ovozli savol ≈ 4 ta Gemini so'rovi |
 | boshqa matn | ulangan chat va xodim **faol admin** bo'lsa — darhol: salom (kunning birinchi savolida) va savolga qarab kutish xabari (`POST /ai/waiting` dagi ibora, chatda qoladi), keyin "yozmoqda…" va AI javobi; aks holda rad matni. Xodim bloklansa yoki roli o'zgarsa bot darhol javob bermay qo'yadi |
+
+**Smena hisoboti.** Smena yopilganda (kassir "Smenani topshirish" yoki admin `POST /shifts/:id/close`) bot ulangan
+hamma chatlarga (xodimi faol admin bo'lsa) oddiy matnli xabar yuboradi — AI'siz, adabiy tilda, AI xotirasiga yozilmaydi
+(`src/telegram/shift-report.ts`): filial, kassir, admin yopgan bo'lsa — uning ismi, ochilgan va yopilgan vaqt (davomiyligi
+bilan), to'langan buyurtmalar soni, tushum va to'lov turlari (kassadagi `ShiftWithSummary.summary` bilan bir xil), o'rtacha
+chek, bekor qilinganlar (soni va summasi), buyurtma turi (soni va summa) va manba bo'yicha, eng ko'p sotilgan 5 taom.
+Nol qatorlar chiqmaydi. Bot ulanmagan yoki Telegram javob bermasa smena baribir yopiladi (xato logga).
+
+**Oylik zaxira nusxa** (`src/backup`). Har oyning oxirgi kuni 23:00 dan keyin (fon ishi har 10 daqiqada tekshiradi)
+bazaning to'liq nusxasi (`pg_dump -Fc`) bot ulangan hamma admin chatlariga fayl bo'lib yuboriladi, keyin serverdan
+o'chadi — serverda nusxa saqlanmaydi, kunlik nusxa yo'q. Nusxa butun baza (boshidan shu kungacha), faqat shu oyniki emas.
+Fayl — `nyff-2026-11.dump`; Bot API 50 MB dan katta fayl qabul qilmaydi — kattasi 45 MB lik bo'laklarga:
+`nyff-2026-11.dump.001`, `.002`, … (izohida "1/3-qism"). Yuborilgan oy — `settings.backup_sent_month`. Bot ulanmagan,
+`pg_dump` ishlamasa yoki Telegram javob bermasa — har soatda qayta (birinchi xatoda adminlarga bir marta ogohlantirish
+matni); server o'sha paytda o'chiq bo'lsa — yoqilgach (nusxa o'sha paytdagi holat, izohda "Olingan: …"). Birinchi ishga
+tushishda o'tgan oylar yuborilmaydi. `JOBS=off` — ishlamaydi.
+
+Tiklash: hamma qismlar yuklab olinadi va bitta faylga birlashtiriladi (bitta fayl bo'lsa — kerak emas) — Windows
+`copy /b nyff-2026-11.dump.001 + nyff-2026-11.dump.002 nyff-2026-11.dump`, Linux `cat nyff-2026-11.dump.* > nyff-2026-11.dump`;
+keyin server to'xtatilib, bo'sh bazaga: `createdb -U postgres nyff` va
+`pg_restore -U postgres -d nyff --no-owner nyff-2026-11.dump` (`pg_restore` — `pg_dump` yonida). Rasmlar (`uploads`)
+nusxaga kirmaydi.
 
 Bitta botni bir vaqtda faqat bitta server tinglay oladi — ikkinchisi ishga tushsa Telegram `409` beradi (logda
 ogohlantirish, bot kutadi).

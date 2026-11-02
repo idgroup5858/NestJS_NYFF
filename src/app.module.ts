@@ -7,6 +7,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { AiModule } from './ai/ai.module';
 import { AuthModule } from './auth/auth.module';
+import { BackupModule } from './backup/backup.module';
 import { Public } from './auth/decorators';
 import { BranchesModule } from './branches/branches.module';
 import { CourierModule } from './courier/courier.module';
@@ -92,6 +93,7 @@ const jobs = process.env.JOBS === 'off' ? [] : [ScheduleModule.forRoot()];
     ReportsModule,
     AiModule,
     TelegramModule,
+    BackupModule,
     DemoModule,
     ...imagesModule(),
     ...uiModule(),

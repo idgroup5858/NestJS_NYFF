@@ -14,6 +14,13 @@ import type { OnlineInfo, OrderItem, PaymentSplit } from '../common/types';
 @Entity('orders')
 @Index(['branchId', 'status'])
 @Index(['branchId', 'createdAt'])
+// "yaqinda tayyor bo'lganlar" (TV, oshxona, kassa): yakunlangan buyurtma `ready` da qoladi — `(branchId, status)`
+// filialning butun tarixini qaytarardi
+@Index(['branchId', 'readyAt'])
+// kuryerning qo'lidagilari (`deliveredAt IS NULL`) va bugun yetkazgan / qaytarganlari — kuryer tarixi o'sgani sari
+// sekinlashmasin (faqat `courierId` indeksida butun tarixi o'qilardi); admin `?courierId=` ham shu indeksdan
+@Index(['courierId', 'deliveredAt'])
+@Index(['courierId', 'returnedAt'])
 @Index(['createdAt'])
 export class Order {
   @PrimaryColumn({ type: 'varchar', length: ID_LENGTH })
@@ -116,7 +123,6 @@ export class Order {
 
   // ── kuryer (mobil dostavka). `status` o'zgarmaydi (oxirgisi `ready`) — kuryer bosqichlari alohida maydonlarda ──
 
-  @Index()
   @Column({ type: 'varchar', length: ID_LENGTH, nullable: true })
   courierId: string | null;
 

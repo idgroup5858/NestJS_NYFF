@@ -13,6 +13,7 @@
     "seed": "ts-node src/demo/seed.cli.ts",
     "test": "jest",
     "test:db": "jest --config test/jest-db.json --runInBand",
+    "load": "nest build && ts-node --transpile-only test/load/load.ts",
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:generate": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:generate",
     "migration:run": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:run"
@@ -47,7 +48,6 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "dotenv": "^18.0.8",
-    "lamejs": "^1.2.1",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",

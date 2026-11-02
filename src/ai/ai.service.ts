@@ -71,11 +71,6 @@ export class AiService {
     return greeting;
   }
 
-  /** Ovozli savolga ovozli javob (sinov rejimi): `.env` da `AI_VOICE_REPLY=off` — o'chiq, javob matn bilan. */
-  get voiceReply(): boolean {
-    return process.env.AI_VOICE_REPLY !== 'off';
-  }
-
   /** Ovozli xabar → matn (adabiy tilda). Bo'sh — nutq tushunarsiz. */
   async transcribe(audio: Buffer, mimeType: string): Promise<string> {
     if (!this.gemini.configured) fail('ai_not_configured');
@@ -90,11 +85,6 @@ export class AiService {
     return plainText(text).replace(/^[«"“]+|[»"”]+$/g, '').trim();
   }
 
-  /** Matn → ovoz (TTS, o'zbekcha): WAV yoki sarlavhasiz L16. */
-  speak(text: string): Promise<{ data: Buffer; mimeType: string }> {
-    return this.gemini.speak(text);
-  }
-
   /**
    * Telegram: kunning birinchi savolida salom darhol — kutish xabari va javobdan oldin (saqlanadi; keyingi [ask] uni
    * takrorlamaydi). Bugun salom bo'lgan bo'lsa — `null`.
@@ -106,11 +96,8 @@ export class AiService {
     return greeting;
   }
 
-  /**
-   * Savol → javob (shevada). [literary] — javobning shevaga o'girilmagan matni: Telegram ovozli javobi shuni o'qiydi
-   * (ovoz adabiy tilda, 2026-10-29); web API'ga chiqmaydi.
-   */
-  async ask(user: AuthUser, chat: string, text: string, now = new Date()): Promise<AiExchange & { literary: string }> {
+  /** Savol → javob (shevada). */
+  async ask(user: AuthUser, chat: string, text: string, now = new Date()): Promise<AiExchange> {
     const question = text.trim();
     if (!question || question.length > MAX_QUESTION) fail('invalid_input', 'text');
     if (!this.gemini.configured) fail('ai_not_configured');
@@ -144,7 +131,7 @@ export class AiService {
       ),
     );
     await this.prune(user.id, chat, now);
-    return { ...exchange, literary };
+    return exchange;
   }
 
   /**

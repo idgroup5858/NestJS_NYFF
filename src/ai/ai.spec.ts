@@ -1,6 +1,5 @@
 import { ApiError } from '@google/genai';
 import { BOT_COMMANDS, COMMANDS_HELP, parseCommand } from '../telegram/commands';
-import { durationOf, encodeMp3, forSpeech, readPcm } from '../telegram/voice';
 import { splitMessage } from '../telegram/telegram.api';
 import { systemPrompt, type PromptContext } from './ai.prompt';
 import { GeminiClient } from './gemini.client';
@@ -88,26 +87,6 @@ describe('Gemini mijozi', () => {
     return { gemini, generate };
   };
 
-  it("ovoz: asosiy TTS modelining limiti tugasa (429) — zaxira model; ikkalasi ham tugasa yoki boshqa xato — xato", async () => {
-    const audio = { candidates: [{ content: { parts: [{ inlineData: { data: Buffer.from('RIFF').toString('base64'), mimeType: 'audio/wav' } }] } }] };
-    const quota = () => new ApiError({ message: 'Generate content requests per day limit exceeded', status: 429 });
-
-    const one = client();
-    one.generate.mockRejectedValueOnce(quota()).mockResolvedValueOnce(audio);
-    expect(await one.gemini.speak('Salom')).toEqual({ data: Buffer.from('RIFF'), mimeType: 'audio/wav' });
-    expect(one.generate.mock.calls.map(([params]) => params.model)).toEqual(['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts']);
-
-    const both = client();
-    both.generate.mockRejectedValue(quota());
-    await expect(both.gemini.speak('Salom')).rejects.toThrow('limit exceeded');
-    expect(both.generate).toHaveBeenCalledTimes(2);
-
-    const bad = client();
-    bad.generate.mockRejectedValue(new ApiError({ message: 'bad request', status: 400 }));
-    await expect(bad.gemini.speak('Salom')).rejects.toThrow('bad request');
-    expect(bad.generate).toHaveBeenCalledTimes(1);
-  });
-
   it("vaqtinchalik xato (503) — bir marta qayta urinadi; doimiy xato (400) — yo'q", async () => {
     const busy = client();
     busy.generate
@@ -167,51 +146,5 @@ describe('Telegram buyruqlari', () => {
     expect(parseCommand(' /Qoldiq@nyff_bot ')).toBe('qoldiq');
     expect(parseCommand('/tushum bugun')).toBeNull();
     expect(parseCommand('Bugungi tushum?')).toBeNull();
-  });
-});
-
-describe('ovozli javob (WAV → MP3)', () => {
-  /** 16-bit PCM WAV: [channels] kanal, [seconds] soniya sinus. */
-  const wav = (channels: number, rate: number, seconds: number) => {
-    const frames = rate * seconds;
-    const data = Buffer.alloc(frames * channels * 2);
-    for (let i = 0; i < frames; i++) {
-      for (let c = 0; c < channels; c++) data.writeInt16LE(Math.round(Math.sin(i / 10) * 8000), (i * channels + c) * 2);
-    }
-    const header = Buffer.alloc(44);
-    header.write('RIFF', 0);
-    header.writeUInt32LE(36 + data.length, 4);
-    header.write('WAVEfmt ', 8);
-    header.writeUInt32LE(16, 16);
-    header.writeUInt16LE(1, 20);
-    header.writeUInt16LE(channels, 22);
-    header.writeUInt32LE(rate, 24);
-    header.writeUInt32LE(rate * channels * 2, 28);
-    header.writeUInt16LE(channels * 2, 32);
-    header.writeUInt16LE(16, 34);
-    header.write('data', 36);
-    header.writeUInt32LE(data.length, 40);
-    return Buffer.concat([header, data]);
-  };
-
-  it("WAV o'qiladi (stereo — mono), sarlavhasiz L16 — 24 kHz; MP3 kadr boshi to'g'ri, davomiyligi", () => {
-    const mono = readPcm(wav(1, 24_000, 2));
-    expect(mono).toMatchObject({ sampleRate: 24_000 });
-    expect(mono.samples).toHaveLength(48_000);
-    expect(durationOf(mono)).toBe(2);
-    expect(readPcm(wav(2, 16_000, 1)).samples).toHaveLength(16_000);
-    expect(readPcm(Buffer.alloc(4800)).sampleRate).toBe(24_000);
-
-    const mp3 = encodeMp3(mono);
-    expect(mp3.length).toBeGreaterThan(1000);
-    // MPEG audio kadr sinxronlash: 11 bit 1
-    expect(mp3[0]).toBe(0xff);
-    expect(mp3[1] & 0xe0).toBe(0xe0);
-  });
-
-  it("o'qish uchun matn: ro'yxat belgilari olib tashlanadi", () => {
-    expect(forSpeech("Gurlenskiy ombori:\n  • Hot-dog noni — 22 dona\n  • Salfetka — 587 dona")).toBe(
-      'Gurlenskiy ombori:\nHot-dog noni — 22 dona\nSalfetka — 587 dona',
-    );
   });
 });

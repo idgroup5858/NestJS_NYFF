@@ -9,10 +9,11 @@ import type { AuthUser } from '../auth/auth.types';
 import { fail } from '../common/errors';
 import { newSecret } from '../common/ids';
 import { Setting } from '../database/setting.entity';
+import { ShiftEvents, type ShiftClosed } from '../shifts/shift-events';
 import { User } from '../users/user.entity';
+import { loadShiftReport, shiftReportText } from './shift-report';
 import { TelegramChat } from './telegram-chat.entity';
 import { splitMessage, TelegramApi, TelegramApiError, type TgMessage, type TgUpdate, type TgUser, type TgVoice } from './telegram.api';
-import { durationOf, encodeMp3, forSpeech, readPcm } from './voice';
 
 /** `settings` kalitlari: bot tokeni, bot ma'lumoti (JSON) va har adminning start link kodi. */
 const TOKEN_KEY = 'telegram_bot_token';
@@ -67,10 +68,6 @@ const TEXT = {
 
 /** Ovozli savol chegarasi — uzunrog'iga javob yo'q (so'rov va vaqt tejaladi). */
 export const VOICE_MAX_SECONDS = 20;
-/** Bundan uzun javob ovozga aylantirilmaydi (o'qish bir necha daqiqa, TTS sekin) — matn bilan. */
-const VOICE_MAX_CHARS = 1500;
-/** Telegram ovozli xabari ostidagi izoh chegarasi. */
-const CAPTION_MAX = 1024;
 
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -82,7 +79,7 @@ const sleep = (ms: number, signal: AbortSignal) =>
  * Telegram bot: admin tokenni kiritadi, server botni long polling bilan tinglaydi (webhook ochiq HTTPS manzil talab
  * qiladi — server lokal). Start link (`t.me/<bot>?start=<kod>`) bosilgan chat shu adminga bog'lanadi va AI'dan
  * foydalanadi; boshqa chatlarga rad matni. Har xabarda xodim bazadan olinadi — bloklansa / admin bo'lmasa darhol rad.
- * `TELEGRAM=off` — polling o'chiq (testlar).
+ * Smena yopilganda ulangan admin chatlariga hisobot ketadi. `TELEGRAM=off` — polling o'chiq (testlar).
  */
 @Injectable()
 export class TelegramService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -95,7 +92,10 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly api: TelegramApi,
     private readonly ai: AiService,
-  ) {}
+    shiftEvents: ShiftEvents,
+  ) {
+    shiftEvents.onClosed((event) => void this.sendShiftReport(event));
+  }
 
   async onApplicationBootstrap(): Promise<void> {
     const token = await this.setting(TOKEN_KEY);
@@ -181,6 +181,81 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     if (token) await this.send(token, chatId, TEXT.unlinked);
   }
 
+  // ───────────────────────── smena hisoboti ─────────────────────────
+
+  /**
+   * Smena yopildi (kassir yoki admin) — hisobot ulangan hamma admin chatlariga. Smenani yopish bunga kutmaydi: bot
+   * ulanmagan, Telegram javob bermasa ham smena yopilaveradi (xato logga).
+   */
+  private async sendShiftReport({ shiftId, closedBy }: ShiftClosed): Promise<void> {
+    try {
+      const targets = await this.adminTargets();
+      if (!targets) return;
+      const text = shiftReportText(await loadShiftReport(this.dataSource.manager, shiftId, closedBy));
+      for (const chatId of targets.chatIds) await this.send(targets.token, chatId, text);
+    } catch (error) {
+      this.logger.error(`Smena hisoboti ${shiftId}: ${(error as Error).message}`);
+    }
+  }
+
+  // ───────────────────────── admin chatlariga (zaxira nusxa) ─────────────────────────
+
+  /** Bot ulangan va kamida bitta admin chati bor — yuborishga arziydi. */
+  async hasAdminChats(): Promise<boolean> {
+    return (await this.adminTargets()) !== null;
+  }
+
+  /** Matn ulangan hamma admin chatlariga (bot ulanmagan bo'lsa — hech narsa). */
+  async notifyAdmins(text: string): Promise<void> {
+    const targets = await this.adminTargets();
+    if (!targets) return;
+    for (const chatId of targets.chatIds) await this.send(targets.token, chatId, text);
+  }
+
+  /**
+   * Fayllar (masalan zaxira nusxa bo'laklari) ulangan hamma admin chatlariga, tartib bilan; har biri `read()` bilan
+   * yuborishdan oldin o'qiladi (xotirada bittadan). Natija — hammasini olgan chatlar soni: bitta chat xato bersa (botni
+   * bloklagan), qolganlariga baribir ketadi.
+   */
+  async sendDocuments(documents: { filename: string; caption: string; read: () => Promise<Buffer> }[]): Promise<number> {
+    const targets = await this.adminTargets();
+    if (!targets) return 0;
+    let delivered = 0;
+    for (const chatId of targets.chatIds) {
+      try {
+        for (const document of documents) {
+          await this.api.upload(
+            targets.token,
+            'sendDocument',
+            { chat_id: chatId, caption: document.caption },
+            {
+              field: 'document',
+              filename: document.filename,
+              contentType: 'application/octet-stream',
+              data: await document.read(),
+            },
+          );
+        }
+        delivered++;
+      } catch (error) {
+        this.logger.warn(`sendDocument ${chatId}: ${(error as Error).message}`);
+      }
+    }
+    return delivered;
+  }
+
+  /** Bot tokeni va ulangan chatlar — xodimi faol admin bo'lganlari; bot yoki shunday chat yo'q — `null`. */
+  private async adminTargets(): Promise<{ token: string; chatIds: string[] } | null> {
+    const token = await this.setting(TOKEN_KEY);
+    if (!token) return null;
+    const em = this.dataSource.manager;
+    const chats = await em.find(TelegramChat, { order: { linkedAt: 'ASC' } });
+    const users = chats.length ? await em.find(User, { where: { id: In(chats.map((c) => c.userId)) } }) : [];
+    const admins = new Set(users.filter((u) => u.active && u.role === 'admin').map((u) => u.id));
+    const chatIds = chats.filter((c) => admins.has(c.userId)).map((c) => c.chatId);
+    return chatIds.length ? { token, chatIds } : null;
+  }
+
   // ───────────────────────── xabarlar ─────────────────────────
 
   /** Bitta Telegram xabari — matn yoki ovoz (polling va testlar shu yerdan). */
@@ -209,12 +284,12 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       if (!known?.question) return this.send(token, chatId, COMMANDS_HELP);
       question = known.question;
     }
-    await this.answer(token, chatId, user, question, false);
+    await this.answer(token, chatId, user, question);
   }
 
   /**
-   * Ovozli savol: 20 soniyadan uzun — javob yo'q (ibora); aks holda matnga o'giriladi (direktorga ko'rsatilmaydi) va
-   * javob — ovoz bilan (sinov rejimi, `AI_VOICE_REPLY`).
+   * Ovozli savol: 20 soniyadan uzun — javob yo'q (ibora); aks holda matnga o'giriladi (direktorga ko'rsatilmaydi),
+   * javob — matn bilan.
    */
   private async handleVoice(token: string, chatId: string, user: AuthUser, voice: TgVoice): Promise<void> {
     const greeting = await this.ai.greetIfDue(user.id, telegramChat(chatId));
@@ -232,60 +307,31 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     // direktorga ko'rsatilmaydi — logda (noto'g'ri eshitilgan so'zni topish uchun)
     this.logger.log(`Ovoz (${voice.duration} s) → «${heard}»`);
     if (!heard) return this.send(token, chatId, TEXT.voiceUnclear);
-    await this.answer(token, chatId, user, heard, true);
+    await this.answer(token, chatId, user, heard);
   }
 
   /**
    * Savolga javob: darhol salom (kunning birinchi savolida) va savolga qarab kutish xabari (chatda qoladi), keyin AI
-   * javobi. [voice] — ovozli savol: javob ham ovoz bilan (bo'lmasa — matn).
+   * javobi.
    */
-  private async answer(token: string, chatId: string, user: AuthUser, question: string, voice: boolean): Promise<void> {
+  private async answer(token: string, chatId: string, user: AuthUser, question: string): Promise<void> {
     const greeting = await this.ai.greetIfDue(user.id, telegramChat(chatId));
     if (greeting) await this.send(token, chatId, greeting.text);
     await this.send(token, chatId, waitingText(question));
 
     let reply: string;
-    let literary: string;
     try {
       const result = await this.typingWhile(token, chatId, () => this.ai.ask(user, telegramChat(chatId), question));
       reply = result.answer.text;
-      literary = result.literary;
     } catch (error) {
       return this.send(token, chatId, this.failText(error));
-    }
-    if (voice && this.ai.voiceReply && literary.length <= VOICE_MAX_CHARS && (await this.sendVoice(token, chatId, reply, literary))) {
-      return;
     }
     await this.send(token, chatId, reply);
   }
 
-  /**
-   * Javob — ovozli xabar: ovoz adabiy tilda ([spoken] — shevaga o'girilmagan matn; TTS shevani yaxshi o'qimaydi), ostidagi
-   * izoh — shevada ([text]). TTS yoki yuborish xato bersa — `false` (javob matn bilan ketadi).
-   */
-  private async sendVoice(token: string, chatId: string, text: string, spoken: string): Promise<boolean> {
-    try {
-      const audio = await this.typingWhile(token, chatId, () => this.ai.speak(forSpeech(spoken)), 'record_voice');
-      const pcm = readPcm(audio.data);
-      const caption = text.length <= CAPTION_MAX;
-      await this.api.upload(
-        token,
-        'sendVoice',
-        { chat_id: chatId, duration: String(durationOf(pcm)), ...(caption && { caption: text }) },
-        { field: 'voice', filename: 'javob.mp3', contentType: 'audio/mpeg', data: encodeMp3(pcm) },
-      );
-      // izohga sig'magan javob — matni alohida (raqamlar ko'z bilan ham ko'rinsin)
-      if (!caption) await this.send(token, chatId, text);
-      return true;
-    } catch (error) {
-      this.logger.warn(`Ovozli javob: ${(error as Error).message}`);
-      return false;
-    }
-  }
-
-  /** Uzoq ish paytida "yozmoqda…" / "ovoz yozmoqda…" (Telegram uni 5 soniyada o'chiradi — qayta yuboriladi). */
-  private async typingWhile<T>(token: string, chatId: string, work: () => Promise<T>, action = 'typing'): Promise<T> {
-    const show = () => void this.api.call(token, 'sendChatAction', { chat_id: chatId, action }).catch(() => {});
+  /** Uzoq ish paytida "yozmoqda…" (Telegram uni 5 soniyada o'chiradi — qayta yuboriladi). */
+  private async typingWhile<T>(token: string, chatId: string, work: () => Promise<T>): Promise<T> {
+    const show = () => void this.api.call(token, 'sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
     show();
     const timer = setInterval(show, 4500);
     try {

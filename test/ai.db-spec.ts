@@ -1,5 +1,10 @@
 import type { INestApplication } from '@nestjs/common';
 import type { FunctionCall, FunctionResponse } from '@google/genai';
+import { execFile } from 'node:child_process';
+import { readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import request from 'supertest';
 import { DataSource, Not, IsNull, Between } from 'typeorm';
 import { AiMessage } from '../src/ai/ai-message.entity';
@@ -7,6 +12,8 @@ import { AiService } from '../src/ai/ai.service';
 import { AiTools } from '../src/ai/ai.tools';
 import { GeminiClient, type GeminiReply, type GeminiRequest } from '../src/ai/gemini.client';
 import { hashPin } from '../src/auth/pin';
+import { BackupService, PART_BYTES, pgDumpPath } from '../src/backup/backup.service';
+import { Setting } from '../src/database/setting.entity';
 import { Branch } from '../src/branches/branch.entity';
 import { Warehouse } from '../src/branches/warehouse.entity';
 import { addDays, dateKey } from '../src/domain/dates';
@@ -18,6 +25,7 @@ import { Product } from '../src/menu/product.entity';
 import { Order } from '../src/orders/order.entity';
 import { ReportsService } from '../src/reports/reports.service';
 import { BOT_COMMANDS, COMMANDS_HELP } from '../src/telegram/commands';
+import { som } from '../src/telegram/format';
 import { TelegramApi, TelegramApiError, type TgUpdate, type TgUpload } from '../src/telegram/telegram.api';
 import { TelegramService } from '../src/telegram/telegram.service';
 import { User } from '../src/users/user.entity';
@@ -58,30 +66,6 @@ class FakeGemini {
     this.transcripts.push({ system, audio, mimeType });
     return this.heard;
   }
-
-  /** matn → ovoz: 1 soniyalik WAV (sukunat); `ttsFails` — xato */
-  spoken: string[] = [];
-  ttsFails = false;
-
-  async speak(text: string): Promise<{ data: Buffer; mimeType: string }> {
-    this.spoken.push(text);
-    if (this.ttsFails) throw new Error('TTS quota');
-    const pcm = Buffer.alloc(24_000 * 2);
-    const header = Buffer.alloc(44);
-    header.write('RIFF', 0);
-    header.writeUInt32LE(36 + pcm.length, 4);
-    header.write('WAVEfmt ', 8);
-    header.writeUInt32LE(16, 16);
-    header.writeUInt16LE(1, 20);
-    header.writeUInt16LE(1, 22);
-    header.writeUInt32LE(24_000, 24);
-    header.writeUInt32LE(48_000, 28);
-    header.writeUInt16LE(2, 32);
-    header.writeUInt16LE(16, 34);
-    header.write('data', 36);
-    header.writeUInt32LE(pcm.length, 40);
-    return { data: Buffer.concat([header, pcm]), mimeType: 'audio/wav' };
-  }
 }
 
 const say =
@@ -114,13 +98,6 @@ class FakeTelegram {
   async upload<T>(_token: string, method: string, fields: Record<string, string>, file: TgUpload): Promise<T> {
     this.sent.push({ method, params: { ...fields, file } });
     return true as T;
-  }
-
-  /** chatdagi hamma xabar tartib bilan: matn — o'zi, ovozli — `[voice] <izoh>` */
-  feed(chatId: string): string[] {
-    return this.sent
-      .filter((s) => s.params.chat_id === chatId && (s.method === 'sendMessage' || s.method === 'sendVoice'))
-      .map((s) => (s.method === 'sendVoice' ? `[voice] ${String(s.params.caption ?? '')}` : String(s.params.text)));
   }
 
   texts(chatId: string): string[] {
@@ -190,8 +167,6 @@ describe('AI yordamchi', () => {
     gemini.dialect = (text) => text;
     gemini.transcripts = [];
     gemini.heard = '';
-    gemini.spoken = [];
-    gemini.ttsFails = false;
     telegram.sent = [];
   });
 
@@ -333,7 +308,6 @@ describe('AI yordamchi', () => {
       expect(gemini.requests[0].system).toContain('• nichcha → nechta');
       // xotirada — adabiy javob (model keyingisini ham adabiy yozsin), web'ga — shevada
       expect((await stored()).at(-1)).toEqual(['model', "Bugungi tushum 0 so'm edi."]);
-      expect(res.body).not.toHaveProperty('literary');
 
       gemini.script = [say("Kechagi tushum 385 000 so'm.")];
       gemini.dialect = () => {
@@ -669,7 +643,7 @@ describe('AI yordamchi', () => {
       expect(gemini.requests).toHaveLength(1);
     });
 
-    it("ovozli savol: matnga o'giriladi (ko'rsatilmaydi), kutish xabari, javob — ovozli: ovoz adabiy, izoh shevada", async () => {
+    it("ovozli savol: matnga o'giriladi (ko'rsatilmaydi), kutish xabari, javob — matn bilan, shevada", async () => {
       // 1001 ulangan, bugun salom berilgan (oldingi testlar)
       gemini.heard = 'Bugungi tushum qancha?';
       gemini.script = [say("Bugungi tushum 0 so'm bo'ldi.")];
@@ -685,26 +659,14 @@ describe('AI yordamchi', () => {
       expect(gemini.transcripts[0].system).toContain('Klassik burger');
       // AI'ga eshitilgan matn boradi
       expect(gemini.requests[0].contents.at(-1)!.parts![0].text).toBe('Bugungi tushum qancha?');
-      // eshitilgan matn direktorga ko'rsatilmaydi — faqat kutish xabari va ovozli javob
-      expect(telegram.feed('1001')).toEqual([WAITING.money, "[voice] Bugunki tushum 0 so'm adi."]);
-      // ovoz — adabiy (shevaga o'girilmagan) matn
-      expect(gemini.spoken).toEqual(["Bugungi tushum 0 so'm bo'ldi."]);
-      const voice = telegram.sent.find((s) => s.method === 'sendVoice')!.params;
-      expect(voice).toMatchObject({ chat_id: '1001', duration: '1', file: { field: 'voice', contentType: 'audio/mpeg' } });
-      expect((voice.file as TgUpload).data[0]).toBe(0xff);
-      expect(telegram.sent).toContainEqual({ method: 'sendChatAction', params: { chat_id: '1001', action: 'record_voice' } });
-      // matnli savolga — matn
-      telegram.sent = [];
-      gemini.dialect = (text) => text;
-      gemini.script = [say('Matnli javob.')];
-      await send(1001, 'Menyuda nima bor?');
+      // eshitilgan matn direktorga ko'rsatilmaydi — faqat kutish xabari va javob (ovozli javob yo'q, 2026-11-02)
+      expect(telegram.texts('1001')).toEqual([WAITING.money, "Bugunki tushum 0 so'm adi."]);
       expect(telegram.sent.some((s) => s.method === 'sendVoice')).toBe(false);
-      expect(telegram.last('1001')).toBe('Matnli javob.');
     });
 
-    it("ovozli savol: 20 soniyadan uzun — ibora; tushunarsiz — qayta yuborish; TTS xatosi yoki AI_VOICE_REPLY=off — matn bilan", async () => {
+    it('ovozli savol: 20 soniyadan uzun — ibora; tushunarsiz — qayta yuborish', async () => {
       await sendVoice(1001, 21);
-      expect(telegram.feed('1001')).toEqual(["Og'aaa, shuncha narsani nedan bilaman man, oddiyroq savol so'rivaring…"]);
+      expect(telegram.texts('1001')).toEqual(["Og'aaa, shuncha narsani nedan bilaman man, oddiyroq savol so'rivaring…"]);
       expect(gemini.transcripts).toHaveLength(0);
 
       telegram.sent = [];
@@ -712,26 +674,6 @@ describe('AI yordamchi', () => {
       await sendVoice(1001, 3);
       expect(telegram.last('1001')).toContain('Ovozni tushunolmadim');
       expect(gemini.requests).toHaveLength(0);
-
-      telegram.sent = [];
-      gemini.heard = 'Hozir qaysi filiallar ishlayapti?';
-      gemini.ttsFails = true;
-      gemini.script = [say('Ikkalasi ham ishlayapti.')];
-      await sendVoice(1001, 3);
-      expect(telegram.feed('1001').at(-1)).toBe('Ikkalasi ham ishlayapti.');
-
-      telegram.sent = [];
-      gemini.ttsFails = false;
-      gemini.spoken = [];
-      gemini.script = [say('Ikkalasi ham ishlayapti.')];
-      process.env.AI_VOICE_REPLY = 'off';
-      try {
-        await sendVoice(1001, 3);
-      } finally {
-        delete process.env.AI_VOICE_REPLY;
-      }
-      expect(gemini.spoken).toEqual([]);
-      expect(telegram.feed('1001').at(-1)).toBe('Ikkalasi ham ishlayapti.');
 
       // ulanmagan chat — rad (ovoz o'girilmaydi)
       telegram.sent = [];
@@ -766,6 +708,122 @@ describe('AI yordamchi', () => {
       await send(2002, 'Tushum?');
       expect(telegram.last('2002')).toContain('rahbariyati uchun');
       await http().delete('/api/telegram/chats/2002').set(as('usr_admin')).expect(404);
+    });
+
+    it('smena yopilganda — hisobot ulangan admin chatlariga (kassir yoki admin yopsa); yopish botni kutmaydi', async () => {
+      // hisobot fonda ketadi — yuborilguncha kutiladi
+      const until = async (done: () => boolean) => {
+        for (let i = 0; i < 100 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      };
+      const branch = (await db.manager.findOneByOrFail(Branch, { id: 'br_chilonzor' })).name;
+      const cashier = (await db.manager.findOneByOrFail(User, { id: 'usr_cashier_c1' })).name;
+
+      // 1001 — usr_admin chati (oldingi testlar), 2002 — uzilgan; demo smenasida bugungi buyurtmalar bor
+      telegram.sent = [];
+      const closed = await http().post('/api/shifts/current/close').set(as('usr_cashier_c1')).expect(200);
+      await until(() => telegram.texts('1001').length > 0);
+      const { summary } = closed.body;
+      expect(summary.orderCount).toBeGreaterThan(0);
+      const text = telegram.last('1001');
+      expect(text.split('\n').slice(0, 2)).toEqual([`Smena yopildi — ${branch}`, `Kassir: ${cashier}`]);
+      expect(text).toContain(`Buyurtmalar: ${summary.orderCount} ta`);
+      expect(text).toContain(`Tushum: ${som(summary.total)}`);
+      expect(text).toContain("Turi bo'yicha:");
+      expect(text).toContain("Eng ko'p sotilgan:");
+      expect(text).not.toContain('admin yopdi');
+      expect(telegram.sent.filter((s) => s.method === 'sendMessage').map((s) => s.params.chat_id)).toEqual(['1001']);
+      expect(gemini.requests).toHaveLength(0);
+
+      // kassir yopmay ketgan smenani admin yopadi
+      telegram.sent = [];
+      const reopened = await http().post('/api/shifts/current').set(as('usr_cashier_c1')).expect(200);
+      await http().post(`/api/shifts/${reopened.body.id}/close`).set(as('usr_admin')).expect(200);
+      await until(() => telegram.texts('1001').length > 0);
+      expect(telegram.last('1001')).toContain('Smenani admin yopdi: Admin');
+      expect(telegram.last('1001')).toContain('Buyurtmalar: 0 ta');
+      await http().post('/api/shifts/current').set(as('usr_cashier_c1')).expect(200);
+    });
+
+    it("oylik zaxira nusxa: oy tugagach pg_dump → admin chatlariga, fayl o'chadi; katta — bo'laklar; xato — bir marta ogohlantirish", async () => {
+      const backup = app.get(BackupService);
+      const KEY = 'backup_sent_month';
+      const setSent = (value: string | null) =>
+        value === null ? db.manager.delete(Setting, { key: KEY }) : db.manager.upsert(Setting, { key: KEY, value }, ['key']);
+      const sentMonth = async () => (await db.manager.findOneBy(Setting, { key: KEY }))?.value ?? null;
+      const documents = () => telegram.sent.filter((s) => s.method === 'sendDocument');
+      const fileOf = (s: { params: Record<string, unknown> }) => s.params.file as TgUpload;
+      const leftovers = () => readdirSync(tmpdir()).filter((name) => name.startsWith('nyff-2026-10-'));
+      // 10-noyabr: oktyabr tugagan, noyabr hali yo'q
+      const now = new Date(2026, 10, 10, 12, 0);
+      const later = (minutes: number) => new Date(now.getTime() + minutes * 60_000);
+
+      // birinchi ishga tushish — o'tgan oylar yuborilmaydi, birinchi nusxa joriy oy oxirida
+      await setSent(null);
+      telegram.sent = [];
+      expect(await backup.tick(now)).toBeNull();
+      expect(await sentMonth()).toBe('2026-10');
+      expect(documents()).toEqual([]);
+
+      // oktyabr hali yuborilmagan — bitta fayl, 1001 ga (2002 — uzilgan)
+      await setSent('2026-09');
+      expect(await backup.tick(now)).toBe('2026-10');
+      expect(documents()).toHaveLength(1);
+      const [single] = documents();
+      expect(single.params).toMatchObject({
+        chat_id: '1001',
+        caption: expect.stringMatching(/^Zaxira nusxa — Oktyabr 2026\nOlingan: 10\.11\.2026 12:00 · \d+,\d MB$/),
+        file: { field: 'document', filename: 'nyff-2026-10.dump' },
+      });
+      expect(fileOf(single).data.subarray(0, 5).toString()).toBe('PGDMP');
+      expect(await sentMonth()).toBe('2026-10');
+      expect(leftovers()).toEqual([]);
+      // yuborilgan — qayta yuborilmaydi
+      telegram.sent = [];
+      expect(await backup.tick(later(20))).toBeNull();
+      expect(documents()).toEqual([]);
+
+      // katta nusxa — bo'laklar: tartib bilan, birlashtirilsa pg_restore o'qiydi
+      await setSent('2026-09');
+      backup.partBytes = Math.ceil(fileOf(single).data.length / 3);
+      try {
+        expect(await backup.tick(now)).toBe('2026-10');
+      } finally {
+        backup.partBytes = PART_BYTES;
+      }
+      const parts = documents();
+      expect(parts.length).toBeGreaterThanOrEqual(3);
+      parts.forEach((part, index) => {
+        const number = String(index + 1).padStart(3, '0');
+        expect(fileOf(part).filename).toBe(`nyff-2026-10.dump.${number}`);
+        expect(part.params.caption).toContain(`Oktyabr 2026, ${index + 1}/${parts.length}-qism`);
+      });
+      const joined = join(tmpdir(), `nyff-test-${process.pid}.dump`);
+      writeFileSync(joined, Buffer.concat(parts.map((part) => fileOf(part).data)));
+      try {
+        const list = await promisify(execFile)(pgDumpPath().replace(/pg_dump(\.exe)?$/, 'pg_restore$1'), ['-l', joined]);
+        expect(list.stdout).toContain('TABLE public orders');
+      } finally {
+        rmSync(joined, { force: true });
+      }
+      expect(leftovers()).toEqual([]);
+
+      // pg_dump ishlamasa — bir marta ogohlantirish, soat o'tmaguncha qayta urinmaydi, keyin yuboriladi
+      await setSent('2026-09');
+      telegram.sent = [];
+      const previous = process.env.PG_DUMP;
+      process.env.PG_DUMP = join(tmpdir(), 'nyff-yoq', 'pg_dump.exe');
+      try {
+        expect(await backup.tick(now)).toBeNull();
+        expect(await backup.tick(later(30))).toBeNull();
+      } finally {
+        if (previous === undefined) delete process.env.PG_DUMP;
+        else process.env.PG_DUMP = previous;
+      }
+      expect(telegram.texts('1001')).toEqual([expect.stringContaining('Oktyabr 2026 zaxira nusxasi yuborilmadi: pg_dump')]);
+      expect(documents()).toEqual([]);
+      expect(await sentMonth()).toBe('2026-09');
+      expect(await backup.tick(later(61))).toBe('2026-10');
+      expect(documents()).toHaveLength(1);
     });
 
     it("boshqa bot tokeni — chatlar va linklar o'chadi; botni o'chirish", async () => {

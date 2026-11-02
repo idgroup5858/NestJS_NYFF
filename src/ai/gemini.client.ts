@@ -37,11 +37,6 @@ const RETRY_DELAY_MS = 1500;
 @Injectable()
 export class GeminiClient {
   readonly model = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
-  /** ovozli javob (o'zbekcha — "Northern Uzbek") */
-  readonly ttsModel = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
-  /** asosiy TTS modelining limiti tugasa (429) — shu model (bepul tarifda har modelga alohida kuniga 10 ta) */
-  readonly ttsFallbackModel = process.env.GEMINI_TTS_FALLBACK_MODEL || 'gemini-3.8-flash-tts';
-  readonly ttsVoice = process.env.GEMINI_TTS_VOICE || 'Kore';
   private readonly ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
 
   get configured(): boolean {
@@ -90,33 +85,6 @@ export class GeminiClient {
       config: { systemInstruction: system, httpOptions: { timeout: REQUEST_TIMEOUT_MS } },
     });
     return response.text ?? '';
-  }
-
-  /**
-   * Matn → ovoz (TTS): WAV (24 kHz, mono, 16-bit PCM) yoki sarlavhasiz L16. Asosiy modelning limiti tugasa (429) —
-   * zaxira model; u ham tugasa — xato (javob matn bilan ketadi).
-   */
-  async speak(text: string): Promise<{ data: Buffer; mimeType: string }> {
-    const request = (model: string) =>
-      this.call({
-        model,
-        contents: [{ role: 'user', parts: [{ text }] }],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.ttsVoice } } },
-          httpOptions: { timeout: REQUEST_TIMEOUT_MS },
-        },
-      });
-    let response: GenerateContentResponse;
-    try {
-      response = await request(this.ttsModel);
-    } catch (error) {
-      if (!(error instanceof ApiError) || error.status !== 429 || this.ttsFallbackModel === this.ttsModel) throw error;
-      response = await request(this.ttsFallbackModel);
-    }
-    const audio = response.candidates?.[0]?.content?.parts?.find((part) => part.inlineData?.data)?.inlineData;
-    if (!audio?.data) throw new Error("TTS: javobda audio yo'q");
-    return { data: Buffer.from(audio.data, 'base64'), mimeType: audio.mimeType ?? 'audio/wav' };
   }
 
   private async call(params: GenerateContentParameters): Promise<GenerateContentResponse> {

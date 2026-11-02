@@ -225,7 +225,8 @@ export class ReportsService {
         `SELECT
            (SELECT COUNT(*) FROM stock s WHERE s."minQty" > 0 AND s.qty < s."minQty") AS "lowStock",
            (SELECT COUNT(*) FROM purchases p WHERE p.status = 'pending') AS "pendingPurchases",
-           (SELECT to_char(MIN(o."createdAt" AT TIME ZONE $1), 'YYYY-MM-DD') FROM orders o) AS "firstOrderDate"`,
+           -- avval MIN (createdAt indeksidan), keyin mahalliy vaqtga: ifoda ichida MIN butun jadvalni o'qirdi
+           (SELECT to_char(MIN(o."createdAt") AT TIME ZONE $1, 'YYYY-MM-DD') FROM orders o) AS "firstOrderDate"`,
         [appTimeZone()],
       ),
     ]);
