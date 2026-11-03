@@ -335,14 +335,13 @@ Menyu — tanlangan filialniki.
   "branchId": "br_chilonzor",
   "categories": [
     { "id": "burgers", "name": { "uz": "Burgerlar", "ru": "Бургеры", "en": "Burgers" },
-      "image": "/images/categories/burgers.jpg", "icon": "/images/icons/hamburger.png", "sortOrder": 1, "active": true,
-      "kitchen": true }
+      "image": "/images/categories/burgers.jpg", "icon": "/images/icons/hamburger.png", "sortOrder": 1, "active": true }
   ],
   "products": [
     { "id": "burger-classic", "categoryId": "burgers",
       "name": { "uz": "Klassik burger", "ru": "Классический бургер", "en": "Classic burger" },
       "image": "/images/products/burger-classic.jpg", "sortOrder": 1, "price": 32000,
-      "composition": [ { "uz": "Burger noni", "ru": "Булочка для бургера", "en": "Burger bun" }, "…" ] }
+      "composition": [ { "uz": "Burger noni", "ru": "Булочка для бургера", "en": "Burger bun" }, "…" ], "kitchen": true }
   ]
 }
 ```
@@ -616,21 +615,20 @@ mahsulotlar aynan o'sha miqdorda omborga qaytadi. Kassa buyurtmasi va kioskda ka
 ### 6.3 Menyu
 
 ```ts
-interface Category {
-  id: string; name: LocalizedText; image: string; icon: string; sortOrder: number; active: boolean
-  kitchen: boolean                 // false — taomlari oshxona chekiga chiqmaydi (ichimliklar; kassa uchun)
-}
+interface Category { id: string; name: LocalizedText; image: string; icon: string; sortOrder: number; active: boolean }
 interface Product {                // admin ro'yxati (retsept bilan)
   id: string; categoryId: string; name: LocalizedText; image: string
   recipe: { ingredientId: string; qty: number }[]   // bitta taomga, asosiy birlikda
   price: number                    // so'm — barcha filiallarda bir xil
   unavailableBranchIds: string[]   // taom vaqtincha sotilmaydigan filiallar; yangi filial — hamma taomni sotadi
   sortOrder: number; active: boolean
+  kitchen: boolean                 // false — oshxona chekiga chiqmaydi (tayyor ichimlik: kola, suv; choy, qahva — true)
 }
 interface MenuProduct {            // GET /menu
   id: string; categoryId: string; name: LocalizedText; image: string; sortOrder: number
   price: number | null             // taom narxi; null — faqat `all=true` da: shu filialda vaqtincha sotilmaydi
   composition: LocalizedText[]
+  kitchen: boolean                 // kassa uchun: false — oshxona chekiga chiqmaydi (mobil ilovaga kerak emas)
 }
 ```
 
@@ -748,13 +746,13 @@ hudud o'chiriladi; 1–2 nuqta — `zone_too_small`; `fallbackBranchId` filialni
 |---|---|---|---|---|
 | `GET /menu` | ochiq | query: `branchId` (majburiy), `all?: 'true'` — kassa uchun: shu filialda vaqtincha sotilmaydigan faol taomlar ham (`price: null`, "Sotilmaydi") va taomsiz faol kategoriyalar ham | `{ branchId, categories: Category[], products: MenuProduct[] }` ([5.3](#53-menyu)) | `not_found` (filial yo'q yoki faol emas) |
 | `GET /categories` | admin | | `Category[]` (hammasi, `sortOrder` bo'yicha) | |
-| `POST /categories` | admin | `{ name: LocalizedText, image: string ≤255, icon: string ≤255, active: boolean, kitchen?: boolean }` (`kitchen` berilmasa — `true`) | `201 Category` (oxiriga qo'shiladi) | `name_required` |
-| `PATCH /categories/:id` | admin | xuddi shunday (to'liq; `kitchen` berilmasa — o'zgarmaydi) | `Category` | `not_found`, `name_required` |
+| `POST /categories` | admin | `{ name: LocalizedText, image: string ≤255, icon: string ≤255, active: boolean }` | `201 Category` (oxiriga qo'shiladi) | `name_required` |
+| `PATCH /categories/:id` | admin | xuddi shunday (to'liq) | `Category` | `not_found`, `name_required` |
 | `DELETE /categories/:id` | admin | | `204` | `not_found`, `in_use` (`products` — ichida taom bor, faol bo'lmagani ham) |
 | `POST /categories/:id/move` | admin | `{ direction: -1 \| 1 }` (−1 — yuqoriga) | `204`; chetda bo'lsa o'zgarmaydi | `not_found` |
 | `GET /products` | admin | | `Product[]` | |
-| `POST /products` | admin | `{ categoryId, name: LocalizedText, image: string ≤255, recipe: { ingredientId, qty }[], price: number, unavailableBranchIds: string[], active: boolean }` | `201 Product` | `name_required`, `invalid_price` (narx butun > 0 emas), `not_found` (kategoriya / mahsulot / filial), `invalid_qty` (qty butun ≥ 1 emas), `recipe_required` |
-| `PATCH /products/:id` | admin | xuddi shunday (to'liq) | `Product` | xuddi shunday |
+| `POST /products` | admin | `{ categoryId, name: LocalizedText, image: string ≤255, recipe: { ingredientId, qty }[], price: number, unavailableBranchIds: string[], active: boolean, kitchen?: boolean }` (`kitchen` berilmasa — `true`) | `201 Product` | `name_required`, `invalid_price` (narx butun > 0 emas), `not_found` (kategoriya / mahsulot / filial), `invalid_qty` (qty butun ≥ 1 emas), `recipe_required` |
+| `PATCH /products/:id` | admin | xuddi shunday (to'liq; `kitchen` berilmasa — o'zgarmaydi) | `Product` | xuddi shunday |
 | `DELETE /products/:id` | admin | | `204` (rasm fayli qoladi — galereyada boshqasi ham ishlatishi mumkin) | `not_found`, `in_use` (`orders` — biror buyurtmada bor, bekor qilingani ham) |
 | `POST /products/:id/move` | admin | `{ direction: -1 \| 1 }` — o'z kategoriyasi ichida | `204` | `not_found` |
 | `GET /images` | admin | | `ImageFile[]` — `IMAGES_DIR` (`uploads`) dagi `products` va `categories` papkalaridagi rasmlar (qo'lda tashlanganlari ham), eng yangisi birinchi | |

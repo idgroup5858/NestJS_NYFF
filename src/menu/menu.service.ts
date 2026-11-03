@@ -30,6 +30,8 @@ export interface MenuProduct {
   price: number | null;
   /** kioskda ko'rsatiladigan tarkib: retseptdagi mahsulotlar (qadoq, yog', ziravorlarsiz) */
   composition: LocalizedText[];
+  /** `false` — oshxona chekiga chiqmaydi (tayyor ichimlik) */
+  kitchen: boolean;
 }
 
 @Injectable()
@@ -67,8 +69,8 @@ export class MenuService {
         const ingredient = ingredientOf.get(line.ingredientId);
         return ingredient && !NON_COMPOSITION_GROUPS.includes(ingredient.group) ? [ingredient.name] : [];
       });
-      const { id, categoryId, name, image, sortOrder } = product;
-      return [{ id, categoryId, name, image, sortOrder, price, composition }];
+      const { id, categoryId, name, image, sortOrder, kitchen } = product;
+      return [{ id, categoryId, name, image, sortOrder, price, composition, kitchen }];
     });
     const withProducts = new Set(menu.map((p) => p.categoryId));
     return { branchId, categories: all ? categories : categories.filter((c) => withProducts.has(c.id)), products: menu };
@@ -79,15 +81,10 @@ export class MenuService {
     const fields = { name: cleanName(input.name), image: input.image.trim(), icon: input.icon.trim(), active: input.active };
     if (input.id) {
       await this.getCategory(em, input.id);
-      await em.update(Category, input.id, input.kitchen === undefined ? fields : { ...fields, kitchen: input.kitchen });
+      await em.update(Category, input.id, fields);
       return this.getCategory(em, input.id);
     }
-    const category: Category = {
-      id: newId('cat'),
-      ...fields,
-      kitchen: input.kitchen ?? true,
-      sortOrder: (await this.maxSortOrder(em, Category)) + 1,
-    };
+    const category: Category = { id: newId('cat'), ...fields, sortOrder: (await this.maxSortOrder(em, Category)) + 1 };
     await em.insert(Category, category);
     return category;
   }
@@ -127,10 +124,15 @@ export class MenuService {
 
     if (input.id) {
       await this.getProduct(em, input.id);
-      await em.update(Product, input.id, fields);
+      await em.update(Product, input.id, input.kitchen === undefined ? fields : { ...fields, kitchen: input.kitchen });
       return this.getProduct(em, input.id);
     }
-    const product: Product = { id: newId('prd'), ...fields, sortOrder: (await this.maxSortOrder(em, Product)) + 1 };
+    const product: Product = {
+      id: newId('prd'),
+      ...fields,
+      kitchen: input.kitchen ?? true,
+      sortOrder: (await this.maxSortOrder(em, Product)) + 1,
+    };
     await em.insert(Product, product);
     return product;
   }

@@ -208,6 +208,9 @@ const LOW_STOCK: Record<string, Record<string, number>> = {
 
 // ───────────────────────── Menyu ─────────────────────────
 
+/** Oshxona chekiga chiqmaydigan taomlar (`Product.kitchen: false`) — shishadagi ichimliklar. */
+const READY_DRINKS = new Set(['cola', 'fanta', 'sprite', 'water']);
+
 const CATEGORIES: [id: string, name: LocalizedText][] = [
   ['burgers', t('Burgerlar', 'Бургеры', 'Burgers')],
   ['hotdogs', t('Hot-doglar', 'Хот-доги', 'Hot dogs')],
@@ -389,8 +392,6 @@ export function buildBase(now: Date): DemoBase {
       icon: DEFAULT_ICONS[id] ? `/images/icons/${DEFAULT_ICONS[id]}.png` : '',
       sortOrder: index + 1,
       active: true,
-      // ichimliklarni kassir o'zi beradi — oshxona chekiga chiqmaydi
-      kitchen: id !== 'drinks',
     })),
     products: PRODUCTS.map(([id, categoryId, name, price, recipe], index) => ({
       id,
@@ -402,6 +403,8 @@ export function buildBase(now: Date): DemoBase {
       unavailableBranchIds: UNAVAILABLE[id] ?? [],
       sortOrder: index + 1,
       active: true,
+      // tayyor ichimliklarni kassir o'zi beradi — oshxona chekiga chiqmaydi (choy — oshxonada damlanadi, chiqadi)
+      kitchen: !READY_DRINKS.has(id),
     })),
     ingredients: INGREDIENT_GROUPS.flatMap(([group, rows]) =>
       rows.map(([id, name, unit, price]): Ingredient => ({

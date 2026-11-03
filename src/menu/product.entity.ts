@@ -43,4 +43,8 @@ export class Product {
 
   @Column({ default: true })
   active: boolean;
+
+  /** `false` — oshxona chekiga chiqmaydi (tayyor ichimlik: kola, suv — kassir o'zi beradi; choy, qahva — chiqadi) */
+  @Column({ default: true })
+  kitchen: boolean;
 }
