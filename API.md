@@ -141,7 +141,7 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `self_action` | 403 | | O'zingizni bloklay olmaysiz va o'z rolingizni o'zgartira olmaysiz | |
 | `recipe_required` | 400 | | Retseptga kamida bitta mahsulot qo'shing | |
 | `phone_required` | 400 | | Telefon raqamini kiriting | mobil: telefonda 9 tadan kam raqam |
-| `address_required` | 400 | | Yetkazib berish manzilini kiriting | mobil dostavkada `online.address` bo'sh |
+| `address_required` | 400 | | Yetkazib berish manzilini kiriting | mobil dostavkada `online.address` ham, `online.location` ham yo'q |
 | `zone_too_small` | 400 | | Hudud kamida 3 ta nuqtadan iborat bo'lishi kerak | |
 | `invalid_location` | 400 | | Xaritadagi nuqta noto'g'ri | \|lat\| > 90 yoki \|lng\| > 180 |
 | `forbidden` | 403 | | Bu amal sizning rolingiz uchun emas | rol mos emas; boshqa filial buyurtmasi; admin yoki kuryer PIN yo'lida (`/auth/login`, `/auth/unlock`, `/auth/pin`) |
@@ -413,7 +413,7 @@ Tekshiruvlar (shu tartibda; birinchi xato qaytadi):
 | 2 | `items` bo'sh | `400 empty_order` |
 | 3 | `type = dine_in` | `409 invalid_status` |
 | 4 | telefonda 9 tadan kam raqam (faqat raqamlar sanaladi) | `400 phone_required` |
-| 5 | dostavkada `address` bo'sh | `400 address_required` |
+| 5 | dostavkada `address` bo'sh va `location` yo'q (xaritadan joy tanlangan bo'lsa manzil matni ixtiyoriy) | `400 address_required` |
 | 6 | koordinata chegaradan tashqari (\|lat\| > 90, \|lng\| > 180) | `400 invalid_location` |
 | 7 | dostavka: `online.location` yo'q | `400 location_required` |
 | 7 | dostavka: ochiq filial yo'q | `409 branch_closed` |
@@ -557,7 +557,7 @@ interface OnlineInfo {            // faqat mobil buyurtmada
   platform: 'android' | 'ios'
   name: string
   phone: string
-  address: string                 // olib ketishda ""
+  address: string                 // olib ketishda ""; dostavkada ham "" bo'lishi mumkin (joy xaritadan tanlangan)
   payment: 'click' | 'cash'
   location: LatLng | null         // dostavkada doim bor
 }

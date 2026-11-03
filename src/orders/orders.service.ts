@@ -62,13 +62,16 @@ export interface OrdersSummary {
   pending: { count: number; amount: number };
 }
 
-/** Mobil buyurtma ma'lumotlari: telefon (kamida 9 raqam) va dostavkada manzil majburiy; zalda yeyish — yo'q. */
+/**
+ * Mobil buyurtma ma'lumotlari: telefon (kamida 9 raqam) majburiy; dostavkada manzil matni — faqat xaritadan joy
+ * (`location`) berilmagan bo'lsa; zalda yeyish — yo'q.
+ */
 function cleanOnline(type: OrderType, online: OnlineInfo): OnlineInfo {
   if (type === 'dine_in') fail('invalid_status', 'mobile dine_in');
   const phone = online.phone.trim();
   if (phone.replace(/\D/g, '').length < 9) fail('phone_required');
   const address = type === 'delivery' ? (online.address ?? '').trim() : '';
-  if (type === 'delivery' && !address) fail('address_required');
+  if (type === 'delivery' && !address && !online.location) fail('address_required');
   if (online.location && !isLatLng(online.location)) fail('invalid_location');
   const location = online.location ? roundLatLng(online.location) : null;
   return { platform: online.platform, name: online.name.trim(), phone, address, payment: online.payment, location };

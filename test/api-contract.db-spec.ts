@@ -145,8 +145,11 @@ describe('HTTP shartnomasi', () => {
       online: { platform: 'android', name: 'Aziz', phone: '+998 9', address: 'Uy', payment: 'cash', location: { lat: 41.28, lng: 69.2 } },
     };
     expect((await http().post('/api/mobile/orders').send(order).expect(400)).body.code).toBe('phone_required');
-    const noAddress = { ...order, online: { ...order.online, phone: '+998 90 123 45 67', address: ' ' } };
+    // manzil matni — faqat xaritadan joy tanlanmagan bo'lsa majburiy
+    const noAddress = { ...order, online: { ...order.online, phone: '+998 90 123 45 67', address: ' ', location: null } };
     expect((await http().post('/api/mobile/orders').send(noAddress).expect(400)).body.code).toBe('address_required');
+    const pinOnly = { ...order, online: { ...order.online, phone: '+998 90 123 45 67', address: ' ' } };
+    expect((await http().post('/api/mobile/orders').send(pinOnly).expect(409)).body.code).toBe('branch_closed');
     const valid = { ...order, online: { ...order.online, phone: '+998 90 123 45 67' } };
     expect((await http().post('/api/mobile/orders').send(valid).expect(409)).body.code).toBe('branch_closed');
   });

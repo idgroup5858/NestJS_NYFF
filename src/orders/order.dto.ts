@@ -121,7 +121,7 @@ export class OnlineInfoDto {
   @MaxLength(30)
   phone: string;
 
-  /** uy, xonadon, mo'ljal — matn (dostavkada majburiy) */
+  /** uy, xonadon, mo'ljal — matn (dostavkada `location` bo'lmasa majburiy) */
   @IsOptional()
   @IsString()
   @MaxLength(300)

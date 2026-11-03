@@ -549,7 +549,7 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       shift = await shifts.openOrResume('usr_cashier_c1', C, now);
     });
 
-    it("kassir qabul qilguncha kutadi; telefon / manzil majburiy; qabulda mijoz tanlagan to'lov yoziladi", async () => {
+    it("kassir qabul qilguncha kutadi; telefon majburiy, manzil — joy tanlanmagan bo'lsa; qabulda mijoz tanlagan to'lov yoziladi", async () => {
       const mince1 = await stockQty(WC, 'beef-mince');
       const { order } = await delivery();
       expect(order.status).toBe('pending');
@@ -558,7 +558,8 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       expect(await stockQty(WC, 'beef-mince')).toBe(mince1); // qabul qilinmaguncha omborga tegmaydi
 
       await expectCode('phone_required', () => delivery({ phone: '+998 9' }));
-      await expectCode('address_required', () => delivery({ address: '  ' }));
+      // xaritadan joy yo'q — manzil matni majburiy (joy bo'lsa ixtiyoriy — testning oxirida)
+      await expectCode('address_required', () => delivery({ address: '  ', location: null }));
       await expectCode('invalid_status', () =>
         orders.createByMobile({ type: 'dine_in', branchId: C, items, online }, now),
       );
@@ -600,6 +601,12 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       expect((await orders.active(C)).map((o) => o.id).sort()).toEqual(
         [order.id, pickup.id, kiosk.id].sort(),
       );
+
+      // xaritadan joy tanlangan — manzil matnisiz ham qabul qilinadi
+      const pinOnly = (await delivery({ address: '  ' })).order;
+      expect(pinOnly.status).toBe('pending');
+      expect(pinOnly.online?.address).toBe('');
+      expect(pinOnly.online?.location).toEqual(IN_CHILONZOR);
     });
   });
 });
