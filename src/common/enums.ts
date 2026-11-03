@@ -15,6 +15,14 @@ export function roleNeedsBranch(role: Role): boolean {
   return role === 'cashier' || role === 'kitchen';
 }
 
+/**
+ * Admin (web, `/admin`) va kuryer (mobil ilova) — email va parol bilan kiradi, PIN'i yo'q; ismlari ochiq kirish
+ * ro'yxatida chiqmaydi. Qolganlar (kassir, oshpaz yordamchisi, ta'minotchi) — ro'yxatdan ism + PIN.
+ */
+export function usesPassword(role: Role): boolean {
+  return role === 'admin' || role === 'courier';
+}
+
 export const WAREHOUSE_KINDS = ['central', 'branch'] as const;
 export type WarehouseKind = (typeof WAREHOUSE_KINDS)[number];
 

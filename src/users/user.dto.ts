@@ -2,13 +2,18 @@ import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validato
 import { ROLES, type Role } from '../common/enums';
 
 /**
- * Admin xodim qo'shadi / tahrirlaydi. Kuryer — `login` va `password` bilan (PIN'siz), boshqalar — `pin` bilan.
+ * Admin xodim qo'shadi / tahrirlaydi. Admin va kuryer — `email` va `password` bilan (PIN'siz), boshqalar — `pin` bilan.
  * Tahrirda `pin` / `password` bo'sh qoldirilsa — eskisi qoladi.
  */
 export class SaveUserDto {
   @IsString()
   @MaxLength(100)
   name: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  surname?: string;
 
   @IsIn(ROLES)
   role: Role;
@@ -25,8 +30,8 @@ export class SaveUserDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(40)
-  login?: string;
+  @MaxLength(100)
+  email?: string;
 
   @IsOptional()
   @IsString()

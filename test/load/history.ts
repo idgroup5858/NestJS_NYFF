@@ -8,8 +8,8 @@ import { DataSource } from 'typeorm';
 import { AppModule } from '../../src/app.module';
 import { hashPin } from '../../src/auth/pin';
 import { newId } from '../../src/common/ids';
-import { DemoService } from '../../src/demo/demo.service';
-import { ZONE_POINTS } from '../../src/demo/demo-data';
+import { seedDemo } from '../fixtures/demo';
+import { ZONE_POINTS } from '../fixtures/demo-data';
 
 export interface HistoryOptions {
   days: number;
@@ -21,8 +21,9 @@ export interface HistoryOptions {
 export const EXTRA_COURIERS = Array.from({ length: 6 }, (_, i) => ({
   id: `usr_courier_load_${i + 3}`,
   name: `Kuryer ${i + 3}`,
-  login: `kuryer${i + 3}`,
-  password: '123456',
+  surname: 'Yuk',
+  email: `kuryer${i + 3}@gmail.com`,
+  password: '12345678',
 }));
 
 interface ProductRow {
@@ -97,13 +98,13 @@ export async function prepareDatabase({ days, perDay, log }: HistoryOptions): Pr
     }
 
     log("Demo ma'lumotnomalari (menyu, ombor, xodimlar)…");
-    await app.get(DemoService).reset({ activity: false });
+    await seedDemo(app, { activity: false });
     const createdAt = new Date();
     for (const courier of EXTRA_COURIERS) {
       await ds.query(
-        `INSERT INTO users (id, name, role, "branchId", login, "pinHash", "failedPinAttempts", "pinLockedUntil", active, "onDuty", "createdAt")
-         VALUES ($1, $2, 'courier', NULL, $3, $4, 0, NULL, true, false, $5)`,
-        [courier.id, courier.name, courier.login, await hashPin(courier.password), createdAt],
+        `INSERT INTO users (id, name, surname, role, "branchId", email, "pinHash", "failedPinAttempts", "pinLockedUntil", active, "onDuty", "createdAt")
+         VALUES ($1, $2, $3, 'courier', NULL, $4, $5, 0, NULL, true, false, $6)`,
+        [courier.id, courier.name, courier.surname, courier.email, await hashPin(courier.password), createdAt],
       );
     }
 

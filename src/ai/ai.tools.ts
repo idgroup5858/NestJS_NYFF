@@ -24,7 +24,7 @@ import { OrdersService } from '../orders/orders.service';
 import { ReportsService, type DayPoint } from '../reports/reports.service';
 import { Shift } from '../shifts/shift.entity';
 import { ShiftsService } from '../shifts/shifts.service';
-import { User } from '../users/user.entity';
+import { fullName, User } from '../users/user.entity';
 import { Ingredient } from '../warehouse/ingredient.entity';
 import { Purchase } from '../warehouse/purchase.entity';
 import { StockItem } from '../warehouse/stock-item.entity';
@@ -209,8 +209,11 @@ export class AiTools {
   private async userNames(ids: (string | null)[]): Promise<Map<string, string>> {
     const unique = [...new Set(ids.filter((id): id is string => !!id))];
     if (unique.length === 0) return new Map();
-    const rows = await this.dataSource.manager.find(User, { where: { id: In(unique) }, select: { id: true, name: true } });
-    return new Map(rows.map((u) => [u.id, u.name]));
+    const rows = await this.dataSource.manager.find(User, {
+      where: { id: In(unique) },
+      select: { id: true, name: true, surname: true },
+    });
+    return new Map(rows.map((u) => [u.id, fullName(u)]));
   }
 
   /** Filial id'si mavjudligi — model noto'g'ri id bersa, to'g'rilari ro'yxati bilan xato. */

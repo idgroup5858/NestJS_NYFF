@@ -8,7 +8,7 @@ import type { AuthUser } from '../src/auth/auth.types';
 import { BranchesService } from '../src/branches/branches.service';
 import type { LatLng } from '../src/common/types';
 import { CourierService } from '../src/courier/courier.service';
-import { DemoService } from '../src/demo/demo.service';
+import { seedDemo } from './fixtures/demo';
 import { planRoute } from '../src/domain/courier-route';
 import { Order } from '../src/orders/order.entity';
 import { customerOrderView } from '../src/orders/order.views';
@@ -48,7 +48,6 @@ const kitchenOf: Record<string, AuthUser> = {
 describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
   let app: INestApplication;
   let em: EntityManager;
-  let demo: DemoService;
   let orders: OrdersService;
   let courier: CourierService;
   let branches: BranchesService;
@@ -58,7 +57,6 @@ describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
   beforeAll(async () => {
     app = await createTestApp();
     em = app.get(DataSource).manager;
-    demo = app.get(DemoService);
     orders = app.get(OrdersService);
     courier = app.get(CourierService);
     branches = app.get(BranchesService);
@@ -69,7 +67,7 @@ describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
   afterAll(() => app.close());
 
   beforeEach(async () => {
-    await demo.reset({ activity: true }, now);
+    await seedDemo(app, { activity: true }, now);
     await courier.setDuty(bobur, true);
     await courier.setDuty(otabek, true);
   });
@@ -268,28 +266,31 @@ describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
     expect(await orders.deliveries(C, later(13 * 60))).toEqual([]);
   });
 
-  it("admin: kuryer — login (kichik harfda, takrorlanmaydi) va parol; bo'sh parol eskisini qoldiradi; rol almashsa yangisi majburiy", async () => {
+  it("admin: kuryer — email (kichik harfda, takrorlanmaydi) va parol; bo'sh parol eskisini qoldiradi; rol almashsa yangisi majburiy", async () => {
     const save = (input: Parameters<UsersService['save']>[0]) => users.save(input, 'usr_admin', now);
-    const base = { name: 'Sanjar', role: 'courier' as const, branchId: null, active: true };
-    await expectCode('invalid_login', () => save({ ...base, login: 'sa', password: 'secret1' }));
-    await expectCode('invalid_login', () => save({ ...base, login: 'san jar', password: 'secret1' }));
-    await expectCode('invalid_password', () => save({ ...base, login: 'sanjar', password: '12345' }));
-    await expectCode('login_taken', () => save({ ...base, login: 'BOBUR', password: 'secret1' }));
+    const base = { name: 'Sanjar', surname: 'Komilov', role: 'courier' as const, branchId: null, active: true };
+    await expectCode('invalid_email', () => save({ ...base, email: 'sanjar', password: 'secret12' }));
+    await expectCode('invalid_email', () => save({ ...base, email: 'san jar@gmail.com', password: 'secret12' }));
+    await expectCode('invalid_password', () => save({ ...base, email: 'sanjar@gmail.com', password: '1234567' }));
+    await expectCode('email_taken', () => save({ ...base, email: 'BOBUR@gmail.com', password: 'secret12' }));
+    await expectCode('surname_required', () => save({ ...base, surname: '  ', email: 'sanjar@gmail.com', password: 'secret12' }));
 
-    const sanjar = await save({ ...base, login: ' Sanjar.K ', password: 'secret1' });
-    expect(sanjar).toMatchObject({ login: 'sanjar.k', branchId: null });
-    expect((await auth.courierLogin('sanjar.k', 'secret1', now)).user.id).toBe(sanjar.id);
-    await save({ ...base, id: sanjar.id, name: 'Sanjar K.', login: 'sanjar.k', password: '' });
-    expect((await auth.courierLogin('SANJAR.K', 'secret1', now)).user.name).toBe('Sanjar K.');
+    const sanjar = await save({ ...base, email: ' Sanjar.K@Gmail.com ', password: 'secret12' });
+    expect(sanjar).toMatchObject({ email: 'sanjar.k@gmail.com', surname: 'Komilov', branchId: null });
+    expect((await auth.passwordLogin('courier', 'sanjar.k@gmail.com', 'secret12', now)).user.id).toBe(sanjar.id);
+    await save({ ...base, id: sanjar.id, name: 'Sanjar K.', email: 'sanjar.k@gmail.com', password: '' });
+    expect((await auth.passwordLogin('courier', 'SANJAR.K@gmail.com', 'secret12', now)).user.name).toBe('Sanjar K.');
+    // admin kirishi orqali kuryer kira olmaydi
+    await expectCode('wrong_login', () => auth.passwordLogin('admin', 'sanjar.k@gmail.com', 'secret12', now));
 
-    // kassir → kuryer: parolsiz bo'lmaydi; kuryer → kassir: PIN'siz bo'lmaydi, login tozalanadi
+    // kassir → kuryer: parolsiz bo'lmaydi; kuryer → kassir: PIN'siz bo'lmaydi, email tozalanadi
     await expectCode('invalid_password', () =>
-      save({ id: 'usr_cashier_c2', name: 'Sardor', role: 'courier', branchId: null, login: 'sardor', active: true }),
+      save({ id: 'usr_cashier_c2', name: 'Sardor', surname: 'Aliyev', role: 'courier', branchId: null, email: 'sardor@gmail.com', active: true }),
     );
-    await expectCode('invalid_pin', () => save({ id: sanjar.id, name: 'Sanjar', role: 'cashier', branchId: C, pin: '', active: true }));
-    const cashier = await save({ id: sanjar.id, name: 'Sanjar', role: 'cashier', branchId: C, pin: '9876', active: true });
-    expect(cashier.login).toBeNull();
-    await expectCode('wrong_login', () => auth.courierLogin('sanjar.k', 'secret1', now));
+    await expectCode('invalid_pin', () => save({ ...base, id: sanjar.id, role: 'cashier', branchId: C, pin: '' }));
+    const cashier = await save({ ...base, id: sanjar.id, role: 'cashier', branchId: C, pin: '9876' });
+    expect(cashier.email).toBeNull();
+    await expectCode('wrong_login', () => auth.passwordLogin('courier', 'sanjar.k@gmail.com', 'secret12', now));
   });
 
   it("yo'lga chiqmasdan qaytarib berish; bekor qilingan buyurtma kuryer ro'yxatidan tushadi", async () => {
@@ -321,24 +322,29 @@ describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
 
     const login = async (userId: string, pin: string) =>
       (await request(app.getHttpServer()).post('/api/auth/login').send({ userId, pin }).expect(200)).body.token as string;
-    const courierLogin = (login: string, password: string) =>
-      request(app.getHttpServer()).post('/api/auth/courier-login').send({ login, password });
+    const courierLogin = (email: string, password: string) =>
+      request(app.getHttpServer()).post('/api/auth/courier-login').send({ email, password });
 
-    it("kuryer kirishi: login va parol (katta-kichik harf farqsiz); ismlari ochiq ro'yxatda yo'q; PIN kirishi — yo'q", async () => {
+    it("kuryer kirishi: email va parol (katta-kichik harf farqsiz); ismlari ochiq ro'yxatda yo'q; PIN kirishi — yo'q", async () => {
       const couriers = await request(app.getHttpServer()).get('/api/auth/staff?role=courier').expect(200);
       expect(couriers.body).toEqual([]);
       const all = await request(app.getHttpServer()).get('/api/auth/staff').expect(200);
       expect(all.body.some((u: { role: string }) => u.role === 'courier')).toBe(false);
 
-      const ok = await courierLogin(' Bobur ', '222222').expect(200);
-      expect(ok.body).toMatchObject({ user: { id: 'usr_courier_1', role: 'courier', branchId: null }, shift: null });
+      const ok = await courierLogin(' Bobur@Gmail.com ', 'bobur2222').expect(200);
+      expect(ok.body).toMatchObject({
+        user: { id: 'usr_courier_1', name: 'Bobur', surname: 'Ergashev', role: 'courier', branchId: null, email: 'bobur@gmail.com' },
+        shift: null,
+      });
       expect(typeof ok.body.token).toBe('string');
-      expect((await courierLogin('bobur', '333333').expect(401)).body.code).toBe('wrong_login');
-      // yo'q login — xuddi shu javob (qaysi login borligi bilinmasin)
-      expect((await courierLogin('nobody', '222222').expect(401)).body.code).toBe('wrong_login');
-      // kuryer PIN ekrani orqali kira olmaydi; kassir login bilan — yo'q
-      await request(app.getHttpServer()).post('/api/auth/login').send({ userId: 'usr_courier_1', pin: '222222' }).expect(403);
-      expect((await courierLogin('dilnoza', '1234').expect(401)).body.code).toBe('wrong_login');
+      expect((await courierLogin('bobur@gmail.com', 'otabek3333').expect(401)).body.code).toBe('wrong_login');
+      // yo'q email — xuddi shu javob (qaysi email borligi bilinmasin)
+      expect((await courierLogin('nobody@gmail.com', 'bobur2222').expect(401)).body.code).toBe('wrong_login');
+      // kuryer PIN ekrani orqali kira olmaydi (paroli to'g'ri bo'lsa ham)
+      await request(app.getHttpServer()).post('/api/auth/login').send({ userId: 'usr_courier_1', pin: 'bobur2222' }).expect(400);
+      await request(app.getHttpServer()).post('/api/auth/login').send({ userId: 'usr_courier_1', pin: '22222222' }).expect(403);
+      // admin emaili kuryer kirishida — yo'q
+      expect((await courierLogin('admin@gmail.com', '123456789').expect(401)).body.code).toBe('wrong_login');
     });
 
     it("faqat kuryer: /courier/* — kassirga 403; kuryer — filialsiz", async () => {
@@ -347,16 +353,16 @@ describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
       // kassaning "Dostavka" ro'yxati — kassirga o'z filiali, kuryerga yo'q
       const own = await request(app.getHttpServer()).get('/api/orders/delivery').set('Authorization', `Bearer ${cashier}`).expect(200);
       expect(Array.isArray(own.body)).toBe(true);
-      // kuryerlar va holati kassirga — himoyalangan ro'yxatdan (login, parol xeshi yo'q)
+      // kuryerlar va holati kassirga — himoyalangan ro'yxatdan (email, parol xeshi yo'q)
       const names = await request(app.getHttpServer()).get('/api/users/couriers').set('Authorization', `Bearer ${cashier}`).expect(200);
-      expect(names.body.map((c: { id: string; name: string }) => [c.id, c.name])).toEqual([
-        ['usr_courier_1', 'Bobur'],
-        ['usr_courier_2', 'Otabek'],
+      expect(names.body.map((c: { id: string; name: string; surname: string }) => [c.id, c.name, c.surname])).toEqual([
+        ['usr_courier_1', 'Bobur', 'Ergashev'],
+        ['usr_courier_2', 'Otabek', 'Saidov'],
       ]);
-      expect(Object.keys(names.body[0]).sort()).toEqual(['active', 'branchId', 'departed', 'id', 'name', 'onDuty', 'orders']);
+      expect(Object.keys(names.body[0]).sort()).toEqual(['active', 'branchId', 'departed', 'id', 'name', 'onDuty', 'orders', 'surname']);
       expect(names.body[0]).toMatchObject({ active: true, onDuty: true, orders: 0, branchId: null, departed: false });
 
-      const token = (await courierLogin('bobur', '222222').expect(200)).body.token as string;
+      const token = (await courierLogin('bobur@gmail.com', 'bobur2222').expect(200)).body.token as string;
       await request(app.getHttpServer()).get('/api/orders/delivery').set('Authorization', `Bearer ${token}`).expect(403);
       await request(app.getHttpServer()).get('/api/users/couriers').set('Authorization', `Bearer ${token}`).expect(403);
       const me =await request(app.getHttpServer()).get('/api/courier/me').set('Authorization', `Bearer ${token}`).expect(200);
@@ -375,7 +381,7 @@ describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
     });
 
     it("socket: kuryer `couriers` va o'z xonasiga ulanadi; olinganda xabar keladi", async () => {
-      const token = (await courierLogin('bobur', '222222').expect(200)).body.token as string;
+      const token = (await courierLogin('bobur@gmail.com', 'bobur2222').expect(200)).body.token as string;
       const socket = io(url, { auth: { token }, transports: ['websocket'], reconnection: false });
       sockets.push(socket);
       const rooms = await new Promise<string[]>((resolve) => socket.on('ready', (data: { rooms: string[] }) => resolve(data.rooms)));

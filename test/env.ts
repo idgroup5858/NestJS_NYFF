@@ -11,7 +11,6 @@ process.env.DB_NAME = process.env.TEST_DB_NAME || 'nyff_test';
 // fon ishlari (5 daqiqalik qabul muddati) testda qo'lda chaqiriladi — o'tgan sanadagi buyurtmalarga tegmasin
 process.env.JOBS = 'off';
 process.env.THROTTLE = 'off';
-process.env.DEMO = '0';
 // kassa socket sharti alohida testda yoqiladi
 process.env.ONLINE_REQUIRE_KASSA = '0';
 // haqiqiy Gemini va Telegram'ga so'rov ketmasin — AI testlari ularning soxtasini qo'yadi

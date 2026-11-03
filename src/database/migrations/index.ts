@@ -7,6 +7,8 @@ import { AiAssistant1793257582836 } from './1793257582836-AiAssistant';
 import { ClearAiHistory1793265000000 } from './1793265000000-ClearAiHistory';
 import { ReadyAtIndex1793595275423 } from './1793595275423-ReadyAtIndex';
 import { CourierHistoryIndex1793600556217 } from './1793600556217-CourierHistoryIndex';
+import { StaffEmailSurname1793630906349 } from './1793630906349-StaffEmailSurname';
+import { OrderSyncedAt1793720000000 } from './1793720000000-OrderSyncedAt';
 
 /** Barcha migratsiyalar tartib bilan. Yangisi `npm run migration:generate -- src/database/migrations/<Nom>` dan keyin shu yerga. */
 export const MIGRATIONS: Function[] = [
@@ -19,4 +21,6 @@ export const MIGRATIONS: Function[] = [
   ClearAiHistory1793265000000,
   ReadyAtIndex1793595275423,
   CourierHistoryIndex1793600556217,
+  StaffEmailSurname1793630906349,
+  OrderSyncedAt1793720000000,
 ];

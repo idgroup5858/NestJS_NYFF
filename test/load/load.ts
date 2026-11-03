@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Client } from 'pg';
 import { dbConnectionFromEnv } from '../../src/database/db-config';
-import { ZONE_POINTS } from '../../src/demo/demo-data';
+import { ZONE_POINTS } from '../fixtures/demo-data';
 import { prepareDatabase } from './history';
 import { DEMO_STAFF, Simulation, sleep, type LabelStats } from './sim';
 
@@ -165,7 +165,9 @@ async function main() {
       await pg.query('ANALYZE orders');
       sim.metrics.take();
       for (const probe of sim.probes()) {
-        for (let i = 0; i < (QUICK ? 15 : 40); i++) await sim.api.request(probe.label, 'GET', probe.path, { token: probe.token });
+        for (let i = 0; i < (QUICK ? 15 : 40); i++) {
+          await sim.api.request(probe.label, 'GET', probe.path, { token: probe.token, headers: probe.headers });
+        }
       }
       const stats = sim.metrics.take();
       indexCompare.push({ variant, stats });

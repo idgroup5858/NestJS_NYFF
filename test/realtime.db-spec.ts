@@ -10,6 +10,7 @@ import { Warehouse } from '../src/branches/warehouse.entity';
 import { Category } from '../src/menu/category.entity';
 import { Product } from '../src/menu/product.entity';
 import { OrdersService } from '../src/orders/orders.service';
+import { ScreenCodesService } from '../src/screens/screen-codes.service';
 import { User } from '../src/users/user.entity';
 import { UsersService } from '../src/users/users.service';
 import { Ingredient } from '../src/warehouse/ingredient.entity';
@@ -17,7 +18,8 @@ import { createTestApp, truncateAll } from './test-app';
 
 /**
  * Socket.IO va PINsiz kirish yo'llari (HTTP orqali, haqiqiy server): kassa ulanganmi → filial online holati, xonalar
- * (TV ga faqat raqam, mijozga xodim ma'lumotisiz), qurilma kaliti, mobil kuzatish tokeni, 5 daqiqalik qabul muddati.
+ * (TV ga — TV kodi bilan, faqat raqam; mijozga xodim ma'lumotisiz), mobil kuzatish tokeni, 5 daqiqalik qabul muddati.
+ * TV va kiosk kodlarining o'zi — `screen-codes.db-spec.ts`.
  */
 
 const B = 'br_rt';
@@ -132,6 +134,8 @@ describe('Socket.IO, qurilmalar va mobil buyurtma', () => {
 
   const http = () => request(app.getHttpServer());
   const login = async (userId: string) => (await http().post('/api/auth/login').send({ userId, pin: '1234' }).expect(200)).body;
+  /** Filial TV kodi (admin "Filiallar" → "TV kodi"). */
+  const tvCode = () => app.get(ScreenCodesService).get('tv', B);
 
   it('kassa ekrani ulanmaguncha filial "no_kassa", ulangach — "open"', async () => {
     const cashier = await login('usr_c');
@@ -145,16 +149,17 @@ describe('Socket.IO, qurilmalar va mobil buyurtma', () => {
     expect(await stateAt(later(61_000))).toBe('open');
   });
 
-  it("noto'g'ri kirish ma'lumoti yoki noma'lum filial TV si — auth_error", async () => {
+  it("noto'g'ri kirish ma'lumoti, noma'lum filial yoki kodsiz TV — auth_error", async () => {
     expect((await connect(url, { token: 'bad' })).rooms).toBeNull();
-    expect((await connect(url, { tvBranchId: 'br_none' })).rooms).toBeNull();
+    expect((await connect(url, { tvBranchId: 'br_none', tvCode: await tvCode() })).rooms).toBeNull();
+    expect((await connect(url, { tvBranchId: B })).rooms).toBeNull();
     expect((await connect(url, {})).rooms).toBeNull();
   });
 
   it('TV xonasiga faqat raqam / tur / holat; kassa xonasiga — to\'liq buyurtma', async () => {
     const cashier = await login('usr_c');
     const kitchen = await login('usr_k');
-    const tv = await connect(url, { tvBranchId: B });
+    const tv = await connect(url, { tvBranchId: B, tvCode: await tvCode() });
     sockets.push(tv.socket);
     expect(tv.rooms).toEqual([`tv:${B}`]);
     const staff = await connect(url, { token: kitchen.token });
@@ -180,16 +185,20 @@ describe('Socket.IO, qurilmalar va mobil buyurtma', () => {
     await http().post(`/api/orders/${created.body.id}/ready`).set('Authorization', `Bearer ${kitchen.token}`).expect(200);
     expect((await readyEvent).status).toBe('ready');
 
-    const queue = await http().get(`/api/tv/queue?branchId=${B}`).expect(200);
+    const queue = await http().get(`/api/tv/queue?branchId=${B}`).set('X-Tv-Code', await tvCode()).expect(200);
     expect(queue.body.ready.map((o: { id: string }) => o.id)).toEqual([created.body.id]);
   });
 
-  it("kiosk: PINsiz va kalitsiz, filial so'rovda; «kassada to'layman» — kassirni kutadi", async () => {
+  it("kiosk: PINsiz, kiosk kodi bilan, filial so'rovda; «kassada to'layman» — kassirni kutadi", async () => {
     const body = { branchId: B, type: 'takeaway', items: [{ productId: 'burger', qty: 1 }], payment: null };
-    const kiosk = await http().post('/api/kiosk/orders').send(body).expect(201);
+    const code = { 'X-Kiosk-Code': await app.get(ScreenCodesService).get('kiosk', B) };
+    const kiosk = await http().post('/api/kiosk/orders').set(code).send(body).expect(201);
     expect(kiosk.body).toMatchObject({ branchId: B, status: 'pending', payment: null });
     expect(kiosk.body.cashierId).toBeUndefined();
-    await http().post('/api/kiosk/orders').send({ ...body, branchId: 'br_none' }).expect(404);
+    // kod filialniki — boshqa (noma'lum) filial bilan ishlamaydi
+    expect((await http().post('/api/kiosk/orders').set(code).send({ ...body, branchId: 'br_none' }).expect(401)).body.code).toBe(
+      'wrong_kiosk_code',
+    );
   });
 
   it('mobil: filialni server tanlaydi, holat faqat token bilan, qabul qilinganda mijozga xabar', async () => {
@@ -278,7 +287,7 @@ describe('Socket.IO, qurilmalar va mobil buyurtma', () => {
     const staffKicked = kicked(staff.socket);
     await app
       .get(UsersService)
-      .save({ id: 'usr_k', name: 'Oshpaz yordamchisi', role: 'kitchen', branchId: B, pin: '', active: false }, 'usr_admin_test');
+      .save({ id: 'usr_k', name: 'Oshpaz', surname: 'Yordamchisi', role: 'kitchen', branchId: B, pin: '', active: false }, 'usr_admin_test');
     await staffKicked;
     await http().get('/api/orders/active').set('Authorization', `Bearer ${kitchen.token}`).expect(401);
   });

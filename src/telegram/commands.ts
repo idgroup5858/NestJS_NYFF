@@ -27,6 +27,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   { command: 'dostavka', description: 'Shu haftalik dostavka', question: 'Shu haftada dostavkadan qancha tushdi?' },
   { command: 'menyu', description: 'Menyu va narxlar', question: 'Menyuda qanday taomlar bor, narxi bilan?' },
   { command: 'new', description: 'Yangi suhbat', question: null },
+  { command: 'parol', description: 'Admin panel parolini tiklash', question: null },
 ];
 
 /** `/tushum`, `/tushum@bot_nomi` → buyruq; buyruq emas — `null`. */

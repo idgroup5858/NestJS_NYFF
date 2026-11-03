@@ -1,18 +1,17 @@
 /**
- * Demo ma'lumotnomalar — ReactJS_NYFF `src/data/seed.ts` dan ko'chirilgan (id'lar, nomlar, narxlar, retseptlar va
- * qoldiqlar aynan o'sha). Frontend demo bazasi bilan bir xil manzara chiqishi uchun shu yerda o'zgartirilsa, frontendda
- * ham o'zgartirilishi kerak.
+ * Testlar uchun sinov to'plami — ma'lumotnomalar (filiallar, xodimlar, menyu, ombor). Avval ilovaning "demo
+ * ma'lumoti" edi (ReactJS_NYFF `src/data/seed.ts` dan); 2026-11-02 dan ilovada demo yo'q — faqat testlarda.
  */
-import type { Branch } from '../branches/branch.entity';
-import type { Warehouse } from '../branches/warehouse.entity';
-import type { IngredientGroup, Role, StockUnit } from '../common/enums';
-import type { LatLng, LocalizedText } from '../common/types';
-import { toBase } from '../domain/units';
-import type { Category } from '../menu/category.entity';
-import type { Product } from '../menu/product.entity';
-import type { User } from '../users/user.entity';
-import type { Ingredient } from '../warehouse/ingredient.entity';
-import type { StockItem } from '../warehouse/stock-item.entity';
+import type { Branch } from '../../src/branches/branch.entity';
+import type { Warehouse } from '../../src/branches/warehouse.entity';
+import type { IngredientGroup, Role, StockUnit } from '../../src/common/enums';
+import type { LatLng, LocalizedText } from '../../src/common/types';
+import { toBase } from '../../src/domain/units';
+import type { Category } from '../../src/menu/category.entity';
+import type { Product } from '../../src/menu/product.entity';
+import type { User } from '../../src/users/user.entity';
+import type { Ingredient } from '../../src/warehouse/ingredient.entity';
+import type { StockItem } from '../../src/warehouse/stock-item.entity';
 
 const t = (uz: string, ru: string, en: string): LocalizedText => ({ uz, ru, en });
 
@@ -75,29 +74,33 @@ export const WAREHOUSES: Warehouse[] = [
   { id: 'wh_yunusobod', name: 'Yunusobod ombori', kind: 'branch', branchId: BRANCH_YUNUSOBOD },
 ];
 
-/** Demo xodim: PIN ochiq holda (bazaga faqat xeshi yoziladi). */
+/** Sinov xodimi: PIN yoki parol ochiq holda (bazaga faqat xeshi yoziladi). */
 export interface DemoUser {
   id: string;
   name: string;
+  surname: string;
   role: Role;
   branchId: string | null;
-  /** kuryerda — parol (login bilan), boshqalarda — PIN */
+  /** admin va kuryerda — parol (email bilan), boshqalarda — PIN */
   pin: string;
-  login?: string;
+  email?: string;
 }
 
+/** Sinov to'plamidagi admin — yangi bazadagi birinchi admin bilan bir xil email va parol. */
+export const ADMIN_LOGIN = { email: 'admin@gmail.com', password: '123456789' } as const;
+
 export const USERS: DemoUser[] = [
-  { id: 'usr_admin', name: 'Admin', role: 'admin', branchId: null, pin: '0000' },
-  { id: 'usr_supplier', name: 'Bekzod', role: 'supplier', branchId: null, pin: '5555' },
-  { id: 'usr_cashier_c1', name: 'Dilnoza', role: 'cashier', branchId: BRANCH_CHILONZOR, pin: '1234' },
-  { id: 'usr_cashier_c2', name: 'Sardor', role: 'cashier', branchId: BRANCH_CHILONZOR, pin: '4321' },
-  { id: 'usr_cashier_y1', name: 'Malika', role: 'cashier', branchId: BRANCH_YUNUSOBOD, pin: '1234' },
-  { id: 'usr_cashier_y2', name: 'Jasur', role: 'cashier', branchId: BRANCH_YUNUSOBOD, pin: '4321' },
-  { id: 'usr_kitchen_c1', name: 'Aziz', role: 'kitchen', branchId: BRANCH_CHILONZOR, pin: '1111' },
-  { id: 'usr_kitchen_y1', name: 'Kamola', role: 'kitchen', branchId: BRANCH_YUNUSOBOD, pin: '1111' },
-  // kuryerlar filialga bog'lanmaydi — istalgan filialdan oladi (bir vaqtda bittasidan); kirish — login va parol
-  { id: 'usr_courier_1', name: 'Bobur', role: 'courier', branchId: null, login: 'bobur', pin: '222222' },
-  { id: 'usr_courier_2', name: 'Otabek', role: 'courier', branchId: null, login: 'otabek', pin: '333333' },
+  { id: 'usr_admin', name: 'Admin', surname: 'Adminov', role: 'admin', branchId: null, email: ADMIN_LOGIN.email, pin: ADMIN_LOGIN.password },
+  { id: 'usr_supplier', name: 'Bekzod', surname: 'Rahimov', role: 'supplier', branchId: null, pin: '5555' },
+  { id: 'usr_cashier_c1', name: 'Dilnoza', surname: 'Karimova', role: 'cashier', branchId: BRANCH_CHILONZOR, pin: '1234' },
+  { id: 'usr_cashier_c2', name: 'Sardor', surname: 'Aliyev', role: 'cashier', branchId: BRANCH_CHILONZOR, pin: '4321' },
+  { id: 'usr_cashier_y1', name: 'Malika', surname: 'Yusupova', role: 'cashier', branchId: BRANCH_YUNUSOBOD, pin: '1234' },
+  { id: 'usr_cashier_y2', name: 'Jasur', surname: 'Tursunov', role: 'cashier', branchId: BRANCH_YUNUSOBOD, pin: '4321' },
+  { id: 'usr_kitchen_c1', name: 'Aziz', surname: 'Qodirov', role: 'kitchen', branchId: BRANCH_CHILONZOR, pin: '1111' },
+  { id: 'usr_kitchen_y1', name: 'Kamola', surname: 'Nazarova', role: 'kitchen', branchId: BRANCH_YUNUSOBOD, pin: '1111' },
+  // kuryerlar filialga bog'lanmaydi — istalgan filialdan oladi (bir vaqtda bittasidan); kirish — email va parol
+  { id: 'usr_courier_1', name: 'Bobur', surname: 'Ergashev', role: 'courier', branchId: null, email: 'bobur@gmail.com', pin: 'bobur2222' },
+  { id: 'usr_courier_2', name: 'Otabek', surname: 'Saidov', role: 'courier', branchId: null, email: 'otabek@gmail.com', pin: 'otabek3333' },
 ];
 
 
@@ -378,7 +381,7 @@ export function buildBase(now: Date): DemoBase {
       workHours: null,
     })),
     warehouses: WAREHOUSES.map((warehouse) => ({ ...warehouse })),
-    users: USERS.map((user) => ({ ...user, login: user.login ?? null, active: true, onDuty: false, createdAt })),
+    users: USERS.map((user) => ({ ...user, email: user.email ?? null, active: true, onDuty: false, createdAt })),
     categories: CATEGORIES.map(([id, name], index) => ({
       id,
       name,

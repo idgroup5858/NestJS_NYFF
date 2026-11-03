@@ -13,7 +13,7 @@ import { fail } from '../common/errors';
 import { Order } from '../orders/order.entity';
 import { Shift } from '../shifts/shift.entity';
 import { shiftSummaries, type ShiftSummary } from '../shifts/shift-summary';
-import { User } from '../users/user.entity';
+import { fullName, User } from '../users/user.entity';
 import { dateTime, som } from './format';
 
 /** Hisobotda eng ko'p sotilgan nechta taom ko'rsatiladi. */
@@ -85,8 +85,8 @@ export async function loadShiftReport(
 
   return {
     branchName: branch?.name ?? shift.branchId,
-    cashierName: cashier?.name ?? shift.cashierId,
-    closedByName: closedBy && closedBy.id !== shift.cashierId ? closedBy.name : null,
+    cashierName: cashier ? fullName(cashier) : shift.cashierId,
+    closedByName: closedBy && closedBy.id !== shift.cashierId ? fullName(closedBy) : null,
     openedAt: shift.openedAt,
     closedAt: shift.closedAt ?? new Date(),
     summary: summaries.get(shiftId)!,

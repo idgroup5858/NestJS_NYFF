@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { Public, Roles } from '../auth/decorators';
 import { RouteQuery, SaveBranchDto, SaveDeliveryDto, SetOnlineDto } from './branch.dto';
 import { BranchesService } from './branches.service';
@@ -30,6 +30,14 @@ export class BranchesController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: SaveBranchDto) {
     return this.branches.update(id, dto);
+  }
+
+  /** Faqat hech qayerda ishlatilmagan filial (aks holda `in_use` — faolsizlantiring); ombori ham o'chadi. */
+  @Roles('admin')
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Param('id') id: string) {
+    await this.branches.remove(id);
   }
 
   @Roles('admin')

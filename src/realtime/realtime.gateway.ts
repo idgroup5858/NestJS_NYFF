@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { HttpException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   OnGatewayConnection,
@@ -16,6 +16,7 @@ import { Revocations } from '../common/revocations';
 import { showsOnTv } from '../domain/orders';
 import { Order } from '../orders/order.entity';
 import { courierOrderView, courierSignal, customerOrderView, orderView, tvOrderView } from '../orders/order.views';
+import { ScreenCodesService } from '../screens/screen-codes.service';
 import { PresenceService } from './presence.service';
 
 /** Xonalar filial bo'yicha — bir filial voqeasi boshqasiga bormaydi. */
@@ -30,8 +31,9 @@ export const courierRoom = (userId: string) => `courier:${userId}`;
  * Socket.IO — faqat serverdan ekranlarga "o'zgardi" xabari (buyruqlar REST orqali). Ulanishda `auth` bilan:
  *  - `{ token }` — kassir / oshpaz yordamchisi → `branch:<id>` (kassir ulanganda filial "kassa ulangan" bo'ladi);
  *    kuryer → `couriers` (mobil dostavka o'zgardi — belgi) va `courier:<userId>` (o'z buyurtmalari to'liq);
- *  - `{ tvBranchId }` — TV (ochiq, kalitsiz) → `tv:<id>` (faqat raqam, tur va holat);
+ *  - `{ tvBranchId, tvCode }` — TV (filial TV kodi bilan) → `tv:<id>` (faqat raqam, tur va holat);
  *  - `{ orderId, orderToken }` — mobil ilova → `order:<id>` (o'z buyurtmasi).
+ * Rad etilsa — `auth_error { code }`: `unauthorized`; TV da `wrong_tv_code` (kod noto'g'ri yoki admin yangiladi).
  * Qayta ulanganda mijoz ro'yxatni REST'dan qaytadan oladi (uzilish paytidagi xabarlar yo'qolgan bo'lishi mumkin).
  */
 @WebSocketGateway({ cors: { origin: true }, pingInterval: 10_000, pingTimeout: 10_000 })
@@ -46,15 +48,28 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly presence: PresenceService,
     @InjectRepository(Order) private readonly orders: Repository<Order>,
     @InjectRepository(Branch) private readonly branches: Repository<Branch>,
+    private readonly screenCodes: ScreenCodesService,
     revocations: Revocations,
   ) {
     revocations.onUser((userId) => this.disconnectWhere((socket) => socket.data.user?.id === userId));
+    // TV kodi yangilandi — eski kod bilan ulanganlar uziladi, TV yangi kodni so'raydi (kioskda socket yo'q)
+    revocations.onScreenCode((kind, branchId) => {
+      if (kind === 'tv') this.disconnectWhere((socket) => socket.data.tvBranchId === branchId, 'wrong_tv_code');
+    });
   }
 
   async handleConnection(client: Socket) {
-    const rooms = await this.authorize(client).catch(() => null);
+    let rooms: string[] | null = null;
+    let code = 'unauthorized';
+    try {
+      rooms = await this.authorize(client);
+    } catch (error) {
+      // TV kodi noto'g'ri: `wrong_tv_code` — TV kodni qayta so'rasin
+      const response = error instanceof HttpException ? (error.getResponse() as { code?: string }) : null;
+      if (response?.code) code = response.code;
+    }
     if (!rooms) {
-      client.emit('auth_error', { code: 'unauthorized' });
+      client.emit('auth_error', { code });
       client.disconnect(true);
       return;
     }
@@ -84,10 +99,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   /** Huquqi bekor bo'lgan ulanishlar: `auth_error` va uzish (kassir bo'lsa — "kassa ulangan" ham tushadi). */
-  private disconnectWhere(match: (socket: Socket) => boolean) {
+  private disconnectWhere(match: (socket: Socket) => boolean, code = 'unauthorized') {
     for (const socket of this.server?.sockets.sockets.values() ?? []) {
       if (!match(socket)) continue;
-      socket.emit('auth_error', { code: 'unauthorized' });
+      socket.emit('auth_error', { code });
       socket.disconnect(true);
     }
   }
@@ -108,8 +123,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
 
     if (typeof auth.tvBranchId === 'string') {
+      const code = typeof auth.tvCode === 'string' ? auth.tvCode : undefined;
+      // noto'g'ri kod — xato (kodi bilan `auth_error`)
+      await this.screenCodes.assert('tv', auth.tvBranchId, code);
       const branch = await this.branches.findOneBy({ id: auth.tvBranchId });
-      return branch?.active ? [tvRoom(branch.id)] : null;
+      if (!branch?.active) return null;
+      client.data.tvBranchId = branch.id;
+      return [tvRoom(branch.id)];
     }
 
     if (typeof auth.orderId === 'string' && typeof auth.orderToken === 'string') {

@@ -10,7 +10,6 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
-    "seed": "ts-node src/demo/seed.cli.ts",
     "test": "jest",
     "test:db": "jest --config test/jest-db.json --runInBand",
     "load": "nest build && ts-node --transpile-only test/load/load.ts",

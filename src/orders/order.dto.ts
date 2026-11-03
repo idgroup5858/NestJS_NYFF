@@ -8,6 +8,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
@@ -26,6 +27,7 @@ import {
   type PaymentMethod,
 } from '../common/enums';
 import { LatLngDto } from '../common/geo.dto';
+import { ORDER_ID_PATTERN } from '../common/ids';
 import { PageQuery } from '../common/pagination';
 
 /**
@@ -71,6 +73,14 @@ class OrderBaseDto {
 
 /** Kassir buyurtmasi: filial va kassir — tokendan, to'lov majburiy. */
 export class CreateOrderDto extends OrderBaseDto {
+  /**
+   * Kassa o'zi bergan id (`ord_` + 16 ta hex): javob kelmay qolsa (internet uzildi) shu id bilan qayta yuborilgan
+   * buyurtma ikkinchi marta yozilmaydi — birinchisi qaytadi. Berilmasa — server o'zi beradi.
+   */
+  @IsOptional()
+  @Matches(ORDER_ID_PATTERN)
+  id?: string;
+
   @IsIn(ORDER_TYPES)
   type: OrderType;
 

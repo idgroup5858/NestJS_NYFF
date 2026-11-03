@@ -3,7 +3,7 @@ import { DataSource, EntityManager, IsNull } from 'typeorm';
 import type { SaveDeliveryDto, WorkHoursDto } from '../src/branches/branch.dto';
 import { BranchesService } from '../src/branches/branches.service';
 import type { LatLng } from '../src/common/types';
-import { DemoService } from '../src/demo/demo.service';
+import { seedDemo } from './fixtures/demo';
 import { Order } from '../src/orders/order.entity';
 import { OrdersService } from '../src/orders/orders.service';
 import { Shift } from '../src/shifts/shift.entity';
@@ -42,7 +42,6 @@ const online = {
 describe('online buyurtma: filial tanlash, ish vaqti, qabul muddati', () => {
   let app: INestApplication;
   let em: EntityManager;
-  let demo: DemoService;
   let branches: BranchesService;
   let orders: OrdersService;
   let shifts: ShiftsService;
@@ -50,7 +49,6 @@ describe('online buyurtma: filial tanlash, ish vaqti, qabul muddati', () => {
   beforeAll(async () => {
     app = await createTestApp();
     em = app.get(DataSource).manager;
-    demo = app.get(DemoService);
     branches = app.get(BranchesService);
     orders = app.get(OrdersService);
     shifts = app.get(ShiftsService);
@@ -83,7 +81,7 @@ describe('online buyurtma: filial tanlash, ish vaqti, qabul muddati', () => {
 
   describe("yetkazib berish: hudud → filial, yopiq bo'lsa zaxira, hududdan tashqarida — eng yaqin ochiq (jonli demo)", () => {
     // demo bazada ikkala filialda smena ochiq (kassa sharti testda o'chiq)
-    beforeEach(() => demo.reset({ activity: true }, now));
+    beforeEach(() => seedDemo(app, { activity: true }, now));
 
     it("hudud ichida — o'sha filial, hudud narxi bilan; hududdan tashqarida — eng yaqin, narxsiz", async () => {
       expect((await branches.findAll(now)).map((b) => [b.id, b.onlineState])).toEqual([
@@ -237,7 +235,7 @@ describe('online buyurtma: filial tanlash, ish vaqti, qabul muddati', () => {
     };
 
     beforeAll(async () => {
-      await demo.reset({ activity: false }, now);
+      await seedDemo(app, { activity: false }, now);
       await shifts.openOrResume('usr_cashier_c1', C, at('08:00'));
       await shifts.openOrResume('usr_cashier_y1', Y, at('08:00'));
     });
@@ -319,7 +317,7 @@ describe('online buyurtma: filial tanlash, ish vaqti, qabul muddati', () => {
     };
 
     beforeEach(async () => {
-      await demo.reset({ activity: true }, now);
+      await seedDemo(app, { activity: true }, now);
       // demodagi qabul kutayotgan mobil buyurtma (1 daqiqa oldin) hisob-kitobga aralashmasin
       const pending = await em.findBy(Order, { source: 'mobile', status: 'pending' });
       expect(pending).toHaveLength(1);
@@ -432,7 +430,7 @@ describe('online buyurtma: filial tanlash, ish vaqti, qabul muddati', () => {
   });
 
   describe('mobil buyurtma tekshiruvlari: createByMobile (jonli demo)', () => {
-    beforeAll(() => demo.reset({ activity: true }, now));
+    beforeAll(() => seedDemo(app, { activity: true }, now));
 
     it("dostavka: joylashuvsiz — location_required; filialni server tanlaydi, yuborilgan branchId e'tiborga olinmaydi", async () => {
       await expectCode('location_required', () =>

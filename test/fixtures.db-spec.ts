@@ -2,30 +2,30 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource, In } from 'typeorm';
 import { showsOnTv } from '../src/domain/orders';
-import { DemoService } from '../src/demo/demo.service';
 import { Expense } from '../src/expenses/expense.entity';
 import { Category } from '../src/menu/category.entity';
 import { Product } from '../src/menu/product.entity';
 import { Order } from '../src/orders/order.entity';
 import { Shift } from '../src/shifts/shift.entity';
+import { ScreenCodesService } from '../src/screens/screen-codes.service';
 import { User } from '../src/users/user.entity';
 import { Ingredient } from '../src/warehouse/ingredient.entity';
 import { Purchase } from '../src/warehouse/purchase.entity';
 import { Transfer } from '../src/warehouse/transfer.entity';
 import { WarehouseService } from '../src/warehouse/warehouse.service';
+import { seedDemo } from './fixtures/demo';
+import { ADMIN_LOGIN } from './fixtures/demo-data';
 import { createTestApp } from './test-app';
 
-/** Frontend `scripts/logic-smoke.ts` dagi demo baza tekshiruvlari — endi haqiqiy Postgres'da. */
-describe("demo ma'lumot", () => {
+/** Testlar tayanadigan sinov to'plami (`fixtures/demo`) butunmi — avval ilovaning demo ma'lumoti edi. */
+describe("sinov to'plami", () => {
   const now = new Date('2026-10-23T12:00:00');
   const C = 'br_chilonzor';
   let app: INestApplication;
-  let demo: DemoService;
   let ds: DataSource;
 
   beforeAll(async () => {
     app = await createTestApp();
-    demo = app.get(DemoService);
     ds = app.get(DataSource);
   });
 
@@ -35,7 +35,7 @@ describe("demo ma'lumot", () => {
     request(app.getHttpServer()).post('/api/auth/login').send({ userId, pin });
 
   it("faqat ma'lumotnomalar (createBaseDb): menyu butun, narxlar, ogohlantirishlar, xodimlar, qurilmalar", async () => {
-    await demo.reset({ activity: false }, now);
+    await seedDemo(app, { activity: false }, now);
     const em = ds.manager;
 
     const categories = new Set((await em.find(Category)).map((c) => c.id));
@@ -73,7 +73,7 @@ describe("demo ma'lumot", () => {
   });
 
   it('jonli demo (createSeedDb): tarix, bugungi buyurtmalar, hujjatlar, chiqimlar', async () => {
-    await demo.reset({ activity: true }, now);
+    await seedDemo(app, { activity: true }, now);
     const em = ds.manager;
 
     expect(await em.count(Order)).toBeGreaterThan(1000);
@@ -96,31 +96,19 @@ describe("demo ma'lumot", () => {
     expect((await em.find(Shift)).filter((s) => s.closedAt === null)).toHaveLength(2);
   });
 
-  it('demo oshpaz yordamchisi PIN bilan kiradi, TV navbati ochiq, tiklash faqat DEMO=1 da', async () => {
+  it("oshpaz yordamchisi PIN bilan kiradi, TV navbati — TV kodi bilan; ilovada demo endpoint'i yo'q", async () => {
     const res = await login('usr_kitchen_c1', '1111').expect(200);
     expect(typeof res.body.token).toBe('string');
-    expect(res.body.user).toMatchObject({ id: 'usr_kitchen_c1', role: 'kitchen', branchId: C });
+    expect(res.body.user).toMatchObject({ id: 'usr_kitchen_c1', role: 'kitchen', branchId: C, surname: 'Qodirov', email: null });
 
     const tv = await request(app.getHttpServer())
       .get(`/api/tv/queue?branchId=${C}`)
+      .set('X-Tv-Code', await app.get(ScreenCodesService).get('tv', C))
       .expect(200);
     expect(Array.isArray(tv.body.preparing)).toBe(true);
 
-    const admin = (await login('usr_admin', '0000').expect(200)).body.token as string;
-    const reset = () =>
-      request(app.getHttpServer()).post('/api/demo/reset').set('Authorization', `Bearer ${admin}`);
-    expect((await reset().expect(403)).body.code).toBe('forbidden');
-    await request(app.getHttpServer())
-      .post('/api/demo/reset')
-      .set('Authorization', `Bearer ${res.body.token}`)
-      .expect(403);
-
-    process.env.DEMO = '1';
-    try {
-      await reset().expect(204);
-    } finally {
-      process.env.DEMO = '0';
-    }
-    expect(await ds.manager.count(Order)).toBeGreaterThan(1000);
+    const admin = (await request(app.getHttpServer()).post('/api/auth/admin-login').send(ADMIN_LOGIN).expect(200)).body
+      .token as string;
+    await request(app.getHttpServer()).post('/api/demo/reset').set('Authorization', `Bearer ${admin}`).expect(404);
   });
 });

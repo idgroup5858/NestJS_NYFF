@@ -7,7 +7,7 @@ import type { Branch } from '../src/branches/branch.entity';
 import { Warehouse } from '../src/branches/warehouse.entity';
 import { addDays, dateKey } from '../src/domain/dates';
 import { READY_SHOWN_MS } from '../src/domain/orders';
-import { DemoService } from '../src/demo/demo.service';
+import { seedDemo } from './fixtures/demo';
 import { Expense } from '../src/expenses/expense.entity';
 import { ExpensesService } from '../src/expenses/expenses.service';
 import { Category } from '../src/menu/category.entity';
@@ -56,7 +56,6 @@ const kitchenY = actor('usr_kitchen_y1', 'kitchen', Y);
 describe('biznes mantiq (frontend logic-smoke.ts)', () => {
   let app: INestApplication;
   let em: EntityManager;
-  let demo: DemoService;
   let orders: OrdersService;
   let shifts: ShiftsService;
   let warehouse: WarehouseService;
@@ -70,7 +69,6 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
   beforeAll(async () => {
     app = await createTestApp();
     em = app.get(DataSource).manager;
-    demo = app.get(DemoService);
     orders = app.get(OrdersService);
     shifts = app.get(ShiftsService);
     warehouse = app.get(WarehouseService);
@@ -92,7 +90,7 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
   describe('jonli demo (createSeedDb)', () => {
     // demo bazadagi qolgan tekshiruvlar (buyurtmalar soni, faol buyurtmalar, hujjatlar) — demo.db-spec.ts da
     it("30 kunlik hisobot: tushum va chiqim bor, kunlar va to'lov turlari yig'indisi — tushum", async () => {
-      await demo.reset({ activity: true }, now);
+      await seedDemo(app, { activity: true }, now);
       const month = await reports.sales({
         from: addDays(dateKey(now), -29),
         to: dateKey(now),
@@ -119,7 +117,7 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
     const burger = (qty = 1) => [{ productId: 'burger-classic', qty }];
 
     beforeAll(async () => {
-      await demo.reset({ activity: false }, now);
+      await seedDemo(app, { activity: false }, now);
     });
 
     it('smena ochilmaguncha kassir buyurtma bera olmaydi; kirganda smena ochiladi, qayta kirsa — davom etadi', async () => {
@@ -364,7 +362,7 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
 
       // bloklangan oshpaz yordamchisi: servis rolni tokendan oladi, token esa har so'rovda bazadan tekshiriladi
       const { token } = await auth.login('usr_kitchen_c1', '1111', now);
-      const kitchen = { name: 'Aziz', role: 'kitchen' as const, branchId: C, pin: '' };
+      const kitchen = { name: 'Aziz', surname: 'Qodirov', role: 'kitchen' as const, branchId: C, pin: '' };
       await users.save({ id: 'usr_kitchen_c1', ...kitchen, active: false }, 'usr_admin', now);
       const res = await request(app.getHttpServer())
         .post(`/api/orders/${third.id}/ready`)
@@ -392,16 +390,17 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
     it("admin: xodimlar — filial, PIN, bo'sh PIN eskisini qoldiradi, o'zini bloklay olmaydi", async () => {
       const save = (input: Parameters<UsersService['save']>[0]) => users.save(input, 'usr_admin', now);
       await expectCode('branch_required', () =>
-        save({ name: 'Ali', role: 'cashier', branchId: null, pin: '1234', active: true }),
+        save({ name: 'Ali', surname: 'Valiyev', role: 'cashier', branchId: null, pin: '1234', active: true }),
       );
       await expectCode('branch_required', () =>
-        save({ name: 'Olim', role: 'kitchen', branchId: null, pin: '1234', active: true }),
+        save({ name: 'Olim', surname: 'Hasanov', role: 'kitchen', branchId: null, pin: '1234', active: true }),
       );
       await expectCode('invalid_pin', () =>
-        save({ name: 'Ali', role: 'cashier', branchId: sergeli.id, pin: '12', active: true }),
+        save({ name: 'Ali', surname: 'Valiyev', role: 'cashier', branchId: sergeli.id, pin: '12', active: true }),
       );
       const ali = await save({
         name: 'Ali',
+        surname: 'Valiyev',
         role: 'cashier',
         branchId: sergeli.id,
         pin: '2468',
@@ -410,6 +409,7 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       await save({
         id: ali.id,
         name: 'Ali V.',
+        surname: 'Valiyev',
         role: 'cashier',
         branchId: sergeli.id,
         pin: '',
@@ -417,9 +417,9 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       });
       expect((await auth.checkPin(ali.id, '2468', now)).name).toBe('Ali V.');
       await expectCode('self_action', () =>
-        save({ id: 'usr_admin', name: 'Admin', role: 'admin', branchId: null, pin: '', active: false }),
+        save({ id: 'usr_admin', name: 'Admin', surname: 'Adminov', role: 'admin', branchId: null, email: 'admin@gmail.com', active: false }),
       );
-      const vali = await save({ name: 'Vali', role: 'supplier', branchId: C, pin: '1357', active: true });
+      const vali = await save({ name: 'Vali', surname: 'Karimov', role: 'supplier', branchId: C, pin: '1357', active: true });
       expect(vali.branchId).toBeNull();
     });
 
@@ -545,7 +545,7 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
     let shift: Shift;
 
     beforeAll(async () => {
-      await demo.reset({ activity: false }, now);
+      await seedDemo(app, { activity: false }, now);
       shift = await shifts.openOrResume('usr_cashier_c1', C, now);
     });
 

@@ -11,6 +11,7 @@ export class StaffQuery {
   role?: Role;
 }
 
+/** PIN bilan kirish — kassir, oshpaz yordamchisi, ta'minotchi (ism ochiq ro'yxatdan tanlanadi). */
 export class LoginDto {
   @IsString()
   @MaxLength(40)
@@ -21,11 +22,11 @@ export class LoginDto {
   pin: string;
 }
 
-/** Kuryer kirishi (mijoz ilovasi ichidagi yashirin oyna). */
-export class CourierLoginDto {
+/** Admin (`/auth/admin-login`) va kuryer (`/auth/courier-login`) — email va parol bilan. */
+export class PasswordLoginDto {
   @IsString()
-  @MaxLength(40)
-  login: string;
+  @MaxLength(100)
+  email: string;
 
   @IsString()
   @MaxLength(64)
@@ -46,4 +47,29 @@ export class ChangePinDto {
   @IsString()
   @MaxLength(8)
   newPin: string;
+}
+
+/** Admin o'z ismi, familiyasi va emailini o'zgartiradi. */
+export class UpdateProfileDto {
+  @IsString()
+  @MaxLength(100)
+  name: string;
+
+  @IsString()
+  @MaxLength(100)
+  surname: string;
+
+  @IsString()
+  @MaxLength(100)
+  email: string;
+}
+
+export class ChangePasswordDto {
+  @IsString()
+  @MaxLength(64)
+  oldPassword: string;
+
+  @IsString()
+  @MaxLength(64)
+  newPassword: string;
 }

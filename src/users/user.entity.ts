@@ -3,13 +3,22 @@ import { Branch } from '../branches/branch.entity';
 import { ID_LENGTH } from '../common/columns';
 import type { Role } from '../common/enums';
 
+/** Ekrandagi ism: "Ism Familiya" (familiya bo'sh bo'lsa — faqat ism). */
+export const fullName = (person: { name: string; surname: string }): string =>
+  [person.name, person.surname].filter(Boolean).join(' ');
+
 @Entity('users')
 export class User {
   @PrimaryColumn({ type: 'varchar', length: ID_LENGTH })
   id: string;
 
+  /** ism; ekranda — "Ism Familiya" (`fullName`) */
   @Column({ length: 100 })
   name: string;
+
+  /** familiya — yangi va tahrirlangan xodimda majburiy; 2026-11-02 dan oldingi xodimlarda bo'sh bo'lishi mumkin */
+  @Column({ length: 100, default: '' })
+  surname: string;
 
   @Column({ type: 'varchar', length: 16 })
   role: Role;
@@ -18,16 +27,19 @@ export class User {
   @Column({ type: 'varchar', length: ID_LENGTH, nullable: true })
   branchId: string | null;
 
-  /** faqat kuryer: kirish logini (kichik harfda, takrorlanmaydi); parol xeshi — [pinHash] da. Boshqa rollarda `null` */
+  /**
+   * Admin va kuryer (`usesPassword`): kirish emaili (kichik harfda, takrorlanmaydi); parol xeshi — [pinHash] da. PIN
+   * bilan kiradiganlarda `null`.
+   */
   @Index({ unique: true })
-  @Column({ type: 'varchar', length: 40, nullable: true })
-  login: string | null;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  email: string | null;
 
   @ManyToOne(() => Branch, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'branchId' })
   branch?: Branch | null;
 
-  /** PIN (kuryerda — parol) o'zi saqlanmaydi — faqat bcrypt xeshi. Oddiy so'rovlarda yuklanmaydi (`select: false`). */
+  /** PIN (admin va kuryerda — parol) o'zi saqlanmaydi — faqat bcrypt xeshi. Oddiy so'rovlarda yuklanmaydi (`select: false`). */
   @Column({ length: 100, select: false })
   pinHash: string;
 

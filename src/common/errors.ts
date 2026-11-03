@@ -29,6 +29,8 @@ export type ErrorCode =
   | 'invalid_location'
   | 'forbidden'
   | 'invalid_image'
+  | 'surname_required'
+  | 'in_use'
   // ── faqat backend ──
   | 'unauthorized'
   | 'invalid_input'
@@ -41,11 +43,15 @@ export type ErrorCode =
   | 'other_branch'
   | 'courier_busy'
   | 'not_ready'
-  // ── kuryer kirishi (login va parol) ──
+  // ── admin va kuryer kirishi (email va parol) ──
   | 'wrong_login'
-  | 'invalid_login'
+  | 'wrong_password'
+  | 'invalid_email'
   | 'invalid_password'
-  | 'login_taken'
+  | 'email_taken'
+  // ── zal ekranlari kodi (TV, kiosk) ──
+  | 'wrong_tv_code'
+  | 'wrong_kiosk_code'
   // ── AI yordamchi va Telegram bot ──
   | 'ai_not_configured'
   | 'ai_failed'
@@ -57,6 +63,9 @@ const STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   unauthorized: HttpStatus.UNAUTHORIZED,
   wrong_pin: HttpStatus.UNAUTHORIZED,
   wrong_login: HttpStatus.UNAUTHORIZED,
+  wrong_password: HttpStatus.UNAUTHORIZED,
+  wrong_tv_code: HttpStatus.UNAUTHORIZED,
+  wrong_kiosk_code: HttpStatus.UNAUTHORIZED,
   forbidden: HttpStatus.FORBIDDEN,
   user_inactive: HttpStatus.FORBIDDEN,
   self_action: HttpStatus.FORBIDDEN,
@@ -71,7 +80,8 @@ const STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   other_branch: HttpStatus.CONFLICT,
   courier_busy: HttpStatus.CONFLICT,
   not_ready: HttpStatus.CONFLICT,
-  login_taken: HttpStatus.CONFLICT,
+  email_taken: HttpStatus.CONFLICT,
+  in_use: HttpStatus.CONFLICT,
   telegram_not_connected: HttpStatus.CONFLICT,
   too_many_attempts: HttpStatus.TOO_MANY_REQUESTS,
   ai_failed: HttpStatus.BAD_GATEWAY,
@@ -105,6 +115,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   invalid_location: "Xaritadagi nuqta noto'g'ri",
   forbidden: 'Bu amal sizning rolingiz uchun emas',
   invalid_image: "Rasm JPG, PNG, WEBP yoki AVIF bo'lishi va 5 MB dan oshmasligi kerak",
+  surname_required: 'Familiyani kiriting',
+  in_use: "Tizimda ishlatilgan — o'chirib bo'lmaydi, uning o'rniga faolsizlantiring",
   unauthorized: 'Avval tizimga kiring',
   invalid_input: "So'rov ma'lumotlari noto'g'ri",
   too_many_attempts: "Ko'p marta xato kiritildi — birozdan keyin urinib ko'ring",
@@ -115,10 +127,13 @@ const MESSAGES: Record<ErrorCode, string> = {
   other_branch: "Qo'lingizda boshqa filial buyurtmalari bor",
   courier_busy: "Avval yo'ldagi buyurtmalarni yetkazing",
   not_ready: 'Hamma buyurtma hali tayyor emas',
-  wrong_login: "Login yoki parol noto'g'ri",
-  invalid_login: 'Login 3–40 belgi: lotin harflari, raqam, «.», «_», «-»',
-  invalid_password: "Parol kamida 6 belgidan iborat bo'lishi kerak",
-  login_taken: 'Bu login band — boshqasini tanlang',
+  wrong_login: "Email yoki parol noto'g'ri",
+  wrong_password: "Joriy parol noto'g'ri",
+  invalid_email: "Email noto'g'ri — masalan: ism@gmail.com",
+  invalid_password: "Parol 8 tadan 64 tagacha belgidan iborat bo'lishi kerak",
+  email_taken: 'Bu email boshqa xodimda — boshqasini kiriting',
+  wrong_tv_code: "TV kodi noto'g'ri — admin panel → Filiallar → «TV kodi»",
+  wrong_kiosk_code: "Kiosk kodi noto'g'ri — admin panel → Filiallar → «Kiosk kodi»",
   ai_not_configured: "AI sozlanmagan — serverning .env faylida GEMINI_API_KEY yo'q",
   ai_failed: "AI hozir javob bera olmadi — birozdan keyin qayta urinib ko'ring",
   telegram_token_invalid: "Bot tokeni noto'g'ri — @BotFather bergan tokenni to'liq nusxalang",

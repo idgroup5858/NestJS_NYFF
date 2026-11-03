@@ -1,23 +1,22 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
+import type { INestApplicationContext } from '@nestjs/common';
 import { DataSource, EntityManager, EntityTarget, ObjectLiteral } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { hashPin } from '../auth/pin';
-import { Branch } from '../branches/branch.entity';
-import { Warehouse } from '../branches/warehouse.entity';
-import { Counter } from '../database/counters';
-import { Setting } from '../database/setting.entity';
-import { ExpensesService } from '../expenses/expenses.service';
-import { Category } from '../menu/category.entity';
-import { Product } from '../menu/product.entity';
-import { Order } from '../orders/order.entity';
-import { OrdersService } from '../orders/orders.service';
-import { Shift } from '../shifts/shift.entity';
-import { ShiftsService } from '../shifts/shifts.service';
-import { User } from '../users/user.entity';
-import { Ingredient } from '../warehouse/ingredient.entity';
-import { StockItem } from '../warehouse/stock-item.entity';
-import { WarehouseService } from '../warehouse/warehouse.service';
+import { hashPin } from '../../src/auth/pin';
+import { Branch } from '../../src/branches/branch.entity';
+import { Warehouse } from '../../src/branches/warehouse.entity';
+import { Counter } from '../../src/database/counters';
+import { Setting } from '../../src/database/setting.entity';
+import { ExpensesService } from '../../src/expenses/expenses.service';
+import { Category } from '../../src/menu/category.entity';
+import { Product } from '../../src/menu/product.entity';
+import { Order } from '../../src/orders/order.entity';
+import { OrdersService } from '../../src/orders/orders.service';
+import { Shift } from '../../src/shifts/shift.entity';
+import { ShiftsService } from '../../src/shifts/shifts.service';
+import { User } from '../../src/users/user.entity';
+import { Ingredient } from '../../src/warehouse/ingredient.entity';
+import { StockItem } from '../../src/warehouse/stock-item.entity';
+import { WarehouseService } from '../../src/warehouse/warehouse.service';
 import { buildBase } from './demo-data';
 import {
   createRandom,
@@ -37,101 +36,72 @@ async function insertChunks<T extends ObjectLiteral>(em: EntityManager, target: 
   }
 }
 
-export interface DemoResetOptions {
+export interface DemoOptions {
   /**
-   * `false` — frontend `createBaseDb`: faqat ma'lumotnomalar (menyu, ombor, xodimlar);
-   * `true` — frontend `createSeedDb`: + 30 kunlik tarix, ombor hujjatlari, bugungi buyurtmalar va chiqimlar.
+   * `false` — faqat ma'lumotnomalar (filiallar, menyu, ombor, xodimlar);
+   * `true` — + 30 kunlik tarix, ombor hujjatlari, bugungi buyurtmalar va chiqimlar.
    */
   activity: boolean;
 }
 
-/** Demo ma'lumot: bazani tozalab, frontend demo bazasi bilan bir xil manzarani yozadi. */
-@Injectable()
-export class DemoService implements OnApplicationBootstrap {
-  private readonly logger = new Logger('Demo');
-  /** Ikki "tiklash" bir vaqtda kelsa — navbat bilan (aks holda yozuvlar aralashib ketadi). */
-  private queue: Promise<unknown> = Promise.resolve();
+/**
+ * Testlar uchun sinov to'plami (2026-11-02 gacha ilovadagi "demo ma'lumot" — ilovadan olib tashlandi, faqat testlarda):
+ * barcha jadvallarni tozalaydi (`settings` dan tashqari — JWT kaliti eskirmasin) va tayyor manzarani yozadi. Tarix
+ * to'g'ridan-to'g'ri, bugungi buyurtmalar va hujjatlar — haqiqiy servislar orqali. [now] — "hozir".
+ */
+export async function seedDemo(app: INestApplicationContext, { activity }: DemoOptions, now = new Date()): Promise<void> {
+  const dataSource = app.get(DataSource);
+  const base = buildBase(now);
+  const users: User[] = await Promise.all(
+    base.users.map(async ({ pin, ...user }) => ({
+      ...user,
+      pinHash: await hashPin(pin),
+      failedPinAttempts: 0,
+      pinLockedUntil: null,
+    })),
+  );
+  // bitta generator — tarix va chiqimlar ketma-ket undan oladi
+  const rand = createRandom(DEMO_SEED);
 
-  constructor(
-    @InjectDataSource() private readonly dataSource: DataSource,
-    private readonly orders: OrdersService,
-    private readonly shifts: ShiftsService,
-    private readonly warehouse: WarehouseService,
-    private readonly expenses: ExpensesService,
-  ) {}
+  await dataSource.transaction(async (em) => {
+    const tables = dataSource.entityMetadatas
+      .filter((meta) => meta.target !== Setting)
+      .map((meta) => `"${meta.tableName}"`)
+      .join(', ');
+    await em.query(`TRUNCATE ${tables} RESTART IDENTITY CASCADE`);
 
-  /** `DEMO=1` va baza bo'sh (xodim yo'q) — birinchi ishga tushishda demo ma'lumot yoziladi. */
-  async onApplicationBootstrap() {
-    if (process.env.DEMO !== '1') return;
-    if ((await this.dataSource.manager.count(User)) > 0) return;
-    this.logger.log("Baza bo'sh (DEMO=1) — demo ma'lumot yozilmoqda...");
-    await this.reset({ activity: true });
-    const counts = await this.counts();
-    this.logger.log(`Demo ma'lumot yozildi: ${counts.orders} buyurtma, ${counts.users} xodim`);
-  }
+    // bitta INSERT — filiallar bir-birining zaxirasi (FK statement oxirida tekshiriladi)
+    await em.insert(Branch, base.branches);
+    await em.insert(Warehouse, base.warehouses);
+    await em.insert(User, users);
+    await em.insert(Category, base.categories);
+    await em.insert(Product, base.products);
+    await em.insert(Ingredient, base.ingredients);
+    await insertChunks(em, StockItem, base.stock);
 
-  /** Barcha jadvallarni tozalaydi va demo ma'lumot yozadi. [now] — "hozir" (testlarda belgilangan vaqt). */
-  reset(options: DemoResetOptions, now = new Date()): Promise<void> {
-    const run = this.queue.then(() => this.run(options, now));
-    this.queue = run.catch(() => undefined);
-    return run;
-  }
-
-  /** Jadvallardagi yozuvlar soni (seed buyrug'i hisoboti uchun). */
-  async counts(): Promise<Record<string, number>> {
-    const result: Record<string, number> = {};
-    for (const meta of this.dataSource.entityMetadatas) {
-      const [row] = (await this.dataSource.query(`SELECT count(*)::int AS n FROM "${meta.tableName}"`)) as {
-        n: number;
-      }[];
-      result[meta.tableName] = row.n;
+    if (activity) {
+      // tarix to'g'ridan-to'g'ri yoziladi — omborga tegmaydi
+      const history = seedHistory(base, now, rand);
+      await insertChunks(em, Shift, history.shifts);
+      await insertChunks(em, Order, history.orders);
+      await insertChunks(em, Counter, history.counters);
     }
-    return result;
+  });
+  if (!activity) return;
+
+  // qolgani haqiqiy servislar orqali (har biri o'z tranzaksiyasida)
+  await seedStockDocuments(app.get(WarehouseService), now);
+  await seedToday({ orders: app.get(OrdersService), shifts: app.get(ShiftsService) }, base, now);
+  await seedExpenses(app.get(ExpensesService), base, now, rand);
+}
+
+/** Jadvallardagi yozuvlar soni. */
+export async function tableCounts(app: INestApplicationContext): Promise<Record<string, number>> {
+  const dataSource = app.get(DataSource);
+  const result: Record<string, number> = {};
+  for (const meta of dataSource.entityMetadatas) {
+    const [row] = (await dataSource.query(`SELECT count(*)::int AS n FROM "${meta.tableName}"`)) as { n: number }[];
+    result[meta.tableName] = row.n;
   }
-
-  private async run({ activity }: DemoResetOptions, now: Date): Promise<void> {
-    const base = buildBase(now);
-    const users: User[] = await Promise.all(
-      base.users.map(async ({ pin, ...user }) => ({
-        ...user,
-        pinHash: await hashPin(pin),
-        failedPinAttempts: 0,
-        pinLockedUntil: null,
-      })),
-    );
-    // bitta generator — tarix va chiqimlar ketma-ket undan oladi (frontend `seedActivity` dagidek)
-    const rand = createRandom(DEMO_SEED);
-
-    await this.dataSource.transaction(async (em) => {
-      // `settings` (JWT kaliti) — demo ma'lumot emas: tozalansa qayta ishga tushganda barcha tokenlar eskiradi
-      const tables = this.dataSource.entityMetadatas
-        .filter((meta) => meta.target !== Setting)
-        .map((meta) => `"${meta.tableName}"`)
-        .join(', ');
-      await em.query(`TRUNCATE ${tables} RESTART IDENTITY CASCADE`);
-
-      // bitta INSERT — filiallar bir-birining zaxirasi (FK statement oxirida tekshiriladi)
-      await em.insert(Branch, base.branches);
-      await em.insert(Warehouse, base.warehouses);
-      await em.insert(User, users);
-      await em.insert(Category, base.categories);
-      await em.insert(Product, base.products);
-      await em.insert(Ingredient, base.ingredients);
-      await insertChunks(em, StockItem, base.stock);
-
-      if (activity) {
-        // tarix frontenddagidek to'g'ridan-to'g'ri yoziladi — omborga tegmaydi
-        const history = seedHistory(base, now, rand);
-        await insertChunks(em, Shift, history.shifts);
-        await insertChunks(em, Order, history.orders);
-        await insertChunks(em, Counter, history.counters);
-      }
-    });
-    if (!activity) return;
-
-    // qolgani haqiqiy servislar orqali (har biri o'z tranzaksiyasida), frontend `seedActivity` tartibida
-    await seedStockDocuments(this.warehouse, now);
-    await seedToday({ orders: this.orders, shifts: this.shifts }, base, now);
-    await seedExpenses(this.expenses, base, now, rand);
-  }
+  return result;
 }

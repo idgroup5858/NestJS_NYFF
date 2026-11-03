@@ -5,6 +5,7 @@ import { Warehouse } from '../branches/warehouse.entity';
 import type { Role } from '../common/enums';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
+import { assertUnused } from '../common/in-use';
 import { pageParams, type Page } from '../common/pagination';
 import type { PurchaseItem, TransferItem } from '../common/types';
 import { nextCounter } from '../database/counters';
@@ -78,6 +79,26 @@ export class WarehouseService {
     };
     await em.insert(Ingredient, ingredient);
     return ingredient;
+  }
+
+  /**
+   * Ombor mahsulotini o'chirish — hech qayerda ishlatilmagan bo'lsa: taom retseptida, kirimda, ko'chirishda, qoldiq
+   * harakatida yo'q. Aks holda `in_use` — faolsizlantirish kerak. Qoldiq yozuvlari (harakatsiz — 0) u bilan o'chadi.
+   */
+  async removeIngredient(id: string): Promise<void> {
+    await this.dataSource.transaction(async (em) => {
+      await this.getIngredient(em, id);
+      const contains = (column: string) =>
+        `${column} @> jsonb_build_array(jsonb_build_object('ingredientId', $1::text))`;
+      await assertUnused(em, id, {
+        recipes: `SELECT 1 FROM products WHERE ${contains('recipe')} LIMIT 1`,
+        purchases: `SELECT 1 FROM purchases WHERE ${contains('items')} LIMIT 1`,
+        transfers: `SELECT 1 FROM transfers WHERE ${contains('items')} LIMIT 1`,
+        movements: `SELECT 1 FROM stock_movements WHERE "ingredientId" = $1 LIMIT 1`,
+      });
+      await em.delete(StockItem, { ingredientId: id });
+      await em.delete(Ingredient, { id });
+    });
   }
 
   stockItems(warehouseId?: string) {

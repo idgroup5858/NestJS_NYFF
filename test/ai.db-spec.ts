@@ -11,6 +11,7 @@ import { AiMessage } from '../src/ai/ai-message.entity';
 import { AiService } from '../src/ai/ai.service';
 import { AiTools } from '../src/ai/ai.tools';
 import { GeminiClient, type GeminiReply, type GeminiRequest } from '../src/ai/gemini.client';
+import { AuthService } from '../src/auth/auth.service';
 import { hashPin } from '../src/auth/pin';
 import { BackupService, PART_BYTES, pgDumpPath } from '../src/backup/backup.service';
 import { Setting } from '../src/database/setting.entity';
@@ -18,7 +19,8 @@ import { Branch } from '../src/branches/branch.entity';
 import { Warehouse } from '../src/branches/warehouse.entity';
 import { addDays, dateKey } from '../src/domain/dates';
 import { fromBase } from '../src/domain/units';
-import { DemoService } from '../src/demo/demo.service';
+import { seedDemo } from './fixtures/demo';
+import { ADMIN_LOGIN } from './fixtures/demo-data';
 import { Expense } from '../src/expenses/expense.entity';
 import { Category } from '../src/menu/category.entity';
 import { Product } from '../src/menu/product.entity';
@@ -28,7 +30,7 @@ import { BOT_COMMANDS, COMMANDS_HELP } from '../src/telegram/commands';
 import { som } from '../src/telegram/format';
 import { TelegramApi, TelegramApiError, type TgUpdate, type TgUpload } from '../src/telegram/telegram.api';
 import { TelegramService } from '../src/telegram/telegram.service';
-import { User } from '../src/users/user.entity';
+import { fullName, User } from '../src/users/user.entity';
 import { Ingredient } from '../src/warehouse/ingredient.entity';
 import { WarehouseService } from '../src/warehouse/warehouse.service';
 import { WAITING } from '../src/ai/waiting';
@@ -133,30 +135,33 @@ describe('AI yordamchi', () => {
     app = await createTestApp((builder) =>
       builder.overrideProvider(GeminiClient).useValue(gemini).overrideProvider(TelegramApi).useValue(telegram),
     );
-    await app.get(DemoService).reset({ activity: true });
+    await seedDemo(app, { activity: true });
     db = app.get(DataSource);
     tools = app.get(AiTools);
     await db.manager.insert(User, {
       id: 'usr_admin2',
       name: 'Direktor',
+      surname: 'Karimov',
       role: 'admin',
       branchId: null,
-      login: null,
-      pinHash: await hashPin('9999'),
+      email: 'direktor@gmail.com',
+      pinHash: await hashPin('direktor99'),
       failedPinAttempts: 0,
       pinLockedUntil: null,
       active: true,
       onDuty: false,
       createdAt: new Date(),
     });
-    // kassir kirganda Chilonzor'da smena ochiladi
-    for (const [user, pin] of [
-      ['usr_admin', '0000'],
-      ['usr_admin2', '9999'],
-      ['usr_cashier_c1', '1234'],
+    for (const [user, email, password] of [
+      ['usr_admin', ADMIN_LOGIN.email, ADMIN_LOGIN.password],
+      ['usr_admin2', 'direktor@gmail.com', 'direktor99'],
     ]) {
-      tokens[user] = (await http().post('/api/auth/login').send({ userId: user, pin }).expect(200)).body.token;
+      tokens[user] = (await http().post('/api/auth/admin-login').send({ email, password }).expect(200)).body.token;
     }
+    // kassir kirganda Chilonzor'da smena ochiladi
+    tokens.usr_cashier_c1 = (
+      await http().post('/api/auth/login').send({ userId: 'usr_cashier_c1', pin: '1234' }).expect(200)
+    ).body.token;
   });
 
   beforeEach(() => {
@@ -450,7 +455,7 @@ describe('AI yordamchi', () => {
       };
       expect(status.output.branches.find((b) => b.id === 'br_chilonzor')).toMatchObject({
         working: true,
-        cashiersOnShift: expect.arrayContaining(['Dilnoza']),
+        cashiersOnShift: expect.arrayContaining(['Dilnoza Karimova']),
       });
     });
 
@@ -571,10 +576,10 @@ describe('AI yordamchi', () => {
       expect(gemini.requests).toHaveLength(0);
 
       await send(1001, `/start ${codeOf(connected.body.link)}`);
-      expect(telegram.texts('1001').slice(-2)).toEqual([GREETING, expect.stringContaining('Ulandingiz, Admin!')]);
+      expect(telegram.texts('1001').slice(-2)).toEqual([GREETING, expect.stringContaining('Ulandingiz, Admin Adminov!')]);
       const status = await http().get('/api/telegram').set(as('usr_admin')).expect(200);
       expect(status.body.chats).toEqual([
-        expect.objectContaining({ chatId: '1001', userId: 'usr_admin', userName: 'Admin', username: 'boss', name: 'Direktor Aka' }),
+        expect.objectContaining({ chatId: '1001', userId: 'usr_admin', userName: 'Admin Adminov', username: 'boss', name: 'Direktor Aka' }),
       ]);
 
       gemini.script = [say('**Bugun** 5 ta buyurtma')];
@@ -643,6 +648,43 @@ describe('AI yordamchi', () => {
       expect(gemini.requests).toHaveLength(1);
     });
 
+    it("/parol: keyingi matn — admin panelining yangi paroli (AI'ga ketmaydi, xabar o'chiriladi); /bekor — o'zgarmaydi", async () => {
+      // 1001 — usr_admin chati (oldingi testlar)
+      telegram.sent = [];
+      await send(1001, '/parol');
+      expect(telegram.last('1001')).toContain('yangi parolni yozing');
+      await send(1001, 'qisqa');
+      expect(telegram.last('1001')).toContain('8 tadan 64 tagacha');
+      await send(1001, 'yangi-parol-2026');
+      expect(telegram.last('1001')).toContain("Parol o'zgartirildi");
+      expect(telegram.last('1001')).toContain(ADMIN_LOGIN.email);
+      expect(telegram.sent).toContainEqual({ method: 'deleteMessage', params: { chat_id: '1001', message_id: 1 } });
+      expect(gemini.requests).toHaveLength(0);
+      expect(await db.manager.countBy(AiMessage, { text: 'yangi-parol-2026' })).toBe(0);
+      await http().post('/api/auth/admin-login').send(ADMIN_LOGIN).expect(401);
+      await http().post('/api/auth/admin-login').send({ email: ADMIN_LOGIN.email, password: 'yangi-parol-2026' }).expect(200);
+
+      // keyingi matn — yana oddiy savol
+      gemini.script = [say('Javob.')];
+      await send(1001, 'Tushum?');
+      expect(telegram.last('1001')).toBe('Javob.');
+
+      // /bekor — parol o'zgarmaydi; boshqa buyruq ham kutishni bekor qiladi
+      await send(1001, '/parol');
+      await send(1001, '/bekor');
+      expect(telegram.last('1001')).toBe("Parol o'zgarmadi.");
+      await send(1001, '/parol');
+      await send(1001, '/yordam');
+      expect(telegram.last('1001')).toBe(COMMANDS_HELP);
+      await http().post('/api/auth/admin-login').send({ email: ADMIN_LOGIN.email, password: 'yangi-parol-2026' }).expect(200);
+
+      // ulanmagan chat — rad
+      await send(4004, '/parol');
+      expect(telegram.last('4004')).toContain('rahbariyati uchun');
+
+      await app.get(AuthService).setPassword('usr_admin', ADMIN_LOGIN.password);
+    });
+
     it("ovozli savol: matnga o'giriladi (ko'rsatilmaydi), kutish xabari, javob — matn bilan, shevada", async () => {
       // 1001 ulangan, bugun salom berilgan (oldingi testlar)
       gemini.heard = 'Bugungi tushum qancha?';
@@ -684,7 +726,7 @@ describe('AI yordamchi', () => {
     it("admin bloklansa yoki roli o'zgarsa — rad; yangi link — eskisi ishlamaydi, chat qoladi; uzish", async () => {
       const link = await linkOf('usr_admin2');
       await send(2002, `/start ${codeOf(link)}`);
-      expect(telegram.last('2002')).toContain('Ulandingiz, Direktor!');
+      expect(telegram.last('2002')).toContain('Ulandingiz, Direktor Karimov!');
 
       await db.manager.update(User, 'usr_admin2', { active: false });
       await send(2002, 'Tushum?');
@@ -716,7 +758,7 @@ describe('AI yordamchi', () => {
         for (let i = 0; i < 100 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 20));
       };
       const branch = (await db.manager.findOneByOrFail(Branch, { id: 'br_chilonzor' })).name;
-      const cashier = (await db.manager.findOneByOrFail(User, { id: 'usr_cashier_c1' })).name;
+      const cashier = fullName(await db.manager.findOneByOrFail(User, { id: 'usr_cashier_c1' }));
 
       // 1001 — usr_admin chati (oldingi testlar), 2002 — uzilgan; demo smenasida bugungi buyurtmalar bor
       telegram.sent = [];
@@ -739,7 +781,7 @@ describe('AI yordamchi', () => {
       const reopened = await http().post('/api/shifts/current').set(as('usr_cashier_c1')).expect(200);
       await http().post(`/api/shifts/${reopened.body.id}/close`).set(as('usr_admin')).expect(200);
       await until(() => telegram.texts('1001').length > 0);
-      expect(telegram.last('1001')).toContain('Smenani admin yopdi: Admin');
+      expect(telegram.last('1001')).toContain('Smenani admin yopdi: Admin Adminov');
       expect(telegram.last('1001')).toContain('Buyurtmalar: 0 ta');
       await http().post('/api/shifts/current').set(as('usr_cashier_c1')).expect(200);
     });

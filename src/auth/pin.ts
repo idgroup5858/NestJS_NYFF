@@ -10,20 +10,21 @@ export function isValidPin(pin: string): boolean {
 }
 
 /**
- * Kuryer logini va paroli (admin ochib beradi; kuryer ilovasi — mijoz ilovasi ichida, ismlar ro'yxatisiz). Login katta /
- * kichik harfni farqlamaydi — kichik harfda saqlanadi. Parol xeshi PIN'niki bilan bir joyda (`pinHash`): bloklanish va
- * urinishlar chegarasi bir xil.
+ * Admin va kuryer emaili va paroli (`usesPassword`): email katta / kichik harfni farqlamaydi — kichik harfda saqlanadi
+ * va takrorlanmaydi. Parol xeshi PIN'niki bilan bir joyda (`pinHash`): bloklanish va urinishlar chegarasi bir xil.
  */
-export const normalizeLogin = (login: string): string => login.trim().toLowerCase();
+export const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 
-/** Login: lotin harflari, raqam, `.`, `_`, `-` — 3 tadan 40 tagacha. */
-export function isValidLogin(login: string): boolean {
-  return /^[a-z0-9._-]{3,40}$/.test(login);
+export const EMAIL_MAX_LENGTH = 100;
+
+/** Oddiy shakl tekshiruvi: `nimadir@domen.uz` (bo'sh joysiz, bitta `@`, domenda nuqta). Pochta yuborilmaydi. */
+export function isValidEmail(email: string): boolean {
+  return email.length <= EMAIL_MAX_LENGTH && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-/** Parol: 6 tadan 64 tagacha belgi. */
+/** Parol: 8 tadan 64 tagacha belgi. */
 export function isValidPassword(password: string): boolean {
-  return password.length >= 6 && password.length <= 64;
+  return password.length >= 8 && password.length <= 64;
 }
 
 export function hashPin(pin: string): Promise<string> {

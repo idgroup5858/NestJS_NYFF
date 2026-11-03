@@ -4,6 +4,7 @@ import { AttemptsGuard } from '../auth/attempts.guard';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Public, Roles } from '../auth/decorators';
 import { fail } from '../common/errors';
+import { SCREEN_CODE_HEADER, ScreenCodesService } from '../screens/screen-codes.service';
 import {
   BranchScopeQuery,
   ConfirmOrderDto,
@@ -102,29 +103,52 @@ export class OrdersController {
   }
 }
 
-/** Kiosk va TV — PINsiz va kalitsiz (kirish ekranida filial tanlanadi); filial so'rovda keladi. */
+/**
+ * Kiosk — PINsiz, filial kiosk kodi bilan (`X-Kiosk-Code`, admin "Filiallar" → "Kiosk kodi"; kirish ekranida filial
+ * tanlanadi); filial so'rovda keladi. Menyu (`GET /menu`) — ochiq, mobil ilova bilan umumiy.
+ */
 @Controller('kiosk')
 export class KioskController {
-  constructor(private readonly orders: OrdersService) {}
+  constructor(
+    private readonly orders: OrdersService,
+    private readonly screenCodes: ScreenCodesService,
+  ) {}
 
   @Public()
   @UseGuards(AttemptsGuard)
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post('orders')
-  create(@Body() dto: KioskOrderDto) {
+  async create(@Body() dto: KioskOrderDto, @Headers(SCREEN_CODE_HEADER.kiosk) code?: string) {
+    await this.screenCodes.assert('kiosk', dto.branchId, code);
     return this.orders.createByKiosk(dto);
+  }
+
+  /** Kiosk kodi to'g'rimi — kod kiritilganda va har yangi mijozdan oldin (admin yangilagan bo'lishi mumkin). */
+  @Public()
+  @Get('check')
+  async check(@Query() query: BranchScopeQuery, @Headers(SCREEN_CODE_HEADER.kiosk) code?: string) {
+    await this.screenCodes.assert('kiosk', query.branchId ?? fail('branch_required'), code);
+    return { ok: true };
   }
 }
 
 @Controller('tv')
 export class TvController {
-  constructor(private readonly orders: OrdersService) {}
+  constructor(
+    private readonly orders: OrdersService,
+    private readonly screenCodes: ScreenCodesService,
+  ) {}
 
-  /** TV navbat: "Tayyorlanmoqda" va "Tayyor" — faqat raqam, tur va holat. Ochiq, `branchId` majburiy. */
+  /**
+   * TV navbat: "Tayyorlanmoqda" va "Tayyor" — faqat raqam, tur va holat. Xodim tokeni emas — filial TV kodi
+   * (`X-Tv-Code`, admin "Filiallar" → "TV kodi"); `branchId` majburiy.
+   */
   @Public()
   @Get('queue')
-  queue(@Query() query: BranchScopeQuery) {
-    return this.orders.tvQueue(query.branchId ?? fail('branch_required'));
+  async queue(@Query() query: BranchScopeQuery, @Headers(SCREEN_CODE_HEADER.tv) code?: string) {
+    const branchId = query.branchId ?? fail('branch_required');
+    await this.screenCodes.assert('tv', branchId, code);
+    return this.orders.tvQueue(branchId);
   }
 }
 

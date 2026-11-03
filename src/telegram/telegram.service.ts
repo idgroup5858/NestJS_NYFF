@@ -4,13 +4,13 @@ import { DataSource, EntityManager, In, Like } from 'typeorm';
 import { telegramChat, AiService } from '../ai/ai.service';
 import { waitingText } from '../ai/waiting';
 import { BOT_COMMANDS, COMMANDS_HELP, parseCommand } from './commands';
-import { toAuthUser } from '../auth/auth.service';
+import { AuthService, toAuthUser } from '../auth/auth.service';
 import type { AuthUser } from '../auth/auth.types';
 import { fail } from '../common/errors';
 import { newSecret } from '../common/ids';
 import { Setting } from '../database/setting.entity';
 import { ShiftEvents, type ShiftClosed } from '../shifts/shift-events';
-import { User } from '../users/user.entity';
+import { fullName, User } from '../users/user.entity';
 import { loadShiftReport, shiftReportText } from './shift-report';
 import { TelegramChat } from './telegram-chat.entity';
 import { splitMessage, TelegramApi, TelegramApiError, type TgMessage, type TgUpdate, type TgUser, type TgVoice } from './telegram.api';
@@ -64,6 +64,12 @@ const TEXT = {
   /** ovozli xabar uzun (direktor bergan ibora) */
   voiceTooLong: "Og'aaa, shuncha narsani nedan bilaman man, oddiyroq savol so'rivaring…",
   voiceUnclear: "Ovozni tushunolmadim — qaytadan yuboring yoki yozib yuboring.",
+  passwordAsk: 'Admin panel uchun yangi parolni yozing (kamida 8 belgi). Bekor qilish — /bekor',
+  passwordInvalid: "Parol 8 tadan 64 tagacha belgi bo'lishi kerak — qaytadan yozing. Bekor qilish — /bekor",
+  passwordCancelled: "Parol o'zgarmadi.",
+  passwordChanged: (email: string | null) =>
+    `Parol o'zgartirildi. Admin panelga kirish: ${email ?? 'emailingiz'} va yangi parol.\n` +
+    "Xavfsizlik uchun parol yozilgan xabar chatdan o'chirildi.",
 };
 
 /** Ovozli savol chegarasi — uzunrog'iga javob yo'q (so'rov va vaqt tejaladi). */
@@ -87,11 +93,14 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
   private polling: { abort: AbortController; done: Promise<void> } | null = null;
   /** har chat xabarlari navbat bilan — tarix tartibi buzilmasin */
   private readonly queues = new Map<string, Promise<void>>();
+  /** `/parol` bosilgan chatlar — keyingi matn yangi parol (AI'ga ketmaydi); server qayta ishga tushsa unutiladi */
+  private readonly awaitingPassword = new Set<string>();
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly api: TelegramApi,
     private readonly ai: AiService,
+    private readonly auth: AuthService,
     shiftEvents: ShiftEvents,
   ) {
     shiftEvents.onClosed((event) => void this.sendShiftReport(event));
@@ -117,7 +126,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     const users = chats.length
       ? await this.dataSource.manager.find(User, { where: { id: In(chats.map((c) => c.userId)) } })
       : [];
-    const userName = new Map(users.map((u) => [u.id, u.name]));
+    const userName = new Map(users.map((u) => [u.id, fullName(u)]));
     return {
       bot,
       running: this.polling !== null,
@@ -269,11 +278,25 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     if (start) return this.start(token, message, start[1]);
 
     const user = await this.chatUser(chatId);
-    if (!user) return this.send(token, chatId, TEXT.denied);
+    if (!user) {
+      this.awaitingPassword.delete(chatId);
+      return this.send(token, chatId, TEXT.denied);
+    }
+
+    // `/parol` dan keyingi matn — yangi parol (AI'ga ham, xotiraga ham ketmaydi); buyruq yoki ovoz — bekor qiladi
+    const command = parseCommand(text);
+    if (this.awaitingPassword.has(chatId)) {
+      if (message.text && !text.startsWith('/')) return this.resetPassword(token, message, user);
+      this.awaitingPassword.delete(chatId);
+      if (command === 'bekor') return this.send(token, chatId, TEXT.passwordCancelled);
+    }
     if (message.voice) return this.handleVoice(token, chatId, user, message.voice);
 
     // "Menu" buyrug'i — tayyor savol; noma'lum buyruq — ro'yxat
-    const command = parseCommand(text);
+    if (command === 'parol') {
+      this.awaitingPassword.add(chatId);
+      return this.send(token, chatId, TEXT.passwordAsk);
+    }
     if (command === 'new') {
       const greeting = await this.ai.newChat(user.id, telegramChat(chatId));
       return this.send(token, chatId, greeting.text);
@@ -285,6 +308,25 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       question = known.question;
     }
     await this.answer(token, chatId, user, question);
+  }
+
+  /**
+   * Favqulodda parol tiklash: chat shu adminga bog'langan — joriy parol, kod, vaqt yoki urinishlar so'ralmaydi.
+   * Yaroqsiz bo'lsa qayta so'raladi; o'rnatilgach parol yozilgan xabar chatdan o'chiriladi (o'chmasa ham parol o'rnatilgan).
+   */
+  private async resetPassword(token: string, message: TgMessage, user: AuthUser): Promise<void> {
+    const chatId = String(message.chat.id);
+    try {
+      await this.auth.setPassword(user.id, message.text ?? '');
+    } catch (error) {
+      const code = error instanceof HttpException ? (error.getResponse() as { code?: string }).code : undefined;
+      if (code === 'invalid_password') return this.send(token, chatId, TEXT.passwordInvalid);
+      throw error;
+    }
+    this.awaitingPassword.delete(chatId);
+    this.logger.log(`Admin ${user.id} paroli Telegram orqali tiklandi`);
+    await this.api.call(token, 'deleteMessage', { chat_id: chatId, message_id: message.message_id }).catch(() => {});
+    await this.send(token, chatId, TEXT.passwordChanged(user.email));
   }
 
   /**
@@ -352,7 +394,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     const chatId = String(message.chat.id);
     if (!code) {
       const user = await this.chatUser(chatId);
-      return this.send(token, chatId, user ? TEXT.already(user.name) : TEXT.denied);
+      return this.send(token, chatId, user ? TEXT.already(fullName(user)) : TEXT.denied);
     }
     const em = this.dataSource.manager;
     const owner = await em.findOne(Setting, { where: { key: Like(`${LINK_KEY('')}%`), value: code } });
@@ -374,7 +416,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     // ulanish — yangi suhbat: salom, keyin qanday so'rash mumkinligi
     const greeting = await this.ai.newChat(user.id, telegramChat(chatId));
     await this.send(token, chatId, greeting.text);
-    await this.send(token, chatId, TEXT.linked(user.name));
+    await this.send(token, chatId, TEXT.linked(fullName(user)));
   }
 
   /** "Menu" tugmasidagi buyruqlar — Telegram'ga (xato bo'lsa bot baribir ishlaydi, faqat menyu yangilanmaydi). */

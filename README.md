@@ -105,6 +105,43 @@
                     pm2 restart 0
 
 
+                    YANGI SERVER — BIRINCHI ISHGA TUSHIRISH (2026-11-02 dan demo ma'lumot yo'q)
+
+                    cp .env.example .env      (DB_*, PORT, UI_DIST, GEMINI_API_KEY ni to'ldiring)
+                    baza bo'sh bo'lsa server o'zi yaratadi:
+                        admin:  admin@gmail.com / 123456789   (Admin Adminov)
+                        "Markaziy ombor"
+                    web: http://SERVER:3000/admin  → kirgach yuqori o'ngdagi "Profil" da email va parolni almashtiring
+                    keyin admin panelda: filiallar (ombori o'zi ochiladi) → ombor mahsulotlari → kategoriya va taomlar
+                        → xodimlar (kassir / oshpaz yordamchisi / ta'minotchi — PIN; kuryer — email va parol)
+                    admin paroli unutilsa: boshqa admin "Xodimlar" da yangisini beradi yoki Telegram botda /parol
+
+                    uploads (rasmlar) git'ga kirmaydi — git pull unga tegmaydi, papka bo'lmasa server o'zi yaratadi.
+                    YO'QOLADI: loyiha papkasini o'chirib qayta klonlasangiz yoki git clean -fdx qilsangiz.
+                    oylik zaxira nusxaga (Telegram) faqat baza ketadi — uploads ni o'zingiz nusxalab turing:
+                    scp -r USER@SERVER:/BACKEND_PAPKASI/uploads ./uploads-zaxira
+
+
+                    KASSA KOMPYUTERI — OFFLINE KASSA (internet yo'q paytda; batafsil API.md 14 va ../ElectronJS_NYFF/README.md)
+
+                    1) YIG'ISH (ishlab chiqish kompyuterida):  cd ../ElectronJS_NYFF  →  npm install  →  npm run build
+                       natija: ElectronJS_NYFF/dist/NYFF-Offline-Setup-<versiya>.exe  (markaziy server .env iga hech narsa yozilmaydi)
+
+                    2) KASSA KOMPYUTERIDA (Windows) bir marta:
+                       PostgreSQL o'rnating — foydalanuvchi postgres, parol root (baza nyff ni dastur o'zi ochadi)
+                       NYFF-Offline-Setup.exe ni o'rnating → birinchi ochilishda sozlash oynasi:
+                           Server manzili:  http://109.196.103.18:3000
+                           Offline kalit:   admin panel → Filiallar → filial → «Offline kalit» → Nusxalash
+                       «Saqlash» → dastur fonda (soat yonidagi belgi), Windows bilan birga yonadi
+
+                    3) Online kassada: «Sozlamalar» → «Internet uzilsa offline rejimga o'tish» ni yoqing (manzil http://localhost:3100)
+
+                    YANGILASH: yangi NYFF-Offline-Setup.exe ni ustidan o'rnating (sozlamalar va baza saqlanadi)
+
+                    QOIDALAR: filialda offline faqat BITTA kassa kompyuterida; kassa kompyuteri soati to'g'ri bo'lsin;
+                    offline'da smena ochilmaydi / yopilmaydi — smenani internet qaytib hammasi yuborilgach yoping.
+
+
                     RASMLAR (taom / kategoriya) — backendning uploads papkasida, git'ga kirmaydi
                     (admin yuklagan rasm ham shu yerga; ikonkalar — frontendda qoladi)
 

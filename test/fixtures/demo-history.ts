@@ -7,19 +7,19 @@
  * Tarix (buyurtma va smenalar) frontenddagidek to'g'ridan-to'g'ri yoziladi — omborga tegmaydi. Hujjatlar, bugungi
  * buyurtmalar va chiqimlar haqiqiy servislar orqali (ombordan ayriladi, raqamlar navbatda).
  */
-import type { AuthUser } from '../auth/auth.types';
-import type { ExpenseKind, OrderSource, OrderType, PaymentMethod } from '../common/enums';
-import { newId } from '../common/ids';
-import type { OnlineInfo, OrderItem } from '../common/types';
-import type { Counter } from '../database/counters';
-import { addDays, dateKey, parseDateKey } from '../domain/dates';
-import type { ExpensesService } from '../expenses/expenses.service';
-import { soldAt, type Product } from '../menu/product.entity';
-import { NO_COURIER, type Order } from '../orders/order.entity';
-import type { OrdersService } from '../orders/orders.service';
-import type { Shift } from '../shifts/shift.entity';
-import type { ShiftsService } from '../shifts/shifts.service';
-import type { WarehouseService } from '../warehouse/warehouse.service';
+import type { AuthUser } from '../../src/auth/auth.types';
+import type { ExpenseKind, OrderSource, OrderType, PaymentMethod } from '../../src/common/enums';
+import { newId } from '../../src/common/ids';
+import type { OnlineInfo, OrderItem } from '../../src/common/types';
+import type { Counter } from '../../src/database/counters';
+import { addDays, dateKey, parseDateKey } from '../../src/domain/dates';
+import type { ExpensesService } from '../../src/expenses/expenses.service';
+import { soldAt, type Product } from '../../src/menu/product.entity';
+import { NO_COURIER, type Order } from '../../src/orders/order.entity';
+import type { OrdersService } from '../../src/orders/orders.service';
+import type { Shift } from '../../src/shifts/shift.entity';
+import type { ShiftsService } from '../../src/shifts/shifts.service';
+import type { WarehouseService } from '../../src/warehouse/warehouse.service';
 import { WAREHOUSE_CENTRAL, ZONE_POINTS, type DemoBase } from './demo-data';
 
 const HISTORY_DAYS = 30;
@@ -244,6 +244,7 @@ export function seedHistory(base: DemoBase, now: Date, rand: Random): DemoHistor
           fromBranchId: null,
           trackingTokenHash: null,
           ...NO_COURIER,
+          syncedAt: null,
         });
       });
       counters.push({ key: `order:${branch.id}:${day}`, value: count });
@@ -408,8 +409,10 @@ const LIVE: Record<string, LiveOrder[]> = {
 const actorOf = (user: DemoBase['users'][number]): AuthUser => ({
   id: user.id,
   name: user.name,
+  surname: user.surname,
   role: user.role,
   branchId: user.branchId,
+  email: user.email,
 });
 
 /** Bugungi buyurtmalar haqiqiy mantiq orqali (ombordan ayriladi, raqamlar navbatda). Kassirlarning smenasi ochiq. */

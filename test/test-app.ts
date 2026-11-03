@@ -30,8 +30,10 @@ export async function truncateAll(app: INestApplication): Promise<void> {
 export const actor = (id: string, role: AuthUser['role'], branchId: string | null = null): AuthUser => ({
   id,
   name: id,
+  surname: '',
   role,
   branchId,
+  email: null,
 });
 
 /** Xato kodi bo'yicha kutish: `await expectCode('shift_not_open', () => service.x())`. */

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import { Public, Roles } from '../auth/decorators';
 import { MenuQuery, MoveDto, SaveCategoryDto, SaveProductDto } from './menu.dto';
 import { MenuService } from './menu.service';
@@ -35,6 +35,12 @@ export class CategoriesController {
     return this.menu.saveCategory({ ...dto, id });
   }
 
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Param('id') id: string) {
+    await this.menu.removeCategory(id);
+  }
+
   @Post(':id/move')
   @HttpCode(204)
   async move(@Param('id') id: string, @Body() dto: MoveDto) {
@@ -60,6 +66,12 @@ export class ProductsController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: SaveProductDto) {
     return this.menu.saveProduct({ ...dto, id });
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Param('id') id: string) {
+    await this.menu.removeProduct(id);
   }
 
   @Post(':id/move')

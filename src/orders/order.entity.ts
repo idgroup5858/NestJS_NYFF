@@ -121,6 +121,13 @@ export class Order {
   @Column('bigint', { nullable: true, transformer: bigintNumber })
   deliveryFee: number | null;
 
+  /**
+   * Internet yo'q paytda offline kassada yaratilib, keyin yuborilgan buyurtma — markazga yetib kelgan vaqti
+   * (`/sync/orders`). Oddiy buyurtmada `null`.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  syncedAt: Date | null;
+
   // ── kuryer (mobil dostavka). `status` o'zgarmaydi (oxirgisi `ready`) — kuryer bosqichlari alohida maydonlarda ──
 
   @Column({ type: 'varchar', length: ID_LENGTH, nullable: true })

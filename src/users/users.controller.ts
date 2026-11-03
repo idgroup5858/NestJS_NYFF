@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { SaveUserDto } from './user.dto';
@@ -31,5 +31,12 @@ export class UsersController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: SaveUserDto, @CurrentUser() actor: AuthUser) {
     return this.users.save({ ...dto, id }, actor.id);
+  }
+
+  /** Faqat hech qayerda izi yo'q xodim (aks holda `in_use` — bloklang). */
+  @Delete(':id')
+  @HttpCode(204)
+  remove(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    return this.users.remove(id, actor.id);
   }
 }

@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
+import { assertUnused } from '../common/in-use';
+import { Setting } from '../database/setting.entity';
 import type { LatLng, WorkHours } from '../common/types';
 import {
   branchOnlineState,
@@ -13,6 +15,7 @@ import {
 import { isLatLng, roundLatLng } from '../domain/geo';
 import { isValidWorkHours } from '../domain/work-hours';
 import { PresenceService } from '../realtime/presence.service';
+import { SCREEN_KINDS, screenCodeSetting } from '../screens/screen-codes.service';
 import { Branch } from './branch.entity';
 import { SaveDeliveryDto, SaveBranchDto } from './branch.dto';
 import { Warehouse } from './warehouse.entity';
@@ -69,6 +72,38 @@ export class BranchesService {
     await this.get(em, id);
     await em.update(Branch, id, fields);
     return this.get(em, id);
+  }
+
+  /**
+   * Filialni o'chirish — faqat hech qayerda ishlatilmagan bo'lsa: buyurtma (o'tkazilganlari ham), smena, chiqim,
+   * xodim, omborida kirim / ko'chirish / harakat yo'q. Aks holda `in_use` — faolsizlantirish kerak. Ombori (qoldig'i
+   * 0) u bilan birga o'chadi; boshqa filiallarning zaxirasi bo'lsa — zaxirasiz qoladi; taomlarning "sotilmaydi"
+   * ro'yxatidan chiqariladi.
+   */
+  async remove(id: string): Promise<void> {
+    await this.dataSource.transaction(async (em) => {
+      await this.get(em, id);
+      await assertUnused(em, id, {
+        orders: `SELECT 1 FROM orders WHERE "branchId" = $1 OR "fromBranchId" = $1 LIMIT 1`,
+        shifts: `SELECT 1 FROM shifts WHERE "branchId" = $1 LIMIT 1`,
+        expenses: `SELECT 1 FROM expenses WHERE "branchId" = $1 LIMIT 1`,
+        users: `SELECT 1 FROM users WHERE "branchId" = $1 LIMIT 1`,
+        purchases: `SELECT 1 FROM purchases p JOIN warehouses w ON w.id = p."warehouseId" WHERE w."branchId" = $1 LIMIT 1`,
+        transfers: `SELECT 1 FROM transfers t JOIN warehouses w ON w.id IN (t."fromWarehouseId", t."toWarehouseId")
+                    WHERE w."branchId" = $1 LIMIT 1`,
+        movements: `SELECT 1 FROM stock_movements m JOIN warehouses w ON w.id = m."warehouseId" WHERE w."branchId" = $1 LIMIT 1`,
+      });
+      await em.query(
+        `UPDATE products SET "unavailableBranchIds" = "unavailableBranchIds" - $1::text WHERE "unavailableBranchIds" ? $1`,
+        [id],
+      );
+      await em.update(Branch, { fallbackBranchId: id }, { fallbackBranchId: null });
+      // qoldiq yozuvlari ombor bilan (FK CASCADE)
+      await em.delete(Warehouse, { branchId: id });
+      // offline kassa kaliti (`offline_key:<filial>`, sync/offline-keys.service), TV va kiosk kodlari (`tv_code:`, `kiosk_code:`)
+      await em.delete(Setting, { key: In([`offline_key:${id}`, ...SCREEN_KINDS.map((kind) => screenCodeSetting(kind, id))]) });
+      await em.delete(Branch, { id });
+    });
   }
 
   /** Filialning yetkazib berish sozlamalari (admin xaritada saqlaydi). */

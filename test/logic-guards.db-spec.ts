@@ -1,7 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { AuthService } from '../src/auth/auth.service';
-import { DemoService } from '../src/demo/demo.service';
+import { seedDemo } from './fixtures/demo';
 import { Product } from '../src/menu/product.entity';
 import { Order } from '../src/orders/order.entity';
 import { OrdersService } from '../src/orders/orders.service';
@@ -38,7 +38,6 @@ const errorCode = (error: unknown) =>
 describe("himoya: PIN bloki, huquqlar, bir vaqtdagi so'rovlar", () => {
   let app: INestApplication;
   let em: EntityManager;
-  let demo: DemoService;
   let auth: AuthService;
   let orders: OrdersService;
   let shifts: ShiftsService;
@@ -47,7 +46,6 @@ describe("himoya: PIN bloki, huquqlar, bir vaqtdagi so'rovlar", () => {
   beforeAll(async () => {
     app = await createTestApp();
     em = app.get(DataSource).manager;
-    demo = app.get(DemoService);
     auth = app.get(AuthService);
     orders = app.get(OrdersService);
     shifts = app.get(ShiftsService);
@@ -70,7 +68,7 @@ describe("himoya: PIN bloki, huquqlar, bir vaqtdagi so'rovlar", () => {
       return row;
     };
 
-    beforeAll(() => demo.reset({ activity: false }, now));
+    beforeAll(() => seedDemo(app, { activity: false }, now));
 
     it("1–4-xato — wrong_pin, 5-xato — too_many_attempts; blok paytida to'g'ri PIN ham ishlamaydi", async () => {
       for (let i = 1; i <= 4; i++) await expectCode('wrong_pin', () => auth.checkPin(U, '9999', now));
@@ -108,7 +106,7 @@ describe("himoya: PIN bloki, huquqlar, bir vaqtdagi so'rovlar", () => {
 
   describe('huquqlar (servis darajasida)', () => {
     beforeAll(async () => {
-      await demo.reset({ activity: false }, now);
+      await seedDemo(app, { activity: false }, now);
       await shifts.openOrResume('usr_cashier_c1', C, now);
       await shifts.openOrResume('usr_cashier_y1', Y, now);
     });
@@ -159,7 +157,7 @@ describe("himoya: PIN bloki, huquqlar, bir vaqtdagi so'rovlar", () => {
 
   describe("bir vaqtdagi so'rovlar", () => {
     beforeAll(async () => {
-      await demo.reset({ activity: false }, now);
+      await seedDemo(app, { activity: false }, now);
       await shifts.openOrResume('usr_cashier_c1', C, now);
     });
 

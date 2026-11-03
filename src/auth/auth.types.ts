@@ -5,8 +5,11 @@ import type { Role } from '../common/enums';
 export interface AuthUser {
   id: string;
   name: string;
+  surname: string;
   role: Role;
   branchId: string | null;
+  /** admin va kuryer — kirish emaili; PIN bilan kiradiganlarda `null` */
+  email: string | null;
 }
 
 export interface TokenPayload {

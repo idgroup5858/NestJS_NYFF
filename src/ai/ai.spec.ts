@@ -129,14 +129,14 @@ describe('kutish matni', () => {
 });
 
 describe('Telegram buyruqlari', () => {
-  it("nomlari Telegram talabiga mos (lotin kichik harf, raqam, _; 32 gacha), takrorlanmaydi; har biriga savol yoki /new", () => {
+  it("nomlari Telegram talabiga mos (lotin kichik harf, raqam, _; 32 gacha), takrorlanmaydi; har biriga savol yoki /new, /parol", () => {
     const names = BOT_COMMANDS.map((c) => c.command);
     expect(new Set(names).size).toBe(names.length);
     for (const c of BOT_COMMANDS) {
       expect(c.command).toMatch(/^[a-z0-9_]{1,32}$/);
       expect(c.description.length).toBeGreaterThanOrEqual(3);
       expect(c.description.length).toBeLessThanOrEqual(256);
-      if (c.command !== 'new') expect(c.question).toBeTruthy();
+      if (c.command !== 'new' && c.command !== 'parol') expect(c.question).toBeTruthy();
     }
     expect(COMMANDS_HELP).toContain('/tushum — Bugungi tushum');
   });

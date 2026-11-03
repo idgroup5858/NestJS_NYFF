@@ -185,6 +185,7 @@ function order(input: {
     fromBranchId: null,
     trackingTokenHash: null,
     ...NO_COURIER,
+    syncedAt: null,
   };
 }
 
@@ -339,7 +340,8 @@ async function insertFixtures(em: EntityManager): Promise<void> {
       name: 'Admin',
       role: 'admin',
       branchId: null,
-      pinHash: await hashPin('1111'),
+      email: 'admin@gmail.com',
+      pinHash: await hashPin('admin-1111'),
       active: true,
       createdAt: new Date('2026-01-01T00:00:00Z'),
     },
@@ -529,16 +531,16 @@ describe('hisobotlar (SQL ↔ frontend salesReport)', () => {
   });
 
   describe('HTTP', () => {
-    const login = async (userId: string, pin: string): Promise<string> => {
+    const login = async (): Promise<string> => {
       const res = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ userId, pin })
+        .post('/api/auth/admin-login')
+        .send({ email: 'admin@gmail.com', password: 'admin-1111' })
         .expect(200);
       return res.body.token as string;
     };
 
     it('admin: hisobot va overview', async () => {
-      const token = await login('usr_admin', '1111');
+      const token = await login();
       const sales = await request(app.getHttpServer())
         .get('/api/reports/sales')
         .query({ from: '2026-10-21', to: '2026-10-23' })
@@ -569,7 +571,7 @@ describe('hisobotlar (SQL ↔ frontend salesReport)', () => {
     });
 
     it("admin: noto'g'ri so'rov — 400 invalid_input", async () => {
-      const token = await login('usr_admin', '1111');
+      const token = await login();
       for (const query of [
         { from: '2026-10-21' },
         { from: '21.10.2026', to: '2026-10-23' },
@@ -585,7 +587,8 @@ describe('hisobotlar (SQL ↔ frontend salesReport)', () => {
     });
 
     it("admin bo'lmagan xodim — 403, tokensiz — 401", async () => {
-      const token = await login('usr_cashier', '2222');
+      const session = await request(app.getHttpServer()).post('/api/auth/login').send({ userId: 'usr_cashier', pin: '2222' }).expect(200);
+      const token = session.body.token as string;
       for (const path of ['/api/reports/sales?from=2026-10-21&to=2026-10-23', '/api/reports/overview']) {
         const res = await request(app.getHttpServer())
           .get(path)

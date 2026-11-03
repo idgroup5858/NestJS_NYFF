@@ -24,14 +24,15 @@ import { Product, soldAt } from '../menu/product.entity';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { Shift } from '../shifts/shift.entity';
 import { PAID_STATUS_SQL, paymentPartSql } from '../shifts/shift-summary';
-import { StockMovement } from '../warehouse/stock-movement.entity';
-import { recipeDeltas, StockService } from '../warehouse/stock.service';
+import { StockService } from '../warehouse/stock.service';
 import { NO_COURIER, Order } from './order.entity';
 import { ConfirmOrderDto, CreateOrderDto, KioskOrderDto, MobileOrderDto, OrdersQuery } from './order.dto';
 import { customerOrderView, orderView, tvOrderView, type CustomerOrderView, type OrderView } from './order.views';
 
 /** Buyurtma yaratish — manba (kassa / kiosk / mobil) controllerda aniqlanadi, bu yerga tayyor holda keladi. */
 export interface PlaceOrderInput {
+  /** kassa o'zi bergan id (`CreateOrderDto.id`); berilmasa — yangisi */
+  id?: string;
   branchId: string;
   type: OrderType;
   source: OrderSource;
@@ -48,7 +49,8 @@ export interface PlaceOrderInput {
   deliveryFee?: number | null;
 }
 
-const orderCounterKey = (branchId: string, now: Date) => `order:${branchId}:${dateKey(now)}`;
+/** Filialning kunlik buyurtma raqami hisoblagichi (`counters`). */
+export const orderCounterKey = (branchId: string, now: Date) => `order:${branchId}:${dateKey(now)}`;
 
 /** Admin ro'yxatining jami (filtrlangan hamma buyurtmalar bo'yicha, sahifadan qat'i nazar). */
 export interface OrdersSummary {
@@ -85,21 +87,42 @@ export class OrdersService {
 
   // ───────────────────────── Yaratish ─────────────────────────
 
-  /** Kassa: filial va kassir — tokendan; buyurtma kassirning ochiq smenasiga yoziladi. */
+  /**
+   * Kassa: filial va kassir — tokendan; buyurtma kassirning ochiq smenasiga yoziladi. Kassa id bergan bo'lsa va shu
+   * id'li buyurtma allaqachon bor (javob yo'lda yo'qolgan, kassa qayta yubordi) — yangisi yozilmaydi, o'sha qaytadi.
+   */
   async createByCashier(user: AuthUser, dto: CreateOrderDto, now = new Date()): Promise<OrderView> {
-    const order = await this.place(
-      {
-        branchId: user.branchId ?? fail('branch_required'),
-        type: dto.type,
-        source: 'cashier',
-        items: dto.items,
-        note: dto.note,
-        payment: dto.payment ?? null,
-        split: dto.split,
-        cashierId: user.id,
-      },
-      now,
-    );
+    const existing = dto.id ? await this.dataSource.manager.findOneBy(Order, { id: dto.id }) : null;
+    if (existing) return this.retriedOrder(existing, user);
+    try {
+      const order = await this.place(
+        {
+          id: dto.id,
+          branchId: user.branchId ?? fail('branch_required'),
+          type: dto.type,
+          source: 'cashier',
+          items: dto.items,
+          note: dto.note,
+          payment: dto.payment ?? null,
+          split: dto.split,
+          cashierId: user.id,
+        },
+        now,
+      );
+      return orderView(order);
+    } catch (error) {
+      // bir xil id bilan ikkita so'rov bir vaqtda keldi — ikkinchisi birinchisining natijasini oladi
+      if (!dto.id || (error as { code?: string }).code !== '23505') throw error;
+      const order = (await this.dataSource.manager.findOneBy(Order, { id: dto.id })) ?? fail('not_found', dto.id);
+      return this.retriedOrder(order, user);
+    }
+  }
+
+  /** Qayta yuborilgan kassa buyurtmasi — faqat o'sha kassirning o'sha filialdagi buyurtmasi bo'lsa qaytadi. */
+  private retriedOrder(order: Order, user: AuthUser): OrderView {
+    if (order.source !== 'cashier' || order.cashierId !== user.id || order.branchId !== user.branchId) {
+      fail('invalid_input', `order id ${order.id} taken`);
+    }
     return orderView(order);
   }
 
@@ -196,7 +219,7 @@ export class OrdersService {
       const paid = input.payment === null ? null : resolvePayment(input.payment, input.split, total);
 
       const order: Order = {
-        id: newId('ord'),
+        id: input.id ?? newId('ord'),
         branchId: branch.id,
         number: await nextCounter(em, orderCounterKey(branch.id, now)),
         type: input.type,
@@ -222,6 +245,7 @@ export class OrdersService {
         trackingTokenHash,
         ...NO_COURIER,
         deliveryFee: input.source === 'mobile' && input.type === 'delivery' ? (input.deliveryFee ?? null) : null,
+        syncedAt: null,
       };
       await em.insert(Order, order);
       if (paid) await this.deductStock(em, order, products, now);
@@ -553,19 +577,11 @@ export class OrdersService {
 
   /** To'langan buyurtma oshxonaga ketadi: retsept bo'yicha mahsulotlar filial omboridan ayriladi. */
   private async deductStock(em: EntityManager, order: Order, products: Map<string, Product>, at: Date) {
-    const warehouse = await this.stock.branchWarehouse(em, order.branchId);
-    await this.stock.applyDeltas(em, warehouse.id, recipeDeltas(products, order.items, -1), 'sale', order.id, at);
+    await this.stock.deductOrder(em, order, at, products);
   }
 
   /** Sotuvda ayrilganlar (harakatlar bo'yicha) aynan qaytadi — retsept keyin o'zgargan bo'lsa ham. */
   private async returnStock(em: EntityManager, order: Order, at: Date) {
-    const sales = await em.findBy(StockMovement, { refId: order.id, kind: 'sale' });
-    const byWarehouse = new Map<string, { ingredientId: string; qty: number }[]>();
-    for (const m of sales) {
-      byWarehouse.set(m.warehouseId, [...(byWarehouse.get(m.warehouseId) ?? []), { ingredientId: m.ingredientId, qty: -m.qty }]);
-    }
-    for (const [warehouseId, deltas] of byWarehouse) {
-      await this.stock.applyDeltas(em, warehouseId, deltas, 'sale_cancel', order.id, at);
-    }
+    await this.stock.returnOrder(em, order.id, at);
   }
 }

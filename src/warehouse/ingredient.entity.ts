@@ -3,7 +3,10 @@ import { bigintNumber, ID_LENGTH } from '../common/columns';
 import type { IngredientGroup, StockUnit } from '../common/enums';
 import type { LocalizedText } from '../common/types';
 
-/** Ombor mahsuloti (xomashyo, qadoq). O'chirilmaydi — faqat "faol emas" qilinadi (retsept va tarix unga bog'langan). */
+/**
+ * Ombor mahsuloti (xomashyo, qadoq). Hech qayerda ishlatilmagan bo'lsa o'chiriladi; retseptda yoki tarixda bo'lsa —
+ * faqat "faol emas" qilinadi.
+ */
 @Entity('ingredients')
 export class Ingredient {
   @PrimaryColumn({ type: 'varchar', length: ID_LENGTH })

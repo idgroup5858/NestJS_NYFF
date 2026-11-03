@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { EntityManager } from 'typeorm';
+import { EntityManager, In } from 'typeorm';
 import { Warehouse } from '../branches/warehouse.entity';
 import type { MovementKind } from '../common/enums';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
-import type { Product } from '../menu/product.entity';
+import { Product } from '../menu/product.entity';
 import { StockMovement } from './stock-movement.entity';
 
 /** Qoldiq o'zgarishi, asosiy birlikda: musbat — kirim, manfiy — chiqim. */
@@ -87,5 +87,38 @@ export class StockService {
     return (
       (await em.findOneBy(Warehouse, { kind: 'branch', branchId })) ?? fail('not_found', `warehouse of ${branchId}`)
     );
+  }
+
+  /**
+   * To'langan buyurtma oshxonaga ketdi: retsept bo'yicha mahsulotlar filial omboridan ayriladi. [products] — taomlar
+   * allaqachon o'qilgan bo'lsa; berilmasa bazadan (menyudan o'chirilgan taom hisobga olinmaydi).
+   */
+  async deductOrder(
+    em: EntityManager,
+    order: { id: string; branchId: string; items: { productId: string; qty: number }[] },
+    at: Date,
+    products?: Map<string, Product>,
+  ): Promise<void> {
+    const recipes =
+      products ??
+      new Map(
+        (await em.findBy(Product, { id: In([...new Set(order.items.map((item) => item.productId))]) })).map(
+          (product) => [product.id, product],
+        ),
+      );
+    const warehouse = await this.branchWarehouse(em, order.branchId);
+    await this.applyDeltas(em, warehouse.id, recipeDeltas(recipes, order.items, -1), 'sale', order.id, at);
+  }
+
+  /** Bekor qilingan buyurtma: sotuvda ayrilganlar (harakatlar bo'yicha) aynan qaytadi — retsept keyin o'zgargan bo'lsa ham. */
+  async returnOrder(em: EntityManager, orderId: string, at: Date): Promise<void> {
+    const sales = await em.findBy(StockMovement, { refId: orderId, kind: 'sale' });
+    const byWarehouse = new Map<string, StockDelta[]>();
+    for (const m of sales) {
+      byWarehouse.set(m.warehouseId, [...(byWarehouse.get(m.warehouseId) ?? []), { ingredientId: m.ingredientId, qty: -m.qty }]);
+    }
+    for (const [warehouseId, deltas] of byWarehouse) {
+      await this.applyDeltas(em, warehouseId, deltas, 'sale_cancel', orderId, at);
+    }
   }
 }

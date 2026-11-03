@@ -1,9 +1,11 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { DemoService } from '../src/demo/demo.service';
+import { seedDemo } from './fixtures/demo';
+import { ADMIN_LOGIN } from './fixtures/demo-data';
 import { OrdersService } from '../src/orders/orders.service';
 import { ShiftsService } from '../src/shifts/shifts.service';
+import { ScreenCodesService } from '../src/screens/screen-codes.service';
 import { createTestApp } from './test-app';
 
 /**
@@ -18,9 +20,9 @@ describe('HTTP shartnomasi', () => {
 
   beforeAll(async () => {
     app = await createTestApp();
-    await app.get(DemoService).reset({ activity: false });
+    await seedDemo(app, { activity: false });
+    tokens.usr_admin = (await http().post('/api/auth/admin-login').send(ADMIN_LOGIN).expect(200)).body.token;
     for (const [user, pin] of [
-      ['usr_admin', '0000'],
       ['usr_supplier', '5555'],
       ['usr_cashier_c1', '1234'],
     ]) {
@@ -149,21 +151,28 @@ describe('HTTP shartnomasi', () => {
     expect((await http().post('/api/mobile/orders').send(valid).expect(409)).body.code).toBe('branch_closed');
   });
 
-  it("TV va kiosk — PINsiz, kalitsiz (filial so'rovda); faol bo'lmagan filial — 404", async () => {
-    await http().get('/api/tv/queue?branchId=br_chilonzor').expect(200);
-    expect((await http().get('/api/tv/queue').expect(400)).body.code).toBe('branch_required');
-    await http().get('/api/tv/queue?branchId=br_none').expect(404);
+  it("TV va kiosk — PINsiz, filial kodi bilan (filial so'rovda); kod to'g'ri, filial faol emas — 404", async () => {
+    const codes = app.get(ScreenCodesService);
+    const tv = { 'X-Tv-Code': await codes.get('tv', 'br_chilonzor') };
+    const tvY = { 'X-Tv-Code': await codes.get('tv', 'br_yunusobod') };
+    await http().get('/api/tv/queue?branchId=br_chilonzor').set(tv).expect(200);
+    expect((await http().get('/api/tv/queue?branchId=br_chilonzor').expect(401)).body.code).toBe('wrong_tv_code');
+    expect((await http().get('/api/tv/queue').set(tv).expect(400)).body.code).toBe('branch_required');
+    expect((await http().get('/api/tv/queue?branchId=br_none').set(tv).expect(401)).body.code).toBe('wrong_tv_code');
 
+    const kioskC = { 'X-Kiosk-Code': await codes.get('kiosk', 'br_chilonzor') };
+    const kioskY = { 'X-Kiosk-Code': await codes.get('kiosk', 'br_yunusobod') };
     const kiosk = { type: 'takeaway', items: [{ productId: 'burger-classic', qty: 1 }], payment: null };
-    const created = await http().post('/api/kiosk/orders').send({ ...kiosk, branchId: 'br_chilonzor' }).expect(201);
+    const created = await http().post('/api/kiosk/orders').set(kioskC).send({ ...kiosk, branchId: 'br_chilonzor' }).expect(201);
     expect(created.body).toMatchObject({ branchId: 'br_chilonzor', status: 'pending' });
-    expect((await http().post('/api/kiosk/orders').send(kiosk).expect(400)).body.code).toBe('invalid_input');
+    expect((await http().post('/api/kiosk/orders').send({ ...kiosk, branchId: 'br_chilonzor' }).expect(401)).body.code).toBe('wrong_kiosk_code');
+    expect((await http().post('/api/kiosk/orders').set(kioskC).send(kiosk).expect(400)).body.code).toBe('invalid_input');
 
     await http().get('/api/menu?branchId=br_chilonzor').expect(200);
     await app.get(DataSource).query(`UPDATE branches SET active = false WHERE id = 'br_yunusobod'`);
     await http().get('/api/menu?branchId=br_yunusobod').expect(404);
-    await http().get('/api/tv/queue?branchId=br_yunusobod').expect(404);
-    await http().post('/api/kiosk/orders').send({ ...kiosk, branchId: 'br_yunusobod' }).expect(404);
+    await http().get('/api/tv/queue?branchId=br_yunusobod').set(tvY).expect(404);
+    await http().post('/api/kiosk/orders').set(kioskY).send({ ...kiosk, branchId: 'br_yunusobod' }).expect(404);
     await app.get(DataSource).query(`UPDATE branches SET active = true WHERE id = 'br_yunusobod'`);
   });
 

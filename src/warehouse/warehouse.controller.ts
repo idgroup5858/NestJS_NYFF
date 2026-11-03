@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
@@ -40,6 +40,13 @@ export class WarehouseController {
   @Patch('ingredients/:id')
   updateIngredient(@Param('id') id: string, @Body() dto: UpdateIngredientDto, @CurrentUser() user: AuthUser) {
     return this.warehouse.saveIngredient({ ...dto, id }, user.role);
+  }
+
+  /** Faqat hech qayerda ishlatilmagan mahsulot (retsept, kirim, ko'chirish, harakat) — aks holda `in_use`. */
+  @Delete('ingredients/:id')
+  @HttpCode(204)
+  async removeIngredient(@Param('id') id: string) {
+    await this.warehouse.removeIngredient(id);
   }
 
   @Get('stock')

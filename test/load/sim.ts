@@ -81,7 +81,7 @@ export class Api {
     label: string,
     method: string,
     path: string,
-    options: { token?: string; body?: unknown; expected?: string[] } = {},
+    options: { token?: string; body?: unknown; expected?: string[]; headers?: Record<string, string> } = {},
   ): Promise<T> {
     const started = performance.now();
     let status = 0;
@@ -92,6 +92,7 @@ export class Api {
         headers: {
           ...(options.body !== undefined && { 'content-type': 'application/json' }),
           ...(options.token && { authorization: `Bearer ${options.token}` }),
+          ...options.headers,
         },
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       });
@@ -180,6 +181,10 @@ interface BranchActors {
   zone: { lat: number; lng: number };
   cashiers: Staff[];
   kitchen: Staff;
+  /** filial TV kodi (admin "Filiallar" → "TV kodi") — TV navbati va TV socket'i shu bilan */
+  tvCode: string;
+  /** filial kiosk kodi (admin "Filiallar" → "Kiosk kodi") — kiosk buyurtmasi shu bilan */
+  kioskCode: string;
 }
 
 /** Simulyatsiya bilgan narsa — keyin bazadagi bilan solishtiriladi. */
@@ -202,11 +207,11 @@ export interface SimSetup {
   products: Product[];
   branches: { id: string; zone: { lat: number; lng: number } }[];
   staff: { cashiers: Record<string, { id: string; pin: string }[]>; kitchens: Record<string, { id: string; pin: string }> };
-  couriers: { id: string; login: string; password: string }[];
-  admin: { id: string; pin: string };
+  couriers: { id: string; email: string; password: string }[];
+  admin: { id: string; email: string; password: string };
 }
 
-/** Demo xodimlari (PIN'lari `demo-data.ts` da) va yuk testi kuryerlari. */
+/** Sinov to'plami xodimlari (PIN va parollari `fixtures/demo-data.ts` da) va yuk testi kuryerlari. */
 export const DEMO_STAFF: Pick<SimSetup, 'staff' | 'couriers' | 'admin'> = {
   staff: {
     cashiers: {
@@ -222,11 +227,11 @@ export const DEMO_STAFF: Pick<SimSetup, 'staff' | 'couriers' | 'admin'> = {
     kitchens: { br_chilonzor: { id: 'usr_kitchen_c1', pin: '1111' }, br_yunusobod: { id: 'usr_kitchen_y1', pin: '1111' } },
   },
   couriers: [
-    { id: 'usr_courier_1', login: 'bobur', password: '222222' },
-    { id: 'usr_courier_2', login: 'otabek', password: '333333' },
-    ...EXTRA_COURIERS.map(({ id, login, password }) => ({ id, login, password })),
+    { id: 'usr_courier_1', email: 'bobur@gmail.com', password: 'bobur2222' },
+    { id: 'usr_courier_2', email: 'otabek@gmail.com', password: 'otabek3333' },
+    ...EXTRA_COURIERS.map(({ id, email, password }) => ({ id, email, password })),
   ],
-  admin: { id: 'usr_admin', pin: '0000' },
+  admin: { id: 'usr_admin', email: 'admin@gmail.com', password: '123456789' },
 };
 
 /** Kuryer: "Ishdaman", bir filialdan 3 tagacha oladi, hammasi tayyor bo'lsa yo'lga chiqadi va navbat bilan yetkazadi. */
@@ -347,23 +352,41 @@ export class Simulation {
   async start(): Promise<void> {
     const login = async (id: string, pin: string) =>
       (await this.api.request<{ token: string }>('POST /auth/login', 'POST', '/auth/login', { body: { userId: id, pin } })).token;
-    this.admin = { id: this.setup.admin.id, token: await login(this.setup.admin.id, this.setup.admin.pin) };
+    const { email, password } = this.setup.admin;
+    const admin = await this.api.request<{ token: string }>('POST /auth/admin-login', 'POST', '/auth/admin-login', {
+      body: { email, password },
+    });
+    this.admin = { id: this.setup.admin.id, token: admin.token };
     for (const branch of this.setup.branches) {
       const cashiers: Staff[] = [];
       for (const c of this.setup.staff.cashiers[branch.id]) cashiers.push({ id: c.id, token: await login(c.id, c.pin) });
       const k = this.setup.staff.kitchens[branch.id];
-      this.branches.push({ id: branch.id, zone: branch.zone, cashiers, kitchen: { id: k.id, token: await login(k.id, k.pin) } });
+      const screenCode = async (kind: 'tv' | 'kiosk') =>
+        (
+          await this.api.request<{ code: string }>(`GET /branches/:id/${kind}-code`, 'GET', `/branches/${branch.id}/${kind}-code`, {
+            token: admin.token,
+          })
+        ).code;
+      this.branches.push({
+        id: branch.id,
+        zone: branch.zone,
+        cashiers,
+        kitchen: { id: k.id, token: await login(k.id, k.pin) },
+        tvCode: await screenCode('tv'),
+        kioskCode: await screenCode('kiosk'),
+      });
     }
     for (const c of this.setup.couriers) {
       const { token } = await this.api.request<{ token: string }>('POST /auth/courier-login', 'POST', '/auth/courier-login', {
-        body: { login: c.login, password: c.password },
+        body: { email: c.email, password: c.password },
       });
       await this.api.request('PUT /courier/duty', 'PUT', '/courier/duty', { token, body: { onDuty: true } });
       this.couriers.push(new CourierActor(this, c.id, token));
     }
 
     const url = this.setup.base;
-    const get = (label: string, path: string, token?: string) => this.api.request(label, 'GET', path, { token });
+    const get = (label: string, path: string, token?: string, headers?: Record<string, string>) =>
+      this.api.request(label, 'GET', path, { token, headers });
     for (const b of this.branches) {
       // kassa: ishdagi buyurtmalar, "Dostavka" va smena (KassaPage); oshxona: ishdagilar; TV: navbat
       for (const c of b.cashiers) {
@@ -376,7 +399,11 @@ export class Simulation {
         );
       }
       this.screens.push(new Screen(url, { token: b.kitchen.token }, () => [get('GET /orders/active', '/orders/active', b.kitchen.token)]));
-      this.screens.push(new Screen(url, { tvBranchId: b.id }, () => [get('GET /tv/queue', `/tv/queue?branchId=${b.id}`)]));
+      this.screens.push(
+        new Screen(url, { tvBranchId: b.id, tvCode: b.tvCode }, () => [
+          get('GET /tv/queue', `/tv/queue?branchId=${b.id}`, undefined, { 'x-tv-code': b.tvCode }),
+        ]),
+      );
     }
     for (const courier of this.couriers) courier.start(url);
     await sleep(1_000);
@@ -473,11 +500,11 @@ export class Simulation {
   }
 
   /** Tarixga bog'liq o'qishlar — indeks "oldin / keyin" taqqoslash uchun (birinchi filial, birinchi kuryer). */
-  probes(): { label: string; path: string; token?: string }[] {
+  probes(): { label: string; path: string; token?: string; headers?: Record<string, string> }[] {
     const b = this.branches[0];
     const courier = this.couriers[0];
     return [
-      { label: 'GET /tv/queue', path: `/tv/queue?branchId=${b.id}` },
+      { label: 'GET /tv/queue', path: `/tv/queue?branchId=${b.id}`, headers: { 'x-tv-code': b.tvCode } },
       { label: 'GET /orders/ready', path: '/orders/ready', token: b.kitchen.token },
       { label: 'GET /orders/active', path: '/orders/active', token: b.cashiers[0].token },
       { label: 'GET /orders/delivery', path: '/orders/delivery', token: b.cashiers[0].token },
@@ -544,6 +571,7 @@ export class Simulation {
     const paid = Math.random() < 0.5;
     const order = await this.api.request<{ id: string; total: number; branchId: string }>('POST /kiosk/orders', 'POST', '/kiosk/orders', {
       body: { branchId: b.id, type: pick(['dine_in', 'takeaway']), items, payment: paid ? pick(['card', 'click']) : null },
+      headers: { 'x-kiosk-code': b.kioskCode },
     });
     const e = this.track(order, { source: 'kiosk', total, cashierId: null, status: 'ready', delivery: false }, total);
     if (!paid) {

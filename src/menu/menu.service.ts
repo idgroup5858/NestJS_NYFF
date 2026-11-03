@@ -5,6 +5,7 @@ import { Branch } from '../branches/branch.entity';
 import { NON_COMPOSITION_GROUPS } from '../common/enums';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
+import { assertUnused } from '../common/in-use';
 import type { LocalizedText } from '../common/types';
 import { Ingredient } from '../warehouse/ingredient.entity';
 import { Category } from './category.entity';
@@ -127,6 +128,29 @@ export class MenuService {
     const product: Product = { id: newId('prd'), ...fields, sortOrder: (await this.maxSortOrder(em, Product)) + 1 };
     await em.insert(Product, product);
     return product;
+  }
+
+  /** Kategoriyani o'chirish — ichida taom bo'lmasa (faol bo'lmaganlari ham sanaladi); aks holda `in_use`. */
+  async removeCategory(id: string): Promise<void> {
+    await this.dataSource.transaction(async (em) => {
+      await this.getCategory(em, id);
+      await assertUnused(em, id, { products: `SELECT 1 FROM products WHERE "categoryId" = $1 LIMIT 1` });
+      await em.delete(Category, { id });
+    });
+  }
+
+  /**
+   * Taomni o'chirish — hech bir buyurtmada bo'lmasa (bekor qilinganlari ham); aks holda `in_use` — faolsizlantirish
+   * kerak. Rasm fayli qoladi (galereyada boshqa taom / kategoriya ham ishlatishi mumkin).
+   */
+  async removeProduct(id: string): Promise<void> {
+    await this.dataSource.transaction(async (em) => {
+      await this.getProduct(em, id);
+      await assertUnused(em, id, {
+        orders: `SELECT 1 FROM orders WHERE items @> jsonb_build_array(jsonb_build_object('productId', $1::text)) LIMIT 1`,
+      });
+      await em.delete(Product, { id });
+    });
   }
 
   /** Kategoriyani bir pog'ona yuqoriga (-1) yoki pastga (+1) — kassa va kioskda shu tartibda chiqadi. */
