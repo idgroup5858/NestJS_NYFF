@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, IsNull } from 'typeorm';
 import type { AuthUser } from '../auth/auth.types';
+import { Branch } from '../branches/branch.entity';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
 import { pageParams, type Page } from '../common/pagination';
@@ -30,19 +31,24 @@ export class ShiftsService {
     private readonly events: ShiftEvents,
   ) {}
 
-  /** Kassir kirganda: ochiq smenasi bo'lsa davom etadi, bo'lmasa yangisi ochiladi. */
+  /**
+   * Kassir kirganda: shu filialda ochiq smenasi bo'lsa davom etadi, bo'lmasa yangisi ochiladi. Kassirda bir vaqtda
+   * bitta ochiq smena — boshqa filialda ochiq qolgan bo'lsa `shift_open_elsewhere` (`detail` — o'sha filial nomi):
+   * avval o'sha yerda topshiradi (yoki admin yopadi), naqd pul hisobi aralashmasin.
+   */
   async openOrResume(cashierId: string, branchId: string, now = new Date()): Promise<Shift> {
     const em = this.dataSource.manager;
-    const open = await em.findOneBy(Shift, { cashierId, branchId, closedAt: IsNull() });
-    if (open) return open;
+    const open = await em.findOneBy(Shift, { cashierId, closedAt: IsNull() });
+    if (open) return this.inBranch(em, open, branchId);
     const shift: Shift = { id: newId('shf'), branchId, cashierId, openedAt: now, closedAt: null };
     try {
       await em.insert(Shift, shift);
       return shift;
     } catch (error) {
-      // ikki tabdan bir vaqtda kirdi — boshqasi allaqachon ochgan (unique index)
+      // ikki tabdan (yoki ikki filialdan) bir vaqtda kirdi — boshqasi allaqachon ochgan (unique index)
       if ((error as { code?: string }).code !== '23505') throw error;
-      return (await em.findOneBy(Shift, { cashierId, branchId, closedAt: IsNull() })) ?? fail('shift_not_open');
+      const opened = (await em.findOneBy(Shift, { cashierId, closedAt: IsNull() })) ?? fail('shift_not_open');
+      return this.inBranch(em, opened, branchId);
     }
   }
 
@@ -122,6 +128,13 @@ export class ShiftsService {
     if (user.role !== 'admin' && shift.cashierId !== user.id) fail('forbidden');
     const orders = await em.find(Order, { where: { shiftId: id }, order: { createdAt: 'ASC' } });
     return { ...(await this.withSummary(em, shift)), orders: orders.map(orderView) };
+  }
+
+  /** Kassirning ochiq smenasi so'ralgan filialdami — boshqa filialda bo'lsa xato (shu filial nomi bilan). */
+  private async inBranch(em: EntityManager, shift: Shift, branchId: string): Promise<Shift> {
+    if (shift.branchId === branchId) return shift;
+    const branch = await em.findOneBy(Branch, { id: shift.branchId });
+    return fail('shift_open_elsewhere', branch?.name ?? shift.branchId);
   }
 
   private async withSummary(em: EntityManager, shift: Shift): Promise<ShiftWithSummary> {

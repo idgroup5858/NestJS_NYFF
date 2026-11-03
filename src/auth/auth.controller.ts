@@ -31,14 +31,14 @@ export class AuthController {
     return this.auth.staff(query);
   }
 
-  /** PIN bilan — kassir, oshpaz yordamchisi, ta'minotchi. */
+  /** PIN bilan — kassir, oshpaz yordamchisi, ta'minotchi; `branchId` — kassa turgan filial. */
   @Public()
   @UseGuards(AttemptsGuard)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('login')
   @HttpCode(200)
   login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.userId, dto.pin);
+    return this.auth.login(dto.userId, dto.pin, dto.branchId);
   }
 
   /** Admin — email va parol bilan (web `/admin`); IP bo'yicha chegara PIN kirishidagidek. */
@@ -73,7 +73,7 @@ export class AuthController {
   @Post('unlock')
   @HttpCode(200)
   unlock(@CurrentUser() user: AuthUser, @Body() dto: UnlockDto) {
-    return this.auth.unlock(user.id, dto.pin);
+    return this.auth.unlock(user, dto.pin);
   }
 
   @Put('pin')

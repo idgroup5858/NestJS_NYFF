@@ -87,7 +87,8 @@ export class BranchesService {
         orders: `SELECT 1 FROM orders WHERE "branchId" = $1 OR "fromBranchId" = $1 LIMIT 1`,
         shifts: `SELECT 1 FROM shifts WHERE "branchId" = $1 LIMIT 1`,
         expenses: `SELECT 1 FROM expenses WHERE "branchId" = $1 LIMIT 1`,
-        users: `SELECT 1 FROM users WHERE "branchId" = $1 LIMIT 1`,
+        // xodim filiallari — jsonb ro'yxat (FK yo'q), shuning uchun shu yerda tekshiriladi
+        users: `SELECT 1 FROM users WHERE "branchIds" ? $1 LIMIT 1`,
         purchases: `SELECT 1 FROM purchases p JOIN warehouses w ON w.id = p."warehouseId" WHERE w."branchId" = $1 LIMIT 1`,
         transfers: `SELECT 1 FROM transfers t JOIN warehouses w ON w.id IN (t."fromWarehouseId", t."toWarehouseId")
                     WHERE w."branchId" = $1 LIMIT 1`,

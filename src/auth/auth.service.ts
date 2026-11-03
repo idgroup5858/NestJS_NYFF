@@ -3,12 +3,12 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'node:crypto';
 import { In, Repository } from 'typeorm';
-import { ROLES, usesPassword, type Role } from '../common/enums';
+import { ROLES, roleNeedsBranch, usesPassword, type Role } from '../common/enums';
 import { fail } from '../common/errors';
 import { Setting } from '../database/setting.entity';
 import type { Shift } from '../shifts/shift.entity';
 import { ShiftsService } from '../shifts/shifts.service';
-import { User } from '../users/user.entity';
+import { User, worksAt } from '../users/user.entity';
 import type { AuthUser, TokenPayload } from './auth.types';
 import { comparePin, hashPin, isValidPassword, isValidPin, MAX_PIN_ATTEMPTS, normalizeEmail, PIN_LOCK_MS } from './pin';
 
@@ -19,15 +19,35 @@ const TOKEN_TTL = '24h';
 /** PIN bilan kiradigan rollar — ismlari ochiq kirish ro'yxatida. */
 const PIN_ROLES = ROLES.filter((role) => !usesPassword(role));
 
-export function toAuthUser(user: User): AuthUser {
+/** [branchId] — joriy filial (tokendagi yoki kirish ro'yxati so'ralgan filial); filialsiz rollarda doim `null`. */
+export function toAuthUser(user: User, branchId: string | null = null): AuthUser {
   return {
     id: user.id,
     name: user.name,
     surname: user.surname,
     role: user.role,
-    branchId: user.branchId,
+    branchId: roleNeedsBranch(user.role) ? branchId : null,
+    branchIds: user.branchIds,
     email: user.email,
   };
+}
+
+/**
+ * Tokendagi joriy filial hali ham amal qiladimi: filialsiz rol — `null`; xodim hali shu filialda — o'sha filial; admin
+ * uni filialdan olib tashlagan — `undefined` (token yaroqsiz). Filialsiz eski token (2026-11-04 gacha) — xodimning
+ * yagona filiali; bir nechta bo'lsa — `undefined` (qayta kirsin, filialni kassa tanlaydi).
+ */
+function sessionBranch(user: User, tokenBranch: string | undefined): string | null | undefined {
+  if (!roleNeedsBranch(user.role)) return null;
+  if (tokenBranch) return user.branchIds.includes(tokenBranch) ? tokenBranch : undefined;
+  return user.branchIds.length === 1 ? user.branchIds[0] : undefined;
+}
+
+/** PIN bilan kirishda joriy filial (qoidasi — [AuthService.login] da). */
+function loginBranch(user: User, requested: string | undefined): string | null {
+  if (!roleNeedsBranch(user.role)) return null;
+  if (requested) return user.branchIds.includes(requested) ? requested : fail('forbidden', `branch ${requested}`);
+  return user.branchIds.length === 1 ? user.branchIds[0] : fail('branch_required');
 }
 
 export interface LoginResult {
@@ -74,23 +94,28 @@ export class AuthService implements OnModuleInit {
       where: {
         active: true,
         role: filter.role ?? In(PIN_ROLES),
-        ...(filter.branchId && { branchId: filter.branchId }),
+        // bir nechta filialda ishlaydigan xodim — har birining ro'yxatida
+        ...(filter.branchId && { branchIds: worksAt(filter.branchId) }),
       },
       order: { name: 'ASC', surname: 'ASC' },
     });
-    return users.map(toAuthUser);
+    return users.map((user) => toAuthUser(user, filter.branchId ?? null));
   }
 
   /**
    * PIN bilan kirish (kassir, oshpaz yordamchisi, ta'minotchi); kassir uchun smena ochiladi yoki davom etadi. Admin va
    * kuryer bu yo'ldan kira olmaydi — rol PIN'dan oldin tekshiriladi (parol PIN sifatida sinab ko'rilmasin).
+   *
+   * [branchId] — kassa turgan filial (kirish ekranida tanlangan); xodim shu filialda ishlashi shart (`forbidden`), u
+   * tokenga yoziladi. Berilmasa — xodimning yagona filiali (bir nechta bo'lsa — `branch_required`). Kassirning boshqa
+   * filialda ochiq smenasi bo'lsa — `shift_open_elsewhere` (`detail` — o'sha filial nomi): avval o'sha yerda topshiradi.
    */
-  async login(userId: string, pin: string, now = new Date()): Promise<LoginResult> {
+  async login(userId: string, pin: string, branchId?: string, now = new Date()): Promise<LoginResult> {
     await this.assertPinRole(userId);
     const user = await this.checkPin(userId, pin, now);
-    const shift =
-      user.role === 'cashier' && user.branchId ? await this.shifts.openOrResume(user.id, user.branchId, now) : null;
-    return { token: await this.sign(user), user: toAuthUser(user), shift };
+    const branch = loginBranch(user, branchId);
+    const shift = user.role === 'cashier' && branch ? await this.shifts.openOrResume(user.id, branch, now) : null;
+    return { token: await this.sign(user.id, branch), user: toAuthUser(user, branch), shift };
   }
 
   /**
@@ -101,13 +126,14 @@ export class AuthService implements OnModuleInit {
     const found = await this.users.findOneBy({ email: normalizeEmail(email), role });
     if (!found) fail('wrong_login');
     const user = await this.checkPin(found.id, password, now, 'wrong_login');
-    return { token: await this.sign(user), user: toAuthUser(user), shift: null };
+    return { token: await this.sign(user.id, null), user: toAuthUser(user), shift: null };
   }
 
-  /** Kassa blokdan chiqadi — faqat shu xodimning PIN'i bilan; yangi token qaytadi. */
-  async unlock(userId: string, pin: string, now = new Date()): Promise<{ token: string }> {
-    await this.assertPinRole(userId);
-    return { token: await this.sign(await this.checkPin(userId, pin, now)) };
+  /** Kassa blokdan chiqadi — faqat shu xodimning PIN'i bilan; yangi token o'sha filial bilan qaytadi. */
+  async unlock(user: AuthUser, pin: string, now = new Date()): Promise<{ token: string }> {
+    await this.assertPinRole(user.id);
+    await this.checkPin(user.id, pin, now);
+    return { token: await this.sign(user.id, user.branchId) };
   }
 
   /** Xodim o'z PIN'ini almashtiradi (eski PIN bilan tasdiqlab). */
@@ -133,15 +159,21 @@ export class AuthService implements OnModuleInit {
     await this.users.update(userId, { pinHash: await hashPin(password), failedPinAttempts: 0, pinLockedUntil: null });
   }
 
-  /** Token → xodim. Xodim bloklangan yoki o'chirilgan bo'lsa — `null` (eski token ishlamaydi). */
+  /**
+   * Token → xodim. Xodim bloklangan, o'chirilgan yoki tokendagi filialdan olib tashlangan bo'lsa — `null` (eski token
+   * ishlamaydi).
+   */
   async verify(token: string): Promise<AuthUser | null> {
+    let payload: TokenPayload;
     try {
-      const payload = await this.jwt.verifyAsync<TokenPayload>(token, { secret: this.secret });
-      const user = await this.users.findOneBy({ id: payload.sub });
-      return user && user.active ? toAuthUser(user) : null;
+      payload = await this.jwt.verifyAsync<TokenPayload>(token, { secret: this.secret });
     } catch {
       return null;
     }
+    const user = await this.users.findOneBy({ id: payload.sub });
+    if (!user?.active) return null;
+    const branchId = sessionBranch(user, payload.branchId);
+    return branchId === undefined ? null : toAuthUser(user, branchId);
   }
 
   /**
@@ -189,8 +221,8 @@ export class AuthService implements OnModuleInit {
     if (usesPassword(user.role)) fail('forbidden', `${user.role}: email va parol bilan kiradi`);
   }
 
-  private sign(user: User): Promise<string> {
-    const payload: TokenPayload = { sub: user.id };
+  private sign(userId: string, branchId: string | null): Promise<string> {
+    const payload: TokenPayload = { sub: userId, ...(branchId && { branchId }) };
     return this.jwt.signAsync(payload, { secret: this.secret, expiresIn: TOKEN_TTL });
   }
 }

@@ -10,11 +10,15 @@ import { EventEmitter } from 'node:events';
 export class Revocations {
   private readonly emitter = new EventEmitter();
 
-  user(userId: string): void {
-    this.emitter.emit('user', userId);
+  /**
+   * Xodim huquqi bekor bo'ldi. [remainingBranchIds] berilsa — faqat filiallaridan biri olib tashlangan: shu ro'yxatda
+   * yo'q filialdagi ulanishlar uziladi, qolganlari ishlayveradi; berilmasa — hammasi.
+   */
+  user(userId: string, remainingBranchIds?: string[]): void {
+    this.emitter.emit('user', userId, remainingBranchIds);
   }
 
-  onUser(listener: (userId: string) => void): void {
+  onUser(listener: (userId: string, remainingBranchIds?: string[]) => void): void {
     this.emitter.on('user', listener);
   }
 

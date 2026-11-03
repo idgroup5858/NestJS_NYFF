@@ -127,7 +127,7 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       shift = await shifts.openOrResume('usr_cashier_c1', C, now);
       expect((await shifts.openOrResume('usr_cashier_c1', C, now)).id).toBe(shift.id);
       // PIN bilan kirish ham o'sha smenani davom ettiradi
-      expect((await auth.login('usr_cashier_c1', '1234', now)).shift?.id).toBe(shift.id);
+      expect((await auth.login('usr_cashier_c1', '1234', C, now)).shift?.id).toBe(shift.id);
     });
 
     it("birinchi buyurtma: raqam 1, taom narxi, smenaga yoziladi, retsept bo'yicha ombordan ayriladi", async () => {
@@ -361,8 +361,8 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       await expectCode('invalid_status', () => orders.reopen(third.id, kitchenC, now));
 
       // bloklangan oshpaz yordamchisi: servis rolni tokendan oladi, token esa har so'rovda bazadan tekshiriladi
-      const { token } = await auth.login('usr_kitchen_c1', '1111', now);
-      const kitchen = { name: 'Aziz', surname: 'Qodirov', role: 'kitchen' as const, branchId: C, pin: '' };
+      const { token } = await auth.login('usr_kitchen_c1', '1111', C, now);
+      const kitchen = { name: 'Aziz', surname: 'Qodirov', role: 'kitchen' as const, branchIds: [C], pin: '' };
       await users.save({ id: 'usr_kitchen_c1', ...kitchen, active: false }, 'usr_admin', now);
       const res = await request(app.getHttpServer())
         .post(`/api/orders/${third.id}/ready`)
@@ -390,19 +390,19 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
     it("admin: xodimlar — filial, PIN, bo'sh PIN eskisini qoldiradi, o'zini bloklay olmaydi", async () => {
       const save = (input: Parameters<UsersService['save']>[0]) => users.save(input, 'usr_admin', now);
       await expectCode('branch_required', () =>
-        save({ name: 'Ali', surname: 'Valiyev', role: 'cashier', branchId: null, pin: '1234', active: true }),
+        save({ name: 'Ali', surname: 'Valiyev', role: 'cashier', branchIds: [], pin: '1234', active: true }),
       );
       await expectCode('branch_required', () =>
-        save({ name: 'Olim', surname: 'Hasanov', role: 'kitchen', branchId: null, pin: '1234', active: true }),
+        save({ name: 'Olim', surname: 'Hasanov', role: 'kitchen', branchIds: [], pin: '1234', active: true }),
       );
       await expectCode('invalid_pin', () =>
-        save({ name: 'Ali', surname: 'Valiyev', role: 'cashier', branchId: sergeli.id, pin: '12', active: true }),
+        save({ name: 'Ali', surname: 'Valiyev', role: 'cashier', branchIds: [sergeli.id], pin: '12', active: true }),
       );
       const ali = await save({
         name: 'Ali',
         surname: 'Valiyev',
         role: 'cashier',
-        branchId: sergeli.id,
+        branchIds: [sergeli.id],
         pin: '2468',
         active: true,
       });
@@ -411,16 +411,16 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
         name: 'Ali V.',
         surname: 'Valiyev',
         role: 'cashier',
-        branchId: sergeli.id,
+        branchIds: [sergeli.id],
         pin: '',
         active: true,
       });
       expect((await auth.checkPin(ali.id, '2468', now)).name).toBe('Ali V.');
       await expectCode('self_action', () =>
-        save({ id: 'usr_admin', name: 'Admin', surname: 'Adminov', role: 'admin', branchId: null, email: 'admin@gmail.com', active: false }),
+        save({ id: 'usr_admin', name: 'Admin', surname: 'Adminov', role: 'admin', email: 'admin@gmail.com', active: false }),
       );
-      const vali = await save({ name: 'Vali', surname: 'Karimov', role: 'supplier', branchId: C, pin: '1357', active: true });
-      expect(vali.branchId).toBeNull();
+      const vali = await save({ name: 'Vali', surname: 'Karimov', role: 'supplier', branchIds: [C], pin: '1357', active: true });
+      expect(vali.branchIds).toEqual([]);
     });
 
     it('admin: menyu — kategoriya, retsept birlashadi, narx bitta, filialda vaqtincha sotilmaydi, tartib', async () => {

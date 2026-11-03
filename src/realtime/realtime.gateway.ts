@@ -29,7 +29,8 @@ export const courierRoom = (userId: string) => `courier:${userId}`;
 
 /**
  * Socket.IO — faqat serverdan ekranlarga "o'zgardi" xabari (buyruqlar REST orqali). Ulanishda `auth` bilan:
- *  - `{ token }` — kassir / oshpaz yordamchisi → `branch:<id>` (kassir ulanganda filial "kassa ulangan" bo'ladi);
+ *  - `{ token }` — kassir / oshpaz yordamchisi → `branch:<id>` (tokendagi joriy filial; kassir ulanganda filial "kassa
+ *    ulangan" bo'ladi);
  *    kuryer → `couriers` (mobil dostavka o'zgardi — belgi) va `courier:<userId>` (o'z buyurtmalari to'liq);
  *  - `{ tvBranchId, tvCode }` — TV (filial TV kodi bilan) → `tv:<id>` (faqat raqam, tur va holat);
  *  - `{ orderId, orderToken }` — mobil ilova → `order:<id>` (o'z buyurtmasi).
@@ -51,7 +52,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly screenCodes: ScreenCodesService,
     revocations: Revocations,
   ) {
-    revocations.onUser((userId) => this.disconnectWhere((socket) => socket.data.user?.id === userId));
+    revocations.onUser((userId, remainingBranchIds) =>
+      this.disconnectWhere((socket) => {
+        const user = socket.data.user as AuthUser | undefined;
+        if (user?.id !== userId) return false;
+        // filiallaridan biri olib tashlandi — faqat o'sha filialdagi kassa / oshxona ekrani uziladi
+        return !remainingBranchIds || user.branchId === null || !remainingBranchIds.includes(user.branchId);
+      }),
+    );
     // TV kodi yangilandi — eski kod bilan ulanganlar uziladi, TV yangi kodni so'raydi (kioskda socket yo'q)
     revocations.onScreenCode((kind, branchId) => {
       if (kind === 'tv') this.disconnectWhere((socket) => socket.data.tvBranchId === branchId, 'wrong_tv_code');

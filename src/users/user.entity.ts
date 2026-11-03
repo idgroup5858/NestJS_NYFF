@@ -1,11 +1,14 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
-import { Branch } from '../branches/branch.entity';
+import { Column, Entity, Index, PrimaryColumn, Raw } from 'typeorm';
 import { ID_LENGTH } from '../common/columns';
 import type { Role } from '../common/enums';
 
 /** Ekrandagi ism: "Ism Familiya" (familiya bo'sh bo'lsa — faqat ism). */
 export const fullName = (person: { name: string; surname: string }): string =>
   [person.name, person.surname].filter(Boolean).join(' ');
+
+/** `find({ where: { branchIds: worksAt(id) } })` — shu filialda ishlaydigan xodimlar (`branchIds` ichida bor). */
+export const worksAt = (branchId: string) =>
+  Raw((column) => `${column} @> CAST(:worksAtBranch AS jsonb)`, { worksAtBranch: JSON.stringify([branchId]) });
 
 @Entity('users')
 export class User {
@@ -23,9 +26,13 @@ export class User {
   @Column({ type: 'varchar', length: 16 })
   role: Role;
 
-  /** kassir va oshpaz yordamchisi — filialga bog'langan; admin, ta'minotchi va kuryer — `null` */
-  @Column({ type: 'varchar', length: ID_LENGTH, nullable: true })
-  branchId: string | null;
+  /**
+   * Kassir va oshpaz yordamchisi ishlaydigan filiallar (kamida bittasi; 2026-11-04 dan bir nechta bo'lishi mumkin — PIN
+   * bilan kirganda kassa turgan filial tanlanadi, u tokenga yoziladi). Admin, ta'minotchi va kuryer — `[]`. FK yo'q:
+   * filial o'chirishda `BranchesService.remove` tekshiradi.
+   */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  branchIds: string[];
 
   /**
    * Admin va kuryer (`usesPassword`): kirish emaili (kichik harfda, takrorlanmaydi); parol xeshi — [pinHash] da. PIN
@@ -34,10 +41,6 @@ export class User {
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
   email: string | null;
-
-  @ManyToOne(() => Branch, { nullable: true, onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'branchId' })
-  branch?: Branch | null;
 
   /** PIN (admin va kuryerda — parol) o'zi saqlanmaydi — faqat bcrypt xeshi. Oddiy so'rovlarda yuklanmaydi (`select: false`). */
   @Column({ length: 100, select: false })

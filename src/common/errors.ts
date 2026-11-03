@@ -38,6 +38,7 @@ export type ErrorCode =
   | 'too_many_attempts'
   | 'branch_closed'
   | 'location_required'
+  | 'shift_open_elsewhere'
   // ── kuryer ──
   | 'off_duty'
   | 'already_taken'
@@ -74,6 +75,7 @@ const STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   invalid_status: HttpStatus.CONFLICT,
   already_decided: HttpStatus.CONFLICT,
   shift_not_open: HttpStatus.CONFLICT,
+  shift_open_elsewhere: HttpStatus.CONFLICT,
   insufficient_stock: HttpStatus.CONFLICT,
   branch_closed: HttpStatus.CONFLICT,
   off_duty: HttpStatus.CONFLICT,
@@ -125,6 +127,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   too_many_attempts: "Ko'p marta xato kiritildi — birozdan keyin urinib ko'ring",
   branch_closed: 'Filial hozir buyurtma qabul qilmayapti',
   location_required: 'Yetkazib berish joyini xaritada belgilang (GPS)',
+  shift_open_elsewhere: "Boshqa filialda ochiq smenangiz bor — avval o'sha yerda topshiring yoki adminga ayting",
   off_duty: 'Avval «Ishdaman» ni yoqing',
   already_taken: 'Bu buyurtmani boshqa kuryer oldi',
   other_branch: "Qo'lingizda boshqa filial buyurtmalari bor",

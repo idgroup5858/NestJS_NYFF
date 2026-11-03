@@ -122,7 +122,7 @@ export function seedHistory(base: DemoBase, now: Date, rand: Random): DemoHistor
   const counters: Counter[] = [];
 
   for (const [branchIndex, branch] of base.branches.entries()) {
-    const cashiers = base.users.filter((u) => u.role === 'cashier' && u.branchId === branch.id);
+    const cashiers = base.users.filter((u) => u.role === 'cashier' && u.branchIds.includes(branch.id));
     const sellable = base.products.filter((p) => soldAt(p, branch.id));
     const foods = sellable.filter((p) => p.categoryId !== 'drinks');
     const drinks = sellable.filter((p) => p.categoryId === 'drinks');
@@ -411,7 +411,8 @@ const actorOf = (user: DemoBase['users'][number]): AuthUser => ({
   name: user.name,
   surname: user.surname,
   role: user.role,
-  branchId: user.branchId,
+  branchId: user.branchIds[0] ?? null,
+  branchIds: user.branchIds,
   email: user.email,
 });
 
@@ -426,8 +427,8 @@ export async function seedToday(
     new Date(Math.max(dayStart + 60_000, now.getTime() - minutes * 60_000));
 
   for (const [branchId, specs] of Object.entries(LIVE)) {
-    const cashier = base.users.find((u) => u.role === 'cashier' && u.branchId === branchId);
-    const kitchen = base.users.find((u) => u.role === 'kitchen' && u.branchId === branchId);
+    const cashier = base.users.find((u) => u.role === 'cashier' && u.branchIds.includes(branchId));
+    const kitchen = base.users.find((u) => u.role === 'kitchen' && u.branchIds.includes(branchId));
     if (!cashier || !kitchen) continue;
     await services.shifts.openOrResume(cashier.id, branchId, minutesAgo(180));
 

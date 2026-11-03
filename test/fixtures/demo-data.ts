@@ -80,7 +80,8 @@ export interface DemoUser {
   name: string;
   surname: string;
   role: Role;
-  branchId: string | null;
+  /** kassir va oshpaz yordamchisi ishlaydigan filiallar; boshqalarda `[]` */
+  branchIds: string[];
   /** admin va kuryerda — parol (email bilan), boshqalarda — PIN */
   pin: string;
   email?: string;
@@ -90,17 +91,17 @@ export interface DemoUser {
 export const ADMIN_LOGIN = { email: 'admin@gmail.com', password: '123456789' } as const;
 
 export const USERS: DemoUser[] = [
-  { id: 'usr_admin', name: 'Admin', surname: 'Adminov', role: 'admin', branchId: null, email: ADMIN_LOGIN.email, pin: ADMIN_LOGIN.password },
-  { id: 'usr_supplier', name: 'Bekzod', surname: 'Rahimov', role: 'supplier', branchId: null, pin: '5555' },
-  { id: 'usr_cashier_c1', name: 'Dilnoza', surname: 'Karimova', role: 'cashier', branchId: BRANCH_CHILONZOR, pin: '1234' },
-  { id: 'usr_cashier_c2', name: 'Sardor', surname: 'Aliyev', role: 'cashier', branchId: BRANCH_CHILONZOR, pin: '4321' },
-  { id: 'usr_cashier_y1', name: 'Malika', surname: 'Yusupova', role: 'cashier', branchId: BRANCH_YUNUSOBOD, pin: '1234' },
-  { id: 'usr_cashier_y2', name: 'Jasur', surname: 'Tursunov', role: 'cashier', branchId: BRANCH_YUNUSOBOD, pin: '4321' },
-  { id: 'usr_kitchen_c1', name: 'Aziz', surname: 'Qodirov', role: 'kitchen', branchId: BRANCH_CHILONZOR, pin: '1111' },
-  { id: 'usr_kitchen_y1', name: 'Kamola', surname: 'Nazarova', role: 'kitchen', branchId: BRANCH_YUNUSOBOD, pin: '1111' },
+  { id: 'usr_admin', name: 'Admin', surname: 'Adminov', role: 'admin', branchIds: [], email: ADMIN_LOGIN.email, pin: ADMIN_LOGIN.password },
+  { id: 'usr_supplier', name: 'Bekzod', surname: 'Rahimov', role: 'supplier', branchIds: [], pin: '5555' },
+  { id: 'usr_cashier_c1', name: 'Dilnoza', surname: 'Karimova', role: 'cashier', branchIds: [BRANCH_CHILONZOR], pin: '1234' },
+  { id: 'usr_cashier_c2', name: 'Sardor', surname: 'Aliyev', role: 'cashier', branchIds: [BRANCH_CHILONZOR], pin: '4321' },
+  { id: 'usr_cashier_y1', name: 'Malika', surname: 'Yusupova', role: 'cashier', branchIds: [BRANCH_YUNUSOBOD], pin: '1234' },
+  { id: 'usr_cashier_y2', name: 'Jasur', surname: 'Tursunov', role: 'cashier', branchIds: [BRANCH_YUNUSOBOD], pin: '4321' },
+  { id: 'usr_kitchen_c1', name: 'Aziz', surname: 'Qodirov', role: 'kitchen', branchIds: [BRANCH_CHILONZOR], pin: '1111' },
+  { id: 'usr_kitchen_y1', name: 'Kamola', surname: 'Nazarova', role: 'kitchen', branchIds: [BRANCH_YUNUSOBOD], pin: '1111' },
   // kuryerlar filialga bog'lanmaydi — istalgan filialdan oladi (bir vaqtda bittasidan); kirish — email va parol
-  { id: 'usr_courier_1', name: 'Bobur', surname: 'Ergashev', role: 'courier', branchId: null, email: 'bobur@gmail.com', pin: 'bobur2222' },
-  { id: 'usr_courier_2', name: 'Otabek', surname: 'Saidov', role: 'courier', branchId: null, email: 'otabek@gmail.com', pin: 'otabek3333' },
+  { id: 'usr_courier_1', name: 'Bobur', surname: 'Ergashev', role: 'courier', branchIds: [], email: 'bobur@gmail.com', pin: 'bobur2222' },
+  { id: 'usr_courier_2', name: 'Otabek', surname: 'Saidov', role: 'courier', branchIds: [], email: 'otabek@gmail.com', pin: 'otabek3333' },
 ];
 
 

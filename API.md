@@ -134,9 +134,10 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `already_decided` | 409 | | Bu kirim allaqachon ko'rib chiqilgan | kirim tasdiqlangan / rad etilgan |
 | `same_warehouse` | 400 | | Bir xil omborga ko'chirib bo'lmaydi | |
 | `shift_not_open` | 409 | | Smena ochilmagan | kassirning shu filialda ochiq smenasi yo'q; smena allaqachon yopilgan |
+| `shift_open_elsewhere` | 409 | ✔ | Boshqa filialda ochiq smenangiz bor — avval o'sha yerda topshiring yoki adminga ayting | kassir bir nechta filialda ishlaydi va boshqa filialda smenasi ochiq qolgan: `POST /auth/login`, `POST /shifts/current` (`detail`: **o'sha filial nomi** — ekranda ko'rsatiladi, `"Chilonzor"`). Kassirda bir vaqtda bitta ochiq smena ([7.5](#75-smenalar-shifts)) |
 | `name_required` | 400 | | Nomini kiriting | nom (o'zbekchasi) bo'sh |
 | `insufficient_stock` | 409 | | Omborda yetarli mahsulot yo'q | ko'chirish qoldiqdan ko'p (`detail`: ingredientId). Sotuv qoldiqni manfiyga tushirishi mumkin — xato bermaydi |
-| `branch_required` | 400 | | Filialni tanlang | admin `branchId` bermadi; kassir / oshpaz filialsiz; mobil olib ketishda `branchId` yo'q; `GET /tv/queue` da `branchId` yo'q |
+| `branch_required` | 400 | | Filialni tanlang | admin `branchId` bermadi; kassir / oshpaz filialsiz (`branchIds: []`); bir nechta filialli xodim `POST /auth/login` da `branchId` bermadi; mobil olib ketishda `branchId` yo'q; `GET /tv/queue` da `branchId` yo'q |
 | `invalid_amount` | 400 | | Summa noto'g'ri | to'lov turi yo'q; aralash to'lov noto'g'ri; summa / narx butun > 0 emas; chiqim sanasi formati (`detail`: `date`) |
 | `self_action` | 403 | | O'zingizni bloklay olmaysiz va o'z rolingizni o'zgartira olmaysiz | |
 | `recipe_required` | 400 | | Retseptga kamida bitta mahsulot qo'shing | |
@@ -144,10 +145,10 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `address_required` | 400 | | Yetkazib berish manzilini kiriting | mobil dostavkada `online.address` ham, `online.location` ham yo'q |
 | `zone_too_small` | 400 | | Hudud kamida 3 ta nuqtadan iborat bo'lishi kerak | |
 | `invalid_location` | 400 | | Xaritadagi nuqta noto'g'ri | \|lat\| > 90 yoki \|lng\| > 180 |
-| `forbidden` | 403 | | Bu amal sizning rolingiz uchun emas | rol mos emas; boshqa filial buyurtmasi; admin yoki kuryer PIN yo'lida (`/auth/login`, `/auth/unlock`, `/auth/pin`) |
+| `forbidden` | 403 | | Bu amal sizning rolingiz uchun emas | rol mos emas; boshqa filial buyurtmasi; admin yoki kuryer PIN yo'lida (`/auth/login`, `/auth/unlock`, `/auth/pin`); `POST /auth/login` da xodim ishlamaydigan filial (`detail`: `branch <id>`) |
 | `invalid_image` | 400 | | Rasm JPG, PNG, WEBP yoki AVIF bo'lishi va 5 MB dan oshmasligi kerak | `POST /images`: fayl yo'q, turi ruxsatsiz, ichi aytilgan turga mos emas, 5 MB dan katta (20 MB dan kattasini multer o'zi `413` bilan qaytaradi — `code` siz) |
 | `image_in_use` | 409 | | Bu rasm menyuda yoki kioskda ishlatilgan — avval u yerda boshqa rasmni tanlang | `DELETE /images/...`: rasm taomda, kategoriyada yoki kiosk ekranida (`detail` — qayerda) |
-| `unauthorized` | 401 | ✔ | Avval tizimga kiring | token yo'q / eskirgan / xodim bloklangan |
+| `unauthorized` | 401 | ✔ | Avval tizimga kiring | token yo'q / eskirgan / xodim bloklangan / tokendagi filialdan olib tashlangan |
 | `invalid_input` | 400 | ✔ | So'rov ma'lumotlari noto'g'ri | DTO tekshiruvi (tur, majburiy maydon, ruxsat etilgan qiymat, uzunlik); `workHours.open = close` |
 | `too_many_attempts` | 429 | ✔ | Ko'p marta xato kiritildi — birozdan keyin urinib ko'ring | PIN bloki (`detail`: qolgan soniya, `"287s"`) yoki IP chegarasi (`Retry-After` sarlavhasi, soniya). TV / kiosk kodi uchun blok yo'q ([4.4](#44-tv-va-kiosk)) |
 | `branch_closed` | 409 | ✔ | Filial hozir buyurtma qabul qilmayapti | mobil: tanlangan filial yopiq (`detail`: branchId) yoki dostavka uchun ochiq filial yo'q |
@@ -198,8 +199,8 @@ Guard qoidalari (`src/auth/auth.guard.ts`):
 | Rol | Filial | Nima qila oladi |
 |---|---|---|
 | `admin` | yo'q | hammasi, bundan tashqari: kassa buyurtmasi (`POST /orders`), qabul qilish (`/confirm`), "Tayyor" / "Qaytarish", `/shifts/current*`. Filial ro'yxatlarida `?branchId=` majburiy |
-| `cashier` (kassir) | bor | o'z filialida: buyurtma yaratish, kiosk / mobil buyurtmani qabul qilish, bekor qilish, ishdagi buyurtmalar; o'z smenasi |
-| `kitchen` (oshpaz yordamchisi) | bor | o'z filialida: ishdagi buyurtmalar, "Tayyor", "Qaytarish" |
+| `cashier` (kassir) | bitta yoki bir nechta | joriy filialida (kirishda tanlangan, tokenda): buyurtma yaratish, kiosk / mobil buyurtmani qabul qilish, bekor qilish, ishdagi buyurtmalar; o'z smenasi (bir vaqtda bitta) |
+| `kitchen` (oshpaz yordamchisi) | bitta yoki bir nechta | joriy filialida: ishdagi buyurtmalar, "Tayyor", "Qaytarish" |
 | `supplier` (ta'minotchi) | yo'q | ombor bo'limi: mahsulotlar, qoldiq, chegara, harakatlar, kirim kiritish, ko'chirish (tasdiqlash / rad etish — yo'q) |
 | `courier` (kuryer) | yo'q | faqat `/courier/*` ([12](#12-kuryer-ilovasi-android)): istalgan filialning mobil dostavkasini oladi — bir vaqtda bitta filialdan |
 
@@ -211,15 +212,24 @@ majburiy); TV navbati — faqat filial TV kodi, kiosk buyurtmasi — faqat filia
 ### 4.3 Xodim kirishi
 
 1. `GET /api/branches` — filiallar (kirish ekranida filial tanlash).
-2. `GET /api/auth/staff?branchId=br_chilonzor&role=cashier` — faol xodimlar `AuthUser[]` (PINsiz). Ta'minotchi
-   (filialsiz) — `?role=supplier`, `branchId` siz. Admin va kuryerlar bu ro'yxatda **chiqmaydi** (`?role=admin`,
-   `?role=courier` — `[]`): ular email va parol bilan kiradi (pastda).
-3. `POST /api/auth/login` `{ "userId": "usr_cashier_c1", "pin": "1234" }` →
-   `{ token, user: AuthUser, shift: Shift | null }`. Kassirga shu filialda smena ochiladi yoki ochig'i davom etadi
-   (`shift`); boshqa rollarda `shift: null`.
+2. `GET /api/auth/staff?branchId=br_chilonzor&role=cashier` — shu filialda ishlaydigan faol xodimlar `AuthUser[]`
+   (PINsiz; bir nechta filialda ishlaydigan xodim — har birining ro'yxatida). Ta'minotchi (filialsiz) —
+   `?role=supplier`, `branchId` siz. Admin va kuryerlar bu ro'yxatda **chiqmaydi** (`?role=admin`, `?role=courier` —
+   `[]`): ular email va parol bilan kiradi (pastda).
+3. `POST /api/auth/login` `{ "userId": "usr_cashier_c1", "pin": "1234", "branchId": "br_chilonzor" }` →
+   `{ token, user: AuthUser, shift: Shift | null }`. `branchId` — kassa turgan filial (1-qadamda tanlangan); u
+   tokenga yoziladi va sessiyaning **joriy filiali** bo'ladi (`user.branchId`): buyurtma, smena, socket xonasi —
+   shu filialniki. Xodim shu filialda ishlamasa — `403 forbidden`; `branchId` yuborilmasa — xodimning yagona filiali
+   (bir nechta bo'lsa — `400 branch_required`); ta'minotchida e'tiborga olinmaydi. Kassirga shu filialda smena
+   ochiladi yoki ochig'i davom etadi (`shift`); boshqa rollarda `shift: null`. **Kassirda bir vaqtda bitta ochiq
+   smena**: boshqa filialda ochiq qolgan bo'lsa — `409 shift_open_elsewhere` (`detail` — o'sha filial nomi; PIN
+   to'g'ri — xato urinish sanalmaydi): avval o'sha filialda "Smenani topshirish" yoki admin yopadi
+   (`POST /shifts/:id/close`).
 4. Keyingi so'rovlarda `Authorization: Bearer <token>`. Token 24 soat amal qiladi; yangilash — `POST /auth/unlock`
-   (kassa blokdan chiqishi; amaldagi token kerak). Token eskirsa (`401`) — qaytadan kirish.
-5. Sahifa yangilanganda: `GET /api/auth/me` → `{ user, shift }` (kassirda ochiq smena yoki `null`).
+   (kassa blokdan chiqishi; amaldagi token kerak, yangisi o'sha filial bilan). Token eskirsa (`401`) — qaytadan
+   kirish. Admin xodimni tokendagi filialdan olib tashlasa — o'sha token `401` (boshqa filialdagi sessiyasi ishlayveradi).
+   2026-11-04 dan oldingi tokenlarda filial yo'q: xodimning bitta filiali bo'lsa — o'shanisi, bir nechta bo'lsa — `401`.
+5. Sahifa yangilanganda: `GET /api/auth/me` → `{ user, shift }` (kassirda shu filialdagi ochiq smena yoki `null`).
 
 **Admin** (2026-11-02) — PIN'siz, faqat email va parol: web'da `/admin` manzilida (umumiy kirish ekranida "Admin
 panel" yo'q). `POST /api/auth/admin-login` `{ "email": "admin@gmail.com", "password": "123456789" }` →
@@ -638,8 +648,16 @@ interface MenuProduct {            // GET /menu
 type Role = 'admin' | 'cashier' | 'kitchen' | 'supplier' | 'courier'
 // ekranda — "Ism Familiya"; surname 2026-11-02 dan oldingi xodimlarda bo'sh ("") bo'lishi mumkin
 // email — admin va kuryerning kirish emaili (kichik harfda); PIN bilan kiradiganlarda null
-interface AuthUser { id: string; name: string; surname: string; role: Role; branchId: string | null; email: string | null }
-interface User extends AuthUser { active: boolean; onDuty: boolean; createdAt: string }   // PIN / parol hech qachon qaytmaydi
+// branchIds — kassir va oshpaz yordamchisi ishlaydigan filiallar (kamida bitta, bir nechta bo'lishi mumkin —
+//   2026-11-04); admin, ta'minotchi, kuryer — []
+// branchId (faqat AuthUser) — joriy filial: kirishda tanlangan (tokenda); `/auth/staff` da — so'ralgan filial;
+//   filialsiz rollarda null
+interface AuthUser {
+  id: string; name: string; surname: string; role: Role
+  branchId: string | null; branchIds: string[]; email: string | null
+}
+// PIN / parol hech qachon qaytmaydi; 2026-11-04 dan `branchId` o'rniga `branchIds`
+interface User extends Omit<AuthUser, 'branchId'> { active: boolean; onDuty: boolean; createdAt: string }
 
 interface Shift { id: string; branchId: string; cashierId: string; openedAt: string; closedAt: string | null }
 interface ShiftSummary {
@@ -702,12 +720,12 @@ joyda: DTO xatosi — `invalid_input`, tokensiz — `unauthorized`, rol mos emas
 
 | Metod va yo'l | Kim | So'rov | Javob | Xatolar |
 |---|---|---|---|---|
-| `GET /auth/staff` | ochiq | query: `branchId?`, `role?` | `AuthUser[]` (faollari, ism bo'yicha; kuryerlarsiz) | |
-| `POST /auth/login` | ochiq | `{ userId: string ≤40, pin: string ≤8 }` — kassir, oshpaz yordamchisi, ta'minotchi | `200 { token, user: AuthUser, shift: Shift \| null }` | `not_found`, `user_inactive`, `wrong_pin`, `too_many_attempts`, `forbidden` (admin / kuryer) |
+| `GET /auth/staff` | ochiq | query: `branchId?`, `role?` | `AuthUser[]` (faollari, ism bo'yicha; kuryerlarsiz; `branchId` berilsa — shu filialda ishlaydiganlar) | |
+| `POST /auth/login` | ochiq | `{ userId: string ≤40, pin: string ≤8, branchId?: string ≤40 }` — kassir, oshpaz yordamchisi, ta'minotchi; `branchId` — kassa turgan filial ([4.3](#43-xodim-kirishi)) | `200 { token, user: AuthUser, shift: Shift \| null }` | `not_found`, `user_inactive`, `wrong_pin`, `too_many_attempts`, `forbidden` (admin / kuryer; xodim bu filialda ishlamaydi), `branch_required` (bir nechta filial, `branchId` yo'q), `shift_open_elsewhere` |
 | `POST /auth/admin-login` | ochiq | `{ email: string ≤100, password: string ≤64 }` | `200 { token, user: AuthUser, shift: null }` | `wrong_login`, `user_inactive`, `too_many_attempts` |
 | `POST /auth/courier-login` | ochiq | `{ email: string ≤100, password: string ≤64 }` | `200 { token, user: AuthUser, shift: null }` | `wrong_login`, `user_inactive`, `too_many_attempts` |
 | `GET /auth/me` | xodim | | `{ user: AuthUser, shift: Shift \| null }` (`shift` — kassirning ochiq smenasi) | |
-| `POST /auth/unlock` | PIN bilan kiradigan xodim | `{ pin: string ≤8 }` — shu xodimning PIN'i | `200 { token }` — yangi 24 soatlik token | `wrong_pin`, `user_inactive`, `too_many_attempts`, `forbidden` (admin / kuryer) |
+| `POST /auth/unlock` | PIN bilan kiradigan xodim | `{ pin: string ≤8 }` — shu xodimning PIN'i | `200 { token }` — yangi 24 soatlik token (o'sha joriy filial bilan) | `wrong_pin`, `user_inactive`, `too_many_attempts`, `forbidden` (admin / kuryer) |
 | `PUT /auth/pin` | PIN bilan kiradigan xodim | `{ oldPin: string ≤8, newPin: string ≤8 }` | `204` | `wrong_pin`, `too_many_attempts`, `invalid_pin`, `forbidden` (admin / kuryer) |
 | `PUT /auth/profile` | admin | `{ name: string ≤100, surname: string ≤100, email: string ≤100 }` — o'zi | `AuthUser` | `name_required`, `surname_required`, `invalid_email`, `email_taken` |
 | `PUT /auth/password` | admin | `{ oldPassword: string ≤64, newPassword: string ≤64 }` — o'zi | `204` | `wrong_password`, `too_many_attempts`, `invalid_password` |
@@ -795,7 +813,8 @@ tashlanadi); buyurtma izohi `note?: string ≤500`. Narx, nom — bazadan (taom 
 
 Tafsilotlar:
 
-- **Filial**: kassir / oshpaz — doim o'z filiali (`branchId` query e'tiborga olinmaydi); admin — `?branchId=`
+- **Filial**: kassir / oshpaz — doim joriy filiali (tokendagi, kirishda tanlangan; `branchId` query e'tiborga
+  olinmaydi); admin — `?branchId=`
   majburiy. TV — query `branchId` (hamma uchun majburiy, token bo'lsa ham); kiosk — tanadagi `branchId` (yo'q —
   `400 invalid_input`).
 - **To'lov**: `payment` kassa buyurtmasida va kiosk buyurtmasini tasdiqlashda **har doim majburiy** (`split`
@@ -816,13 +835,16 @@ Tafsilotlar:
 | Metod va yo'l | Kim | So'rov | Javob | Xatolar |
 |---|---|---|---|---|
 | `GET /shifts/current` | cashier | | `{ shift: Shift \| null }` | |
-| `POST /shifts/current` | cashier | | `200 Shift` — ochig'i bo'lsa o'sha, bo'lmasa yangi (masalan boshqa tabda topshirilgan) | |
+| `POST /shifts/current` | cashier | | `200 Shift` — ochig'i bo'lsa o'sha, bo'lmasa yangi (masalan boshqa tabda topshirilgan) | `shift_open_elsewhere` (boshqa filialda ochiq — `detail`: filial nomi) |
 | `POST /shifts/current/close` | cashier | | `200 ShiftWithSummary` — "Smenani topshirish" | `shift_not_open` |
 | `GET /shifts` | admin | query: `branchId?`, `cashierId?`, `open?: 'true' \| 'false'`, `from?`, `to?` (ISO — oraliq bilan **kesishgan** smenalar: `to` dan oldin ochilgan va `from` dan keyin yopilgan yoki hali ochiq), `page?`, `limit?` | `Page<ShiftWithSummary> & { summary: { count, open, revenue, cash } }` — ochiqlari tepada, keyin yangisi; `summary` — filtrlangan hammasi bo'yicha | |
 | `GET /shifts/:id` | admin, cashier (faqat o'ziniki) | | `ShiftWithSummary & { orders: Order[] }` | `not_found`, `forbidden` |
 | `POST /shifts/:id/close` | admin | | `200 ShiftWithSummary` — kassir yopmay ketgan smena | `not_found`, `shift_not_open` (allaqachon yopilgan) |
 
-Bitta kassirning bitta filialda bittadan ortiq ochiq smenasi bo'lmaydi. Smena yopilsa filial `no_shift` bo'lishi
+Kassirda bir vaqtda bittadan ortiq ochiq smena bo'lmaydi — bir nechta filialda ishlasa ham (2026-11-04; avval — har
+filialda bittadan): boshqa filialda ochiq qolgan bo'lsa `POST /auth/login` va `POST /shifts/current` —
+`409 shift_open_elsewhere` (`detail` — o'sha filial nomi), naqd pul hisobi aralashmasin. Unutilgan smenani kassir
+o'sha filialda topshiradi yoki admin yopadi (`POST /shifts/:id/close`). Smena yopilsa filial `no_shift` bo'lishi
 mumkin (boshqa ochiq smena bo'lmasa) — mobil buyurtma olmaydi. Smena summasiga faqat shu smenaga yozilgan buyurtmalar
 kiradi (kioskda karta / Click bilan to'langanlar — kirmaydi, [11](#11-cheklovlar-va-noaniq-joylar)).
 Smena yopilgach (ikkala endpoint) Telegram botga hisobot ketadi — [13](#13-ai-yordamchi-va-telegram-bot); javob
@@ -864,11 +886,15 @@ esa qoldiqni manfiyga tushirishi mumkin.
 |---|---|---|---|
 | `GET /users` | admin, supplier (kirim / ko'chirish muallifi ismi uchun) | `User[]` (qo'shilgan vaqti bo'yicha) | |
 | `GET /users/couriers` | admin, cashier (kassaning "Dostavka" ro'yxati — kuryer ismi va ishdagilar soni; admin "Xodimlar" — kuryerlar holati) | `CourierStatus[]` (bloklanganlari ham, ism bo'yicha): `{ id, name, surname, active, onDuty, orders, branchId, departed }` — `onDuty` — ilovada "Ishdaman"; `orders` — qo'ldagi (olgan, hali yetkazmagan / qaytarmagan) buyurtmalar soni; `branchId` — ular qaysi filialdan (bo'sh qo'l — `null`); `departed` — "Yo'lga chiqdim" bosgan | |
-| `POST /users` | `{ name: string ≤100, surname: string ≤100, role: Role, branchId?: string \| null, pin?: string ≤8, email?: string ≤100, password?: string ≤64, active: boolean }` — admin va kuryer: `email` + `password` (PIN'siz), boshqalar: `pin` | `201 User` | `name_required`, `surname_required`, `branch_required`, `not_found` (filial), `invalid_pin`, `invalid_email`, `invalid_password`, `email_taken` |
+| `POST /users` | `{ name: string ≤100, surname: string ≤100, role: Role, branchIds?: string[] (har biri ≤40), pin?: string ≤8, email?: string ≤100, password?: string ≤64, active: boolean }` — admin va kuryer: `email` + `password` (PIN'siz), boshqalar: `pin` | `201 User` | `name_required`, `surname_required`, `branch_required`, `not_found` (filial), `invalid_pin`, `invalid_email`, `invalid_password`, `email_taken` |
 | `PATCH /users/:id` | xuddi shunday (to'liq); `pin: ""` / `password: ""` — eskisi qoladi; PIN'li rol ↔ admin / kuryer o'tishida yangisi majburiy (eski PIN parol bo'lib qolmasin) | `User` | yuqoridagilar + `not_found`, `self_action` (o'zini bloklash / o'z rolini o'zgartirish) |
 | `DELETE /users/:id` | | `204` — Telegram chatlari va AI xotirasi ham | `not_found`, `self_action` (o'zini), `in_use` — buyurtma (`orders`, `deliveries`, `cancellations`), smena (`shifts`), kirim (`purchases`), ko'chirish (`transfers`), chiqim (`expenses`) — bloklang |
 
-`cashier` / `kitchen` uchun `branchId` majburiy; `admin` / `supplier` / `courier` da yuborilsa ham `null` saqlanadi.
+`cashier` / `kitchen` uchun `branchIds` — kamida bitta filial (bir nechtasi ham mumkin: xodim har birining kirish
+ro'yxatida chiqadi, kirishda kassa turgan filial tanlanadi; takrorlari olib tashlanadi); `admin` / `supplier` /
+`courier` da yuborilsa ham `[]` saqlanadi. 2026-11-04 gacha bitta `branchId` edi — endi yuborilsa e'tiborga
+olinmaydi (`whitelist`). Xodim filiallaridan biri olib tashlansa — faqat o'sha filialdagi sessiyasi (token va socket)
+bekor bo'ladi; bloklansa yoki roli o'zgarsa — hammasi.
 PIN bilan kiradiganlarda `email` yuborilsa ham `null` saqlanadi. Izi bor xodimni o'chirib bo'lmaydi — `active: false`
 (eski token darhol ishlamaydi).
 
@@ -935,7 +961,7 @@ xabarlar e'tiborga olinmaydi. `pingInterval` / `pingTimeout` — 10 soniya.
 
 | `auth` | Kim | Xona | Izoh |
 |---|---|---|---|
-| `{ token: "<JWT>" }` | `cashier`, `kitchen` | `branch:<branchId>` | `Bearer ` siz. Admin, ta'minotchi tokeni — rad etiladi |
+| `{ token: "<JWT>" }` | `cashier`, `kitchen` | `branch:<branchId>` — tokendagi joriy filial | `Bearer ` siz. Admin, ta'minotchi tokeni — rad etiladi |
 | `{ token: "<JWT>" }` | `courier` | `couriers`, `courier:<userId>` | [12](#12-kuryer-ilovasi-android) |
 | `{ tvBranchId: "<branchId>", tvCode: "<8 raqam>" }` | TV (filial TV kodi bilan, [4.4](#44-tv-va-kiosk)) | `tv:<branchId>` | kod yo'q / noto'g'ri — `auth_error { code: "wrong_tv_code" }`; kod to'g'ri, filial faol emas — `unauthorized`. Kioskka socket kerak emas |
 | `{ orderId: "ord_…", orderToken: "<trackingToken>" }` | mobil ilova | `order:<orderId>` | |
@@ -964,7 +990,8 @@ Tekshiruv `auth` maydonlari shu tartibida: `token` bor bo'lsa — faqat u; keyin
 Mijoz qoidasi: kelgan buyurtmani `id` bo'yicha almashtiring / qo'shing; `branchId` boshqa bo'lsa yoki holat ro'yxatga
 mos bo'lmasa — olib tashlang. Uzilish paytidagi xabarlar yo'qoladi — **har (qayta) ulanishda ro'yxatni REST'dan qayta
 oling** (`/orders/active`, `/orders/ready`, `/tv/queue`, `/mobile/orders/:id`). Huquq bekor bo'lsa — xodim
-bloklansa yoki roli / filiali o'zgarsa — server `auth_error` yuborib socketni **darhol uzadi**; qayta ulanmang,
+bloklansa, roli o'zgarsa yoki ulangan filialidan olib tashlansa (boshqa filialdagi ulanishi — tegilmaydi; yangi filial
+qo'shilsa — hech kim uzilmaydi) — server `auth_error` yuborib socketni **darhol uzadi**; qayta ulanmang,
 foydalanuvchini kirish ekraniga qaytaring. TV ulanishi ulanish paytida tekshiriladi (kod to'g'ri, filial faol);
 admin TV kodini yangilasa — shu filial TV lari `auth_error { code: "wrong_tv_code" }` bilan darhol uziladi: TV kodni
 qayta so'rasin.

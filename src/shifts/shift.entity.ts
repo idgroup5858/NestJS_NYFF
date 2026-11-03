@@ -5,8 +5,9 @@ import { User } from '../users/user.entity';
 
 /** Kassir smenasi: kirganda ochiladi (yoki davom etadi), "Smenani topshirish" bilan yopiladi. */
 @Entity('shifts')
-// bir kassirning bir filialda bittadan ortiq ochiq smenasi bo'lmaydi (ikki tabdan bir vaqtda kirsa ham)
-@Index(['cashierId', 'branchId'], { unique: true, where: '"closedAt" IS NULL' })
+// kassirda bir vaqtda bittadan ortiq ochiq smena bo'lmaydi — bir nechta filialda ishlasa ham (ikki tabdan bir vaqtda
+// kirsa ham); boshqa filialga — avvalgisini topshirib (`shift_open_elsewhere`)
+@Index(['cashierId'], { unique: true, where: '"closedAt" IS NULL' })
 @Index(['branchId', 'openedAt'])
 export class Shift {
   @PrimaryColumn({ type: 'varchar', length: ID_LENGTH })

@@ -143,7 +143,7 @@ describe('AI yordamchi', () => {
       name: 'Direktor',
       surname: 'Karimov',
       role: 'admin',
-      branchId: null,
+      branchIds: [],
       email: 'direktor@gmail.com',
       pinHash: await hashPin('direktor99'),
       failedPinAttempts: 0,

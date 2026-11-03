@@ -20,6 +20,15 @@ export class LoginDto {
   @IsString()
   @MaxLength(8)
   pin: string;
+
+  /**
+   * Kassa turgan filial (kirish ekranida tanlangan) — kassir va oshpaz yordamchisi uchun; ta'minotchida e'tiborga
+   * olinmaydi. Bitta filialli xodimda ixtiyoriy (eski ilova yubormaydi).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  branchId?: string;
 }
 
 /** Admin (`/auth/admin-login`) va kuryer (`/auth/courier-login`) — email va parol bilan. */

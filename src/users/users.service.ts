@@ -82,21 +82,21 @@ export class UsersService {
 
   /**
    * Admin xodim qo'shadi ([id] yo'q) yoki tahrirlaydi. Ism va familiya majburiy. O'zini bloklay olmaydi va o'z rolini
-   * o'zgartira olmaydi — tizimda admin qolmay qolmasin. Kassir va oshpaz yordamchisi filialga bog'lanadi. Admin va
-   * kuryer — email (takrorlanmaydi) va parol bilan, boshqalar — PIN bilan; shu ikki tur o'rtasida o'tganda yangisi
-   * majburiy (eski PIN parol bo'lib yoki parol PIN bo'lib qolmasin).
+   * o'zgartira olmaydi — tizimda admin qolmay qolmasin. Kassir va oshpaz yordamchisi kamida bitta filialga bog'lanadi
+   * (bir nechtasiga ham). Admin va kuryer — email (takrorlanmaydi) va parol bilan, boshqalar — PIN bilan; shu ikki tur
+   * o'rtasida o'tganda yangisi majburiy (eski PIN parol bo'lib yoki parol PIN bo'lib qolmasin).
    */
   async save(input: SaveUserDto & { id?: string }, actorId: string, now = new Date()): Promise<User> {
     const name = input.name.trim();
     if (!name) fail('name_required');
     const surname = (input.surname ?? '').trim();
     if (!surname) fail('surname_required');
-    const needsBranch = roleNeedsBranch(input.role);
-    if (needsBranch && !input.branchId) fail('branch_required');
-    if (needsBranch && !(await this.branches.existsBy({ id: input.branchId ?? '' }))) {
-      fail('not_found', `branch ${input.branchId}`);
+    const branchIds = roleNeedsBranch(input.role) ? [...new Set(input.branchIds ?? [])] : [];
+    if (roleNeedsBranch(input.role) && branchIds.length === 0) fail('branch_required');
+    if (branchIds.length > 0) {
+      const found = new Set((await this.branches.findBy({ id: In(branchIds) })).map((branch) => branch.id));
+      for (const id of branchIds) if (!found.has(id)) fail('not_found', `branch ${id}`);
     }
-    const branchId = needsBranch ? (input.branchId ?? null) : null;
     const password = usesPassword(input.role);
     const email = password ? this.cleanEmail(input.email ?? '') : null;
     const secret = password ? (input.password ?? '') : (input.pin ?? '').trim();
@@ -109,11 +109,13 @@ export class UsersService {
       const kindChanged = usesPassword(current.role) !== password;
       if ((secret || kindChanged) && !secretValid) fail(secretError);
       if (email && (await this.emailTaken(email, current.id))) fail('email_taken');
-      const patch: Partial<User> = { name, surname, role: input.role, branchId, email, active: input.active };
+      const patch: Partial<User> = { name, surname, role: input.role, branchIds, email, active: input.active };
       if (secret) patch.pinHash = await hashPin(secret);
       await this.uniqueEmail(() => this.users.update(current.id, patch));
-      // bloklandi yoki boshqa rol / filialga o'tdi — ochiq socket ulanishlari uziladi (qayta ulansa — yangi xonaga)
-      if (!input.active || input.role !== current.role || branchId !== current.branchId) this.revocations.user(current.id);
+      // bloklandi yoki roli o'zgardi — barcha socket ulanishlari uziladi; filiallaridan biri olib tashlandi — faqat
+      // o'sha filialdagi ulanishlar (qolgan filialdagi kassa ishlayveradi; yangi filial qo'shilsa — hech narsa)
+      if (!input.active || input.role !== current.role) this.revocations.user(current.id);
+      else if (current.branchIds.some((id) => !branchIds.includes(id))) this.revocations.user(current.id, branchIds);
       return (await this.users.findOneBy({ id: current.id }))!;
     }
 
@@ -122,7 +124,7 @@ export class UsersService {
     const id = newId('usr');
     const pinHash = await hashPin(secret);
     await this.uniqueEmail(() =>
-      this.users.insert({ id, name, surname, role: input.role, branchId, email, pinHash, active: input.active, createdAt: now }),
+      this.users.insert({ id, name, surname, role: input.role, branchIds, email, pinHash, active: input.active, createdAt: now }),
     );
     return (await this.users.findOneBy({ id }))!;
   }

@@ -33,6 +33,7 @@ export const actor = (id: string, role: AuthUser['role'], branchId: string | nul
   surname: '',
   role,
   branchId,
+  branchIds: branchId ? [branchId] : [],
   email: null,
 });
 

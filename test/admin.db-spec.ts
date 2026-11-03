@@ -47,7 +47,7 @@ describe('admin: yangi baza, kirish, profil, o\'chirish', () => {
         surname: FIRST_ADMIN.surname,
         email: FIRST_ADMIN.email,
         role: 'admin',
-        branchId: null,
+        branchIds: [],
         active: true,
       });
       const warehouses = await db.manager.find(Warehouse);
@@ -98,6 +98,7 @@ describe('admin: yangi baza, kirish, profil, o\'chirish', () => {
         surname: 'Adminov',
         role: 'admin',
         branchId: null,
+        branchIds: [],
         email: 'admin@gmail.com',
       });
       await http().post('/api/auth/unlock').set(bearer(token)).send({ pin: '1234' }).expect(403);
@@ -135,7 +136,7 @@ describe('admin: yangi baza, kirish, profil, o\'chirish', () => {
       await seedDemo(app, { activity: false });
       const token = await adminToken();
       const save = (body: object) => http().post('/api/users').set(bearer(token)).send(body);
-      const base = { name: 'Nodira', role: 'admin', branchId: null, active: true };
+      const base = { name: 'Nodira', role: 'admin', active: true };
 
       expect((await save({ ...base, email: 'nodira@gmail.com', password: 'nodira-123' }).expect(400)).body.code).toBe('surname_required');
       expect((await save({ ...base, surname: 'Aliyeva', pin: '1234' }).expect(400)).body.code).toBe('invalid_email');
@@ -147,7 +148,7 @@ describe('admin: yangi baza, kirish, profil, o\'chirish', () => {
       expect(nodira.body.pinHash).toBeUndefined();
       await adminToken({ email: 'nodira@gmail.com', password: 'nodira-123' });
 
-      const cashier = await save({ name: 'Olim', surname: 'Hasanov', role: 'cashier', branchId: C, pin: '2468', email: 'x@y.uz', active: true }).expect(201);
+      const cashier = await save({ name: 'Olim', surname: 'Hasanov', role: 'cashier', branchIds: [C], pin: '2468', email: 'x@y.uz', active: true }).expect(201);
       expect(cashier.body).toMatchObject({ surname: 'Hasanov', email: null });
     });
   });
@@ -193,7 +194,7 @@ describe('admin: yangi baza, kirish, profil, o\'chirish', () => {
       await http()
         .post('/api/users')
         .set(bearer(token))
-        .send({ name: 'Ra', surname: 'No', role: 'kitchen', branchId: withStaff, pin: '1357', active: true })
+        .send({ name: 'Ra', surname: 'No', role: 'kitchen', branchIds: [withStaff], pin: '1357', active: true })
         .expect(201);
       await inUse(`branches/${withStaff}`, 'users');
     });
@@ -247,7 +248,7 @@ describe('admin: yangi baza, kirish, profil, o\'chirish', () => {
       const fresh = await http()
         .post('/api/users')
         .set(bearer(token))
-        .send({ name: 'Vali', surname: 'Valiyev', role: 'supplier', branchId: null, pin: '8642', active: true })
+        .send({ name: 'Vali', surname: 'Valiyev', role: 'supplier', pin: '8642', active: true })
         .expect(201);
       await db.manager.insert(Setting, { key: `telegram_link:${fresh.body.id}`, value: 'kod' });
       await del(`users/${fresh.body.id}`).expect(204);

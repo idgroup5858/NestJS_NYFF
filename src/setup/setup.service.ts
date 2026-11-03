@@ -43,7 +43,7 @@ export class SetupService implements OnApplicationBootstrap {
           name,
           surname,
           role: 'admin',
-          branchId: null,
+          branchIds: [],
           email,
           pinHash: await hashPin(FIRST_ADMIN.password),
           active: true,

@@ -139,7 +139,8 @@ describe('online buyurtma: filial tanlash, ish vaqti, qabul muddati', () => {
       expect(sergeli.onlineEnabled).toBe(true);
       expect(sergeli.deliveryZone).toEqual([]);
       const S = sergeli.id;
-      await shifts.openOrResume('usr_cashier_c1', S, now);
+      // kassirda bitta ochiq smena — Chilonzorda smenasi yo'q kassir
+      await shifts.openOrResume('usr_cashier_c2', S, now);
       const sergeliDelivery: SaveDeliveryDto = {
         location: { lat: 41.275, lng: 69.21 },
         zone: [],

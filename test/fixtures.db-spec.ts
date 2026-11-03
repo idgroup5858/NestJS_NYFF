@@ -55,7 +55,7 @@ describe("sinov to'plami", () => {
 
     const users = await em.find(User);
     expect(users).toHaveLength(10);
-    expect(users.filter((u) => u.role === 'courier').every((u) => u.branchId === null && !u.onDuty)).toBe(true);
+    expect(users.filter((u) => u.role === 'courier').every((u) => u.branchIds.length === 0 && !u.onDuty)).toBe(true);
     expect(
       users
         .filter((u) => u.role === 'kitchen')

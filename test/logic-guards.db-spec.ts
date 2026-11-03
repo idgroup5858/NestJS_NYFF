@@ -80,8 +80,8 @@ describe("himoya: PIN bloki, huquqlar, bir vaqtdagi so'rovlar", () => {
       await expectCode('too_many_attempts', () =>
         auth.checkPin(U, '1234', new Date(later(5).getTime() - 1000)),
       );
-      await expectCode('too_many_attempts', () => auth.login(U, '1234', later(4)));
-      await expectCode('too_many_attempts', () => auth.unlock(U, '1234', later(4)));
+      await expectCode('too_many_attempts', () => auth.login(U, '1234', C, later(4)));
+      await expectCode('too_many_attempts', () => auth.unlock(c1, '1234', later(4)));
       await expectCode('too_many_attempts', () => auth.changeOwnPin(U, '1234', '5678', later(4)));
       // blok paytidagi urinishlar blokni uzaytirmaydi
       expect((await attempts(U)).until).toEqual(later(5));
@@ -90,7 +90,7 @@ describe("himoya: PIN bloki, huquqlar, bir vaqtdagi so'rovlar", () => {
     });
 
     it("5 daqiqa o'tgach to'g'ri PIN bilan kiradi, hisoblagich nolga tushadi", async () => {
-      const result = await auth.login(U, '1234', later(5));
+      const result = await auth.login(U, '1234', C, later(5));
       expect(result.user.id).toBe(U);
       expect(await attempts(U)).toEqual({ failed: 0, until: null });
 

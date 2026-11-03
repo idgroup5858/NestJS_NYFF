@@ -64,7 +64,8 @@ export class SyncService {
       .createQueryBuilder(User, 'u')
       .addSelect('u.pinHash')
       .where(`u.role = 'cashier'`)
-      .andWhere('u.branchId = :branchId', { branchId })
+      // bir nechta filialda ishlaydigan kassir — har birining offline kassasida
+      .andWhere('u.branchIds @> CAST(:branchJson AS jsonb)', { branchJson: JSON.stringify([branchId]) })
       .andWhere('u.active = true')
       .orderBy('u.name')
       .addOrderBy('u.id')

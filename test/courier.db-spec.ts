@@ -268,7 +268,7 @@ describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
 
   it("admin: kuryer — email (kichik harfda, takrorlanmaydi) va parol; bo'sh parol eskisini qoldiradi; rol almashsa yangisi majburiy", async () => {
     const save = (input: Parameters<UsersService['save']>[0]) => users.save(input, 'usr_admin', now);
-    const base = { name: 'Sanjar', surname: 'Komilov', role: 'courier' as const, branchId: null, active: true };
+    const base = { name: 'Sanjar', surname: 'Komilov', role: 'courier' as const, active: true };
     await expectCode('invalid_email', () => save({ ...base, email: 'sanjar', password: 'secret12' }));
     await expectCode('invalid_email', () => save({ ...base, email: 'san jar@gmail.com', password: 'secret12' }));
     await expectCode('invalid_password', () => save({ ...base, email: 'sanjar@gmail.com', password: '1234567' }));
@@ -276,7 +276,7 @@ describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
     await expectCode('surname_required', () => save({ ...base, surname: '  ', email: 'sanjar@gmail.com', password: 'secret12' }));
 
     const sanjar = await save({ ...base, email: ' Sanjar.K@Gmail.com ', password: 'secret12' });
-    expect(sanjar).toMatchObject({ email: 'sanjar.k@gmail.com', surname: 'Komilov', branchId: null });
+    expect(sanjar).toMatchObject({ email: 'sanjar.k@gmail.com', surname: 'Komilov', branchIds: [] });
     expect((await auth.passwordLogin('courier', 'sanjar.k@gmail.com', 'secret12', now)).user.id).toBe(sanjar.id);
     await save({ ...base, id: sanjar.id, name: 'Sanjar K.', email: 'sanjar.k@gmail.com', password: '' });
     expect((await auth.passwordLogin('courier', 'SANJAR.K@gmail.com', 'secret12', now)).user.name).toBe('Sanjar K.');
@@ -285,10 +285,10 @@ describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
 
     // kassir → kuryer: parolsiz bo'lmaydi; kuryer → kassir: PIN'siz bo'lmaydi, email tozalanadi
     await expectCode('invalid_password', () =>
-      save({ id: 'usr_cashier_c2', name: 'Sardor', surname: 'Aliyev', role: 'courier', branchId: null, email: 'sardor@gmail.com', active: true }),
+      save({ id: 'usr_cashier_c2', name: 'Sardor', surname: 'Aliyev', role: 'courier', email: 'sardor@gmail.com', active: true }),
     );
-    await expectCode('invalid_pin', () => save({ ...base, id: sanjar.id, role: 'cashier', branchId: C, pin: '' }));
-    const cashier = await save({ ...base, id: sanjar.id, role: 'cashier', branchId: C, pin: '9876' });
+    await expectCode('invalid_pin', () => save({ ...base, id: sanjar.id, role: 'cashier', branchIds: [C], pin: '' }));
+    const cashier = await save({ ...base, id: sanjar.id, role: 'cashier', branchIds: [C], pin: '9876' });
     expect(cashier.email).toBeNull();
     await expectCode('wrong_login', () => auth.passwordLogin('courier', 'sanjar.k@gmail.com', 'secret12', now));
   });

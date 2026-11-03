@@ -1,9 +1,10 @@
-import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ROLES, type Role } from '../common/enums';
 
 /**
  * Admin xodim qo'shadi / tahrirlaydi. Admin va kuryer — `email` va `password` bilan (PIN'siz), boshqalar — `pin` bilan.
- * Tahrirda `pin` / `password` bo'sh qoldirilsa — eskisi qoladi.
+ * Tahrirda `pin` / `password` bo'sh qoldirilsa — eskisi qoladi. Kassir va oshpaz yordamchisi — `branchIds` (kamida
+ * bitta filial); boshqa rollarda e'tiborga olinmaydi.
  */
 export class SaveUserDto {
   @IsString()
@@ -19,9 +20,11 @@ export class SaveUserDto {
   role: Role;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(40)
-  branchId: string | null;
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  @MaxLength(40, { each: true })
+  branchIds?: string[];
 
   @IsOptional()
   @IsString()

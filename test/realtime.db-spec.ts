@@ -51,8 +51,8 @@ async function seedFixtures(dataSource: DataSource) {
   await em.insert(Warehouse, { id: 'wh_rt', name: 'RT ombori', kind: 'branch', branchId: B });
   const pinHash = await hashPin('1234');
   await em.insert(User, [
-    { id: 'usr_c', name: 'Kassir', role: 'cashier', branchId: B, pinHash, active: true, createdAt: now },
-    { id: 'usr_k', name: 'Oshpaz yordamchisi', role: 'kitchen', branchId: B, pinHash, active: true, createdAt: now },
+    { id: 'usr_c', name: 'Kassir', role: 'cashier', branchIds: [B], pinHash, active: true, createdAt: now },
+    { id: 'usr_k', name: 'Oshpaz yordamchisi', role: 'kitchen', branchIds: [B], pinHash, active: true, createdAt: now },
   ]);
   await em.insert(Ingredient, {
     id: 'bun',
@@ -287,7 +287,7 @@ describe('Socket.IO, qurilmalar va mobil buyurtma', () => {
     const staffKicked = kicked(staff.socket);
     await app
       .get(UsersService)
-      .save({ id: 'usr_k', name: 'Oshpaz', surname: 'Yordamchisi', role: 'kitchen', branchId: B, pin: '', active: false }, 'usr_admin_test');
+      .save({ id: 'usr_k', name: 'Oshpaz', surname: 'Yordamchisi', role: 'kitchen', branchIds: [B], pin: '', active: false }, 'usr_admin_test');
     await staffKicked;
     await http().get('/api/orders/active').set('Authorization', `Bearer ${kitchen.token}`).expect(401);
   });
