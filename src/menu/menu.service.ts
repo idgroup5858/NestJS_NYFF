@@ -79,10 +79,15 @@ export class MenuService {
     const fields = { name: cleanName(input.name), image: input.image.trim(), icon: input.icon.trim(), active: input.active };
     if (input.id) {
       await this.getCategory(em, input.id);
-      await em.update(Category, input.id, fields);
+      await em.update(Category, input.id, input.kitchen === undefined ? fields : { ...fields, kitchen: input.kitchen });
       return this.getCategory(em, input.id);
     }
-    const category: Category = { id: newId('cat'), ...fields, sortOrder: (await this.maxSortOrder(em, Category)) + 1 };
+    const category: Category = {
+      id: newId('cat'),
+      ...fields,
+      kitchen: input.kitchen ?? true,
+      sortOrder: (await this.maxSortOrder(em, Category)) + 1,
+    };
     await em.insert(Category, category);
     return category;
   }

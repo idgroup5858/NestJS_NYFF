@@ -389,6 +389,8 @@ export function buildBase(now: Date): DemoBase {
       icon: DEFAULT_ICONS[id] ? `/images/icons/${DEFAULT_ICONS[id]}.png` : '',
       sortOrder: index + 1,
       active: true,
+      // ichimliklarni kassir o'zi beradi — oshxona chekiga chiqmaydi
+      kitchen: id !== 'drinks',
     })),
     products: PRODUCTS.map(([id, categoryId, name, price, recipe], index) => ({
       id,

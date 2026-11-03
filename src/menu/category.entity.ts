@@ -22,4 +22,8 @@ export class Category {
 
   @Column({ default: true })
   active: boolean;
+
+  /** `false` — taomlari oshxona chekiga chiqmaydi (ichimliklar: kassir o'zi beradi) */
+  @Column({ default: true })
+  kitchen: boolean;
 }

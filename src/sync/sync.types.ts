@@ -23,6 +23,8 @@ export interface SyncCategory {
   icon: string;
   sortOrder: number;
   active: boolean;
+  /** `false` — taomlari oshxona chekiga chiqmaydi (ichimliklar) */
+  kitchen: boolean;
 }
 
 /** Kassa menyusi (`GET /menu?all=true` bilan bir xil): sotilmaydigan taom — `price: null`. */

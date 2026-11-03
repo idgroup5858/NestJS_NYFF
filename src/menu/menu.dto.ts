@@ -27,6 +27,11 @@ export class SaveCategoryDto {
 
   @IsBoolean()
   active: boolean;
+
+  /** `false` — taomlari oshxona chekiga chiqmaydi; berilmasa — `true` (yangi) yoki o'zgarmaydi (tahrirda) */
+  @IsOptional()
+  @IsBoolean()
+  kitchen?: boolean;
 }
 
 export class RecipeLineDto {

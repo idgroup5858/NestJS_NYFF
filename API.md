@@ -335,7 +335,8 @@ Menyu — tanlangan filialniki.
   "branchId": "br_chilonzor",
   "categories": [
     { "id": "burgers", "name": { "uz": "Burgerlar", "ru": "Бургеры", "en": "Burgers" },
-      "image": "/images/categories/burgers.jpg", "icon": "/images/icons/hamburger.png", "sortOrder": 1, "active": true }
+      "image": "/images/categories/burgers.jpg", "icon": "/images/icons/hamburger.png", "sortOrder": 1, "active": true,
+      "kitchen": true }
   ],
   "products": [
     { "id": "burger-classic", "categoryId": "burgers",
@@ -615,7 +616,10 @@ mahsulotlar aynan o'sha miqdorda omborga qaytadi. Kassa buyurtmasi va kioskda ka
 ### 6.3 Menyu
 
 ```ts
-interface Category { id: string; name: LocalizedText; image: string; icon: string; sortOrder: number; active: boolean }
+interface Category {
+  id: string; name: LocalizedText; image: string; icon: string; sortOrder: number; active: boolean
+  kitchen: boolean                 // false — taomlari oshxona chekiga chiqmaydi (ichimliklar; kassa uchun)
+}
 interface Product {                // admin ro'yxati (retsept bilan)
   id: string; categoryId: string; name: LocalizedText; image: string
   recipe: { ingredientId: string; qty: number }[]   // bitta taomga, asosiy birlikda
@@ -744,8 +748,8 @@ hudud o'chiriladi; 1–2 nuqta — `zone_too_small`; `fallbackBranchId` filialni
 |---|---|---|---|---|
 | `GET /menu` | ochiq | query: `branchId` (majburiy), `all?: 'true'` — kassa uchun: shu filialda vaqtincha sotilmaydigan faol taomlar ham (`price: null`, "Sotilmaydi") va taomsiz faol kategoriyalar ham | `{ branchId, categories: Category[], products: MenuProduct[] }` ([5.3](#53-menyu)) | `not_found` (filial yo'q yoki faol emas) |
 | `GET /categories` | admin | | `Category[]` (hammasi, `sortOrder` bo'yicha) | |
-| `POST /categories` | admin | `{ name: LocalizedText, image: string ≤255, icon: string ≤255, active: boolean }` | `201 Category` (oxiriga qo'shiladi) | `name_required` |
-| `PATCH /categories/:id` | admin | xuddi shunday (to'liq) | `Category` | `not_found`, `name_required` |
+| `POST /categories` | admin | `{ name: LocalizedText, image: string ≤255, icon: string ≤255, active: boolean, kitchen?: boolean }` (`kitchen` berilmasa — `true`) | `201 Category` (oxiriga qo'shiladi) | `name_required` |
+| `PATCH /categories/:id` | admin | xuddi shunday (to'liq; `kitchen` berilmasa — o'zgarmaydi) | `Category` | `not_found`, `name_required` |
 | `DELETE /categories/:id` | admin | | `204` | `not_found`, `in_use` (`products` — ichida taom bor, faol bo'lmagani ham) |
 | `POST /categories/:id/move` | admin | `{ direction: -1 \| 1 }` (−1 — yuqoriga) | `204`; chetda bo'lsa o'zgarmaydi | `not_found` |
 | `GET /products` | admin | | `Product[]` | |
