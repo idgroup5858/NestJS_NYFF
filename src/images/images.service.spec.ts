@@ -1,8 +1,12 @@
 import { HttpException } from '@nestjs/common';
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ImagesService, MAX_IMAGE_BYTES, slugName, type UploadedImage } from './images.service';
+import type { Repository } from 'typeorm';
+import type { Setting } from '../database/setting.entity';
+import type { Category } from '../menu/category.entity';
+import type { Product } from '../menu/product.entity';
+import { DEFAULT_KIOSK_IMAGES, ImagesService, MAX_IMAGE_BYTES, slugName, type UploadedImage } from './images.service';
 
 /** Vaqtinchalik papkada (`IMAGES_DIR`): ro'yxat, nomni tozalash, band nom, rad etiladigan fayllar. */
 
@@ -25,12 +29,45 @@ async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
   return undefined;
 }
 
+/** Bazasiz: taom / kategoriya rasmlari va `settings` — xotirada. */
+function fakeRepos() {
+  const used = { products: [] as string[], categories: [] as string[] };
+  const settings = new Map<string, string>();
+  const countIn = (list: string[]) => ({
+    countBy: ({ image }: { image: string }) => Promise.resolve(list.filter((src) => src === image).length),
+  });
+  const settingsRepo = {
+    findOneBy: ({ key }: { key: string }) =>
+      Promise.resolve(settings.has(key) ? { key, value: settings.get(key)! } : null),
+    save: (row: { key: string; value: string }) => {
+      settings.set(row.key, row.value);
+      return Promise.resolve(row);
+    },
+  };
+  return {
+    used,
+    settings,
+    service: new ImagesService(
+      countIn(used.products) as unknown as Repository<Product>,
+      countIn(used.categories) as unknown as Repository<Category>,
+      settingsRepo as unknown as Repository<Setting>,
+    ),
+  };
+}
+
+const exists = (path: string) =>
+  access(path).then(
+    () => true,
+    () => false,
+  );
+
 describe('rasmlar', () => {
-  const service = new ImagesService();
+  let { service, used, settings } = fakeRepos();
   let dir: string;
   const previous = process.env.IMAGES_DIR;
 
   beforeEach(async () => {
+    ({ service, used, settings } = fakeRepos());
     dir = await mkdtemp(join(tmpdir(), 'nyff-images-'));
     process.env.IMAGES_DIR = dir;
   });
@@ -99,5 +136,44 @@ describe('rasmlar', () => {
       'invalid_image',
     );
     expect(await service.list()).toEqual([]);
+  });
+
+  it("o'chirish: ishlatilmagan rasm o'chadi; taomda, kategoriyada yoki kioskda bo'lsa — image_in_use", async () => {
+    await mkdir(join(dir, 'products'));
+    await mkdir(join(dir, 'categories'));
+    for (const name of ['free.png', 'dish.png', 'kiosk.png']) await writeFile(join(dir, 'products', name), PNG);
+    await writeFile(join(dir, 'categories', 'cat.png'), PNG);
+    used.products.push('/images/products/dish.png');
+    used.categories.push('/images/categories/cat.png');
+    await service.setKioskImages(['/images/products/kiosk.png', '', '']);
+
+    await service.remove('products', 'free.png');
+    expect(await exists(join(dir, 'products', 'free.png'))).toBe(false);
+    expect(await codeOf(service.remove('products', 'dish.png'))).toBe('image_in_use');
+    expect(await codeOf(service.remove('categories', 'cat.png'))).toBe('image_in_use');
+    expect(await codeOf(service.remove('products', 'kiosk.png'))).toBe('image_in_use');
+    expect(await exists(join(dir, 'products', 'dish.png'))).toBe(true);
+  });
+
+  it("o'chirish: yo'q fayl, boshqa papka, '../' va rasm bo'lmagan fayl — not_found", async () => {
+    await mkdir(join(dir, 'products'));
+    await writeFile(join(dir, 'products', 'notes.txt'), 'x');
+    expect(await codeOf(service.remove('products', 'nope.png'))).toBe('not_found');
+    expect(await codeOf(service.remove('icons', 'pizza.png'))).toBe('not_found');
+    expect(await codeOf(service.remove('products', '../secret.png'))).toBe('not_found');
+    expect(await codeOf(service.remove('products', 'notes.txt'))).toBe('not_found');
+    expect(await exists(join(dir, 'products', 'notes.txt'))).toBe(true);
+  });
+
+  it("kiosk rasmlari: tanlanmagan — standart 3 ta; saqlanadi; faqat uploads dagi rasm yo'li yoki bo'sh", async () => {
+    expect(await service.kioskImages()).toEqual(DEFAULT_KIOSK_IMAGES);
+    const chosen = ['/images/products/a.png', '/images/categories/b.jpg', ''];
+    expect(await service.setKioskImages(chosen)).toEqual(chosen);
+    expect(await service.kioskImages()).toEqual(chosen);
+    expect(await codeOf(service.setKioskImages(['https://x.uz/a.png', '', '']))).toBe('invalid_input');
+    expect(await codeOf(service.setKioskImages(['/images/products/../../a.png', '', '']))).toBe('invalid_input');
+    expect(await codeOf(service.setKioskImages(['/images/products/a.png']))).toBe('invalid_input');
+    settings.set('kiosk_images', 'buzilgan');
+    expect(await service.kioskImages()).toEqual(DEFAULT_KIOSK_IMAGES);
   });
 });

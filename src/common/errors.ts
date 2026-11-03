@@ -29,6 +29,7 @@ export type ErrorCode =
   | 'invalid_location'
   | 'forbidden'
   | 'invalid_image'
+  | 'image_in_use'
   | 'surname_required'
   | 'in_use'
   // ── faqat backend ──
@@ -82,6 +83,7 @@ const STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   not_ready: HttpStatus.CONFLICT,
   email_taken: HttpStatus.CONFLICT,
   in_use: HttpStatus.CONFLICT,
+  image_in_use: HttpStatus.CONFLICT,
   telegram_not_connected: HttpStatus.CONFLICT,
   too_many_attempts: HttpStatus.TOO_MANY_REQUESTS,
   ai_failed: HttpStatus.BAD_GATEWAY,
@@ -115,6 +117,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   invalid_location: "Xaritadagi nuqta noto'g'ri",
   forbidden: 'Bu amal sizning rolingiz uchun emas',
   invalid_image: "Rasm JPG, PNG, WEBP yoki AVIF bo'lishi va 5 MB dan oshmasligi kerak",
+  image_in_use: "Bu rasm menyuda yoki kioskda ishlatilgan — avval u yerda boshqa rasmni tanlang",
   surname_required: 'Familiyani kiriting',
   in_use: "Tizimda ishlatilgan — o'chirib bo'lmaydi, uning o'rniga faolsizlantiring",
   unauthorized: 'Avval tizimga kiring',

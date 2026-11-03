@@ -146,6 +146,7 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `invalid_location` | 400 | | Xaritadagi nuqta noto'g'ri | \|lat\| > 90 yoki \|lng\| > 180 |
 | `forbidden` | 403 | | Bu amal sizning rolingiz uchun emas | rol mos emas; boshqa filial buyurtmasi; admin yoki kuryer PIN yo'lida (`/auth/login`, `/auth/unlock`, `/auth/pin`) |
 | `invalid_image` | 400 | | Rasm JPG, PNG, WEBP yoki AVIF bo'lishi va 5 MB dan oshmasligi kerak | `POST /images`: fayl yo'q, turi ruxsatsiz, ichi aytilgan turga mos emas, 5 MB dan katta (20 MB dan kattasini multer o'zi `413` bilan qaytaradi — `code` siz) |
+| `image_in_use` | 409 | | Bu rasm menyuda yoki kioskda ishlatilgan — avval u yerda boshqa rasmni tanlang | `DELETE /images/...`: rasm taomda, kategoriyada yoki kiosk ekranida (`detail` — qayerda) |
 | `unauthorized` | 401 | ✔ | Avval tizimga kiring | token yo'q / eskirgan / xodim bloklangan |
 | `invalid_input` | 400 | ✔ | So'rov ma'lumotlari noto'g'ri | DTO tekshiruvi (tur, majburiy maydon, ruxsat etilgan qiymat, uzunlik); `workHours.open = close` |
 | `too_many_attempts` | 429 | ✔ | Ko'p marta xato kiritildi — birozdan keyin urinib ko'ring | PIN bloki (`detail`: qolgan soniya, `"287s"`) yoki IP chegarasi (`Retry-After` sarlavhasi, soniya). TV / kiosk kodi uchun blok yo'q ([4.4](#44-tv-va-kiosk)) |
@@ -754,6 +755,9 @@ hudud o'chiriladi; 1–2 nuqta — `zone_too_small`; `fallbackBranchId` filialni
 | `POST /products/:id/move` | admin | `{ direction: -1 \| 1 }` — o'z kategoriyasi ichida | `204` | `not_found` |
 | `GET /images` | admin | | `ImageFile[]` — `IMAGES_DIR` (`uploads`) dagi `products` va `categories` papkalaridagi rasmlar (qo'lda tashlanganlari ham), eng yangisi birinchi | |
 | `POST /images` | admin | `multipart/form-data`: `file` (bitta rasm), `folder: 'products' \| 'categories'` | `201 ImageFile` — nom tozalanadi (`Cola Zero (1).PNG` → `cola-zero-1.png`), band bo'lsa `-2`, `-3`; kengaytma faylning haqiqiy turidan | `invalid_image`, `invalid_input` (`folder`) |
+| `DELETE /images/:folder/:name` | admin | `folder: products \| categories`, `name` — fayl nomi (URL-kodlangan) | `204` — fayl papkadan o'chadi | `not_found` (papka / fayl yo'q, nomda `/` yoki `..`, rasm emas), `image_in_use` (taom, kategoriya — faol bo'lmagani ham — yoki kiosk ekranida; `detail`: `products: 2, categories: 1, kiosk`) |
+| `GET /kiosk/images` | ochiq | | `{ images: string[] }` — kiosk bosh ekranidagi 3 ta rasm: o'rtadagi katta, tepadagi, pastdagi; admin tanlamagan bo'lsa — standart 3 ta (`uploads/products` dagi) | |
+| `PUT /kiosk/images` | admin | `{ images: string[] }` — aniq 3 ta, har biri `/images/products/<fayl>`, `/images/categories/<fayl>` yoki `''` (doirada ikonka) | `{ images }` (`settings`: `kiosk_images`) | `invalid_input` |
 
 `ImageFile`: `{ path: string, folder: 'products' | 'categories', name: string, size: number, modifiedAt: string }` —
 `path` (`/images/products/cola.png`) taom / kategoriyaning `image` iga yoziladi.

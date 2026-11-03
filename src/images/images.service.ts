@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import type { Dirent } from 'node:fs';
-import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, parse } from 'node:path';
+import { Repository } from 'typeorm';
 import { fail } from '../common/errors';
+import { Setting } from '../database/setting.entity';
+import { Category } from '../menu/category.entity';
+import { Product } from '../menu/product.entity';
 import { imagesDir } from './images-dir';
 
 /** Admin rasm tanlaydigan papkalar (`uploads` ichida; kategoriya ikonkalari — web ilovaning o'zida, bu yerda yo'q). */
@@ -59,8 +64,30 @@ export function slugName(original: string): string {
   return slug || 'rasm';
 }
 
+/** `settings` kaliti: kiosk bosh ekranidagi 3 ta bezak rasmi (JSON massiv). */
+const KIOSK_IMAGES_SETTING = 'kiosk_images';
+
+/**
+ * Kiosk bosh ekrani rasmlari — admin hali tanlamagan bo'lsa: o'rtada chizburger, tepada va pastda hot-dog
+ * (`uploads/products` dagi fayllar).
+ */
+export const DEFAULT_KIOSK_IMAGES = [
+  '/images/products/Screenshot_2-removebg-preview.png',
+  '/images/products/pngtree-hotdog-with-sausage-and-salad-ingredients-png-image_19086249-removebg-preview.png',
+  '/images/products/66e8a20acf4319d46fd00ddb276865da-removebg-preview.png',
+];
+
+/** Kiosk rasmi — faqat `uploads` dagi rasm yo'li (`/images/products/x.png`), boshqa sayt manzili emas. */
+const IMAGE_PATH = /^\/images\/(products|categories)\/[^/\\]+$/;
+
 @Injectable()
 export class ImagesService {
+  constructor(
+    @InjectRepository(Product) private readonly products: Repository<Product>,
+    @InjectRepository(Category) private readonly categories: Repository<Category>,
+    @InjectRepository(Setting) private readonly settings: Repository<Setting>,
+  ) {}
+
   /** `products` va `categories` papkalaridagi hamma rasm — eng yangisi birinchi. */
   async list(): Promise<ImageFile[]> {
     const groups = await Promise.all(
@@ -100,6 +127,58 @@ export class ImagesService {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       }
     }
+  }
+
+  /**
+   * Rasm faylini papkadan o'chiradi. Taomda, kategoriyada (faol bo'lmaganida ham) yoki kiosk ekranida ishlatilgan
+   * bo'lsa — `image_in_use` (`detail`: qayerda), aks holda u yerlarda bo'sh rasm qolardi.
+   */
+  async remove(folder: string, name: string): Promise<void> {
+    if (!(IMAGE_FOLDERS as readonly string[]).includes(folder)) fail('not_found', folder);
+    // faqat papkaning o'zidagi fayl nomi (`../` va boshqa papkalar emas)
+    if (/[/\\]/.test(name) || name.startsWith('.') || !READABLE.test(name)) fail('not_found', name);
+    const path = `/images/${folder}/${name}`;
+    const [products, categories, kiosk] = await Promise.all([
+      this.products.countBy({ image: path }),
+      this.categories.countBy({ image: path }),
+      this.kioskImages(),
+    ]);
+    const usedIn = [
+      products > 0 && `products: ${products}`,
+      categories > 0 && `categories: ${categories}`,
+      kiosk.includes(path) && 'kiosk',
+    ].filter(Boolean);
+    if (usedIn.length > 0) fail('image_in_use', usedIn.join(', '));
+    try {
+      await unlink(join(imagesDir(), folder, name));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') fail('not_found', path);
+      throw error;
+    }
+  }
+
+  /** Kiosk bosh ekranidagi 3 ta rasm: o'rtadagi katta doira, tepadagi va pastdagi kichik doiralar. */
+  async kioskImages(): Promise<string[]> {
+    const stored = await this.settings.findOneBy({ key: KIOSK_IMAGES_SETTING });
+    if (!stored) return [...DEFAULT_KIOSK_IMAGES];
+    try {
+      const images = JSON.parse(stored.value) as unknown;
+      if (Array.isArray(images) && images.length === 3 && images.every((src) => typeof src === 'string')) {
+        return images as string[];
+      }
+    } catch {
+      // buzilgan qiymat — standartiga qaytamiz
+    }
+    return [...DEFAULT_KIOSK_IMAGES];
+  }
+
+  /** Admin tanlagan kiosk rasmlari — har biri `uploads` dagi rasm yo'li (bo'sh — doirada ikonka qoladi). */
+  async setKioskImages(images: string[]): Promise<string[]> {
+    if (images.length !== 3 || images.some((src) => src !== '' && !IMAGE_PATH.test(src))) {
+      fail('invalid_input', 'images');
+    }
+    await this.settings.save({ key: KIOSK_IMAGES_SETTING, value: JSON.stringify(images) });
+    return images;
   }
 
   private async info(folder: ImageFolder, name: string): Promise<ImageFile> {
