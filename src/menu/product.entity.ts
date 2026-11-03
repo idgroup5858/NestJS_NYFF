@@ -47,4 +47,11 @@ export class Product {
   /** `false` — oshxona chekiga chiqmaydi (tayyor ichimlik: kola, suv — kassir o'zi beradi; choy, qahva — chiqadi) */
   @Column({ default: true })
   kitchen: boolean;
+
+  /**
+   * `true` — faqat zalda beriladi (choynakdagi choy, idishdagi taom): olib ketish va dostavka buyurtmasiga qo'shilmaydi,
+   * mobil ilovada ko'rsatilmaydi.
+   */
+  @Column({ default: false })
+  dineInOnly: boolean;
 }

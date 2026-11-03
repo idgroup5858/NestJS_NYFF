@@ -11,6 +11,7 @@ import { StaffEmailSurname1793630906349 } from './1793630906349-StaffEmailSurnam
 import { OrderSyncedAt1793720000000 } from './1793720000000-OrderSyncedAt';
 import { ProductKitchen1793730000000 } from './1793730000000-ProductKitchen';
 import { StaffBranches1793740000000 } from './1793740000000-StaffBranches';
+import { ProductDineInOnly1793750000000 } from './1793750000000-ProductDineInOnly';
 
 /** Barcha migratsiyalar tartib bilan. Yangisi `npm run migration:generate -- src/database/migrations/<Nom>` dan keyin shu yerga. */
 export const MIGRATIONS: Function[] = [
@@ -27,4 +28,5 @@ export const MIGRATIONS: Function[] = [
   OrderSyncedAt1793720000000,
   ProductKitchen1793730000000,
   StaffBranches1793740000000,
+  ProductDineInOnly1793750000000,
 ];

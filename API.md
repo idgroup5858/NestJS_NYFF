@@ -128,6 +128,7 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `user_inactive` | 403 | | Bu xodim bloklangan | login / unlock |
 | `empty_order` | 400 | | Ro'yxat bo'sh | buyurtma, kirim yoki ko'chirish qatorsiz |
 | `product_unavailable` | 400 | | Bu taom hozir sotuvda yo'q | taom faol emas / shu filialda vaqtincha sotilmaydi (`detail`: productId) |
+| `dine_in_only` | 400 | | Bu taom faqat zalda beriladi — olib ketish va dostavkaga yo'q | `dineInOnly` taom olib ketish / dostavka buyurtmasida (`detail`: productId) |
 | `invalid_qty` | 400 | | Miqdor noto'g'ri | buyurtmada qty butun ≥ 1 emas; hujjatda qty ≤ 0; retseptda / chegarada butun emas |
 | `invalid_price` | 400 | | Narx kiritilmagan | taom narxi butun > 0 emas; kirimni tasdiqlashda narx yo'q / manfiy |
 | `invalid_status` | 409 | | Holat allaqachon o'zgargan | buyurtma holati o'tishga mos emas; mobil `dine_in` (`detail`: `mobile dine_in`) |
@@ -351,10 +352,14 @@ Menyu — tanlangan filialniki.
     { "id": "burger-classic", "categoryId": "burgers",
       "name": { "uz": "Klassik burger", "ru": "Классический бургер", "en": "Classic burger" },
       "image": "/images/products/burger-classic.jpg", "sortOrder": 1, "price": 32000,
-      "composition": [ { "uz": "Burger noni", "ru": "Булочка для бургера", "en": "Burger bun" }, "…" ], "kitchen": true }
+      "composition": [ { "uz": "Burger noni", "ru": "Булочка для бургера", "en": "Burger bun" }, "…" ], "kitchen": true,
+      "dineInOnly": false }
   ]
 }
 ```
+
+- **`dineInOnly: true` — taom faqat zalda beriladi** (choynakdagi choy, idishdagi taom). Mobil ilovada zal yo'q —
+  bunday taomni **menyuda ko'rsatmang** (savatga ham qo'shilmasin). Buyurtmada kelsa — `400 dine_in_only`.
 
 - Faqat faol kategoriyalar va shu filialda sotuvdagi faol taomlar (filialda vaqtincha sotuvdan olinganlari chiqmaydi);
   sotuvdagi taomi yo'q kategoriya chiqmaydi. Tartib — `sortOrder` bo'yicha (javobda tartiblangan).
@@ -431,6 +436,7 @@ Tekshiruvlar (shu tartibda; birinchi xato qaytadi):
 | 8 | har qator uchun ketma-ket: qty butun ≥ 1 emas | `400 invalid_qty` (`detail`: productId) |
 | 8 | taom topilmadi | `404 not_found` |
 | 8 | taom faol emas / shu filialda vaqtincha sotilmaydi | `400 product_unavailable` (`detail`: productId) |
+| 8 | taom faqat zalda beriladi (`dineInOnly`) | `400 dine_in_only` (`detail`: productId) |
 
 Mijoz o'zi tuzata oladigan forma xatolari (2–6) filial tanlashdan **oldin** qaytadi.
 
@@ -633,12 +639,14 @@ interface Product {                // admin ro'yxati (retsept bilan)
   unavailableBranchIds: string[]   // taom vaqtincha sotilmaydigan filiallar; yangi filial — hamma taomni sotadi
   sortOrder: number; active: boolean
   kitchen: boolean                 // false — oshxona chekiga chiqmaydi (tayyor ichimlik: kola, suv; choy, qahva — true)
+  dineInOnly: boolean              // true — faqat zalda beriladi (choynakdagi choy): olib ketish / dostavkaga yo'q
 }
 interface MenuProduct {            // GET /menu
   id: string; categoryId: string; name: LocalizedText; image: string; sortOrder: number
   price: number | null             // taom narxi; null — faqat `all=true` da: shu filialda vaqtincha sotilmaydi
   composition: LocalizedText[]
   kitchen: boolean                 // kassa uchun: false — oshxona chekiga chiqmaydi (mobil ilovaga kerak emas)
+  dineInOnly: boolean              // true — faqat zalda: mobil ilova ko'rsatmaydi, kiosk / kassa olib ketishda qo'shmaydi
 }
 ```
 
@@ -769,8 +777,8 @@ hudud o'chiriladi; 1–2 nuqta — `zone_too_small`; `fallbackBranchId` filialni
 | `DELETE /categories/:id` | admin | | `204` | `not_found`, `in_use` (`products` — ichida taom bor, faol bo'lmagani ham) |
 | `POST /categories/:id/move` | admin | `{ direction: -1 \| 1 }` (−1 — yuqoriga) | `204`; chetda bo'lsa o'zgarmaydi | `not_found` |
 | `GET /products` | admin | | `Product[]` | |
-| `POST /products` | admin | `{ categoryId, name: LocalizedText, image: string ≤255, recipe: { ingredientId, qty }[], price: number, unavailableBranchIds: string[], active: boolean, kitchen?: boolean }` (`kitchen` berilmasa — `true`) | `201 Product` | `name_required`, `invalid_price` (narx butun > 0 emas), `not_found` (kategoriya / mahsulot / filial), `invalid_qty` (qty butun ≥ 1 emas), `recipe_required` |
-| `PATCH /products/:id` | admin | xuddi shunday (to'liq; `kitchen` berilmasa — o'zgarmaydi) | `Product` | xuddi shunday |
+| `POST /products` | admin | `{ categoryId, name: LocalizedText, image: string ≤255, recipe: { ingredientId, qty }[], price: number, unavailableBranchIds: string[], active: boolean, kitchen?: boolean, dineInOnly?: boolean }` (`kitchen` berilmasa — `true`, `dineInOnly` — `false`) | `201 Product` | `name_required`, `invalid_price` (narx butun > 0 emas), `not_found` (kategoriya / mahsulot / filial), `invalid_qty` (qty butun ≥ 1 emas), `recipe_required` |
+| `PATCH /products/:id` | admin | xuddi shunday (to'liq; `kitchen`, `dineInOnly` berilmasa — o'zgarmaydi) | `Product` | xuddi shunday |
 | `DELETE /products/:id` | admin | | `204` (rasm fayli qoladi — galereyada boshqasi ham ishlatishi mumkin) | `not_found`, `in_use` (`orders` — biror buyurtmada bor, bekor qilingani ham) |
 | `POST /products/:id/move` | admin | `{ direction: -1 \| 1 }` — o'z kategoriyasi ichida | `204` | `not_found` |
 | `GET /images` | admin | | `ImageFile[]` — `IMAGES_DIR` (`uploads`) dagi `products` va `categories` papkalaridagi rasmlar (qo'lda tashlanganlari ham), eng yangisi birinchi | |
@@ -794,7 +802,7 @@ tashlanadi); buyurtma izohi `note?: string ≤500`. Narx, nom — bazadan (taom 
 
 | Metod va yo'l | Kim | So'rov | Javob | Xatolar |
 |---|---|---|---|---|
-| `POST /orders` | cashier | `{ id?: "ord_" + 16 hex, type: OrderType, items: OrderLine[], note?, payment: PaymentMethod, split?: PaymentSplit \| null }` — `id` kassa o'zi beradi: javob kelmay qolsa (internet uzildi) shu id bilan qayta yuborilgani ikkinchi marta yozilmaydi, birinchisi qaytadi | `201 Order` (`preparing`, kassir smenasiga) | `empty_order`, `invalid_amount`, `invalid_qty`, `not_found`, `product_unavailable`, `shift_not_open`, `invalid_input` (id shakli; id boshqa kassir / filial buyurtmasiniki) |
+| `POST /orders` | cashier | `{ id?: "ord_" + 16 hex, type: OrderType, items: OrderLine[], note?, payment: PaymentMethod, split?: PaymentSplit \| null }` — `id` kassa o'zi beradi: javob kelmay qolsa (internet uzildi) shu id bilan qayta yuborilgani ikkinchi marta yozilmaydi, birinchisi qaytadi | `201 Order` (`preparing`, kassir smenasiga) | `empty_order`, `invalid_amount`, `invalid_qty`, `not_found`, `product_unavailable`, `dine_in_only` (zaldan boshqa turda), `shift_not_open`, `invalid_input` (id shakli; id boshqa kassir / filial buyurtmasiniki) |
 | `GET /orders/active` | cashier, kitchen, admin | query: `branchId` (faqat admin, majburiy) | `Order[]` — `pending` + `preparing`, eskisi birinchi | `branch_required` |
 | `GET /orders/ready` | cashier, kitchen, admin | query: `branchId` (admin) | `Order[]` — so'nggi 5 daqiqada `ready` bo'lganlar, yangisi birinchi | `branch_required` |
 | `GET /orders/delivery` | cashier, admin | query: `branchId` (admin) | `Order[]` — kuryer ishidagi mobil dostavkalar (kassaning "Dostavka" ro'yxati): `preparing` / `ready`, hali yetkazilmagan (`deliveredAt: null`), oxirgi 12 soatda yaratilgan — kuryer kutayotgan, olingan, yo'ldagi va "Yetkazib bo'lmadi" bilan qaytganlar; eskisi birinchi | `branch_required` |
@@ -805,7 +813,7 @@ tashlanadi); buyurtma izohi `note?: string ≤500`. Narx, nom — bazadan (taom 
 | `POST /orders/:id/reopen` | kitchen (o'z filiali) | | `200 Order` (`ready` → `preparing`) | `not_found`, `forbidden`, `invalid_status` |
 | `POST /orders/:id/cancel` | cashier (o'z filiali), admin | | `200 Order` (`cancelled`, `cancelReason: null`) | `not_found`, `forbidden`, `invalid_status` (allaqachon bekor; kuryer yetkazgan) |
 | `POST /orders/:id/release-courier` | cashier (o'z filiali), admin | | `200 Order` — kuryer maydonlari tozalanadi (`courierId`, `departedAt`, `returnedAt`, … `null`), dostavka yana kuryerlarning "Yangi" ro'yxatida. "Yetkazib bo'lmadi" bilan qaytgan yoki kuryer olib qolib ketgan buyurtma uchun | `not_found`, `forbidden`, `invalid_status` (kuryeri yo'q, yetkazilgan yoki bekor) |
-| `POST /kiosk/orders` | kiosk kodi: `X-Kiosk-Code` ([4.4](#44-tv-va-kiosk)); IP: 30 / 60 s | `{ branchId: string ≤40, type: 'dine_in' \| 'takeaway', items, note?, payment?: 'card' \| 'click' \| null }` | `201 CustomerOrder` | `wrong_kiosk_code` (kod yo'q / noto'g'ri / yangilangan, filial noma'lum), `empty_order`, `invalid_qty`, `not_found` (kod to'g'ri, filial faol emas; taom), `product_unavailable`, `too_many_attempts` |
+| `POST /kiosk/orders` | kiosk kodi: `X-Kiosk-Code` ([4.4](#44-tv-va-kiosk)); IP: 30 / 60 s | `{ branchId: string ≤40, type: 'dine_in' \| 'takeaway', items, note?, payment?: 'card' \| 'click' \| null }` | `201 CustomerOrder` | `wrong_kiosk_code` (kod yo'q / noto'g'ri / yangilangan, filial noma'lum), `empty_order`, `invalid_qty`, `not_found` (kod to'g'ri, filial faol emas; taom), `product_unavailable`, `dine_in_only` (olib ketishda), `too_many_attempts` |
 | `GET /kiosk/check` | kiosk kodi: `X-Kiosk-Code` | query: `branchId` (majburiy) | `{ ok: true }` — kod to'g'ri (kiosk kod kiritilganda va har mijozdan oldin tekshiradi) | `branch_required`, `wrong_kiosk_code` |
 | `GET /tv/queue` | TV kodi: `X-Tv-Code` ([4.4](#44-tv-va-kiosk)) | query: `branchId` (majburiy) | `{ preparing: TvOrder[], ready: TvOrder[] }` | `branch_required`, `wrong_tv_code` (kod yo'q / noto'g'ri / yangilangan, filial noma'lum), `not_found` (kod to'g'ri, filial faol emas) |
 | `POST /mobile/orders` | ochiq | [5.4](#54-buyurtma-berish) | `201 { order: CustomerOrder, trackingToken: string }` | [5.4](#54-buyurtma-berish) jadvali |

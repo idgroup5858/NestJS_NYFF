@@ -32,6 +32,8 @@ export interface MenuProduct {
   composition: LocalizedText[];
   /** `false` — oshxona chekiga chiqmaydi (tayyor ichimlik) */
   kitchen: boolean;
+  /** `true` — faqat zalda beriladi (choynakdagi choy): olib ketish / dostavkaga yo'q, mobil ilova ko'rsatmaydi */
+  dineInOnly: boolean;
 }
 
 @Injectable()
@@ -69,8 +71,8 @@ export class MenuService {
         const ingredient = ingredientOf.get(line.ingredientId);
         return ingredient && !NON_COMPOSITION_GROUPS.includes(ingredient.group) ? [ingredient.name] : [];
       });
-      const { id, categoryId, name, image, sortOrder, kitchen } = product;
-      return [{ id, categoryId, name, image, sortOrder, price, composition, kitchen }];
+      const { id, categoryId, name, image, sortOrder, kitchen, dineInOnly } = product;
+      return [{ id, categoryId, name, image, sortOrder, price, composition, kitchen, dineInOnly }];
     });
     const withProducts = new Set(menu.map((p) => p.categoryId));
     return { branchId, categories: all ? categories : categories.filter((c) => withProducts.has(c.id)), products: menu };
@@ -124,13 +126,19 @@ export class MenuService {
 
     if (input.id) {
       await this.getProduct(em, input.id);
-      await em.update(Product, input.id, input.kitchen === undefined ? fields : { ...fields, kitchen: input.kitchen });
+      // berilmagan belgi o'zgarmaydi (eski admin paneli bilan saqlansa ham)
+      await em.update(Product, input.id, {
+        ...fields,
+        ...(input.kitchen === undefined ? {} : { kitchen: input.kitchen }),
+        ...(input.dineInOnly === undefined ? {} : { dineInOnly: input.dineInOnly }),
+      });
       return this.getProduct(em, input.id);
     }
     const product: Product = {
       id: newId('prd'),
       ...fields,
       kitchen: input.kitchen ?? true,
+      dineInOnly: input.dineInOnly ?? false,
       sortOrder: (await this.maxSortOrder(em, Product)) + 1,
     };
     await em.insert(Product, product);

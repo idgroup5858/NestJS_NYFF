@@ -180,6 +180,27 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       );
     });
 
+    it('faqat zalda beriladigan taom (choynakdagi choy): menyuda belgisi bor, olib ketish / dostavkada — dine_in_only', async () => {
+      await em.update(Product, 'tea', { dineInOnly: true });
+      try {
+        const kassaMenu = await menu.publicMenu(C, true);
+        expect(kassaMenu.products.find((p) => p.id === 'tea')?.dineInOnly).toBe(true);
+        expect(kassaMenu.products.find((p) => p.id === 'fries')?.dineInOnly).toBe(false);
+        const tea = [{ productId: 'tea', qty: 1 }, ...burger()];
+        await expectCode('dine_in_only', () =>
+          orders.createByKiosk({ branchId: C, type: 'takeaway', items: tea, payment: 'card' }, now),
+        );
+        await expectCode('dine_in_only', () =>
+          orders.createByCashier(c1, { type: 'takeaway', items: tea, payment: 'cash' }, now),
+        );
+        await expectCode('dine_in_only', () =>
+          orders.createByCashier(c1, { type: 'delivery', items: tea, payment: 'cash' }, now),
+        );
+      } finally {
+        await em.update(Product, 'tea', { dineInOnly: false });
+      }
+    });
+
     it('ertasi kuni raqam yana 1 dan', async () => {
       const tomorrow = new Date('2026-10-24T09:00:00');
       const order = await orders.createByKiosk(

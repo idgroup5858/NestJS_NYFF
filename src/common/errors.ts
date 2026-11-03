@@ -11,6 +11,7 @@ export type ErrorCode =
   | 'user_inactive'
   | 'empty_order'
   | 'product_unavailable'
+  | 'dine_in_only'
   | 'invalid_qty'
   | 'invalid_price'
   | 'invalid_status'
@@ -101,6 +102,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   user_inactive: 'Bu xodim bloklangan',
   empty_order: "Ro'yxat bo'sh",
   product_unavailable: "Bu taom hozir sotuvda yo'q",
+  dine_in_only: "Bu taom faqat zalda beriladi — olib ketish va dostavkaga yo'q",
   invalid_qty: "Miqdor noto'g'ri",
   invalid_price: 'Narx kiritilmagan',
   invalid_status: "Holat allaqachon o'zgargan",

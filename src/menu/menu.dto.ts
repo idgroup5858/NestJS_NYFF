@@ -74,6 +74,11 @@ export class SaveProductDto {
   @IsOptional()
   @IsBoolean()
   kitchen?: boolean;
+
+  /** `true` — faqat zalda beriladi (choynakdagi choy); berilmasa — `false` (yangi) yoki o'zgarmaydi (tahrirda) */
+  @IsOptional()
+  @IsBoolean()
+  dineInOnly?: boolean;
 }
 
 export class MoveDto {

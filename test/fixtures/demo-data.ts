@@ -406,6 +406,7 @@ export function buildBase(now: Date): DemoBase {
       active: true,
       // tayyor ichimliklarni kassir o'zi beradi — oshxona chekiga chiqmaydi (choy — oshxonada damlanadi, chiqadi)
       kitchen: !READY_DRINKS.has(id),
+      dineInOnly: false,
     })),
     ingredients: INGREDIENT_GROUPS.flatMap(([group, rows]) =>
       rows.map(([id, name, unit, price]): Ingredient => ({

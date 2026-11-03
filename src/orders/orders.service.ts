@@ -214,6 +214,7 @@ export class OrdersService {
         if (!Number.isInteger(line.qty) || line.qty < 1) fail('invalid_qty', line.productId);
         const product = products.get(line.productId) ?? fail('not_found', `product ${line.productId}`);
         if (!soldAt(product, branch.id)) fail('product_unavailable', product.id);
+        if (product.dineInOnly && input.type !== 'dine_in') fail('dine_in_only', product.id);
         return { productId: product.id, name: product.name, price: product.price, qty: line.qty };
       });
 
