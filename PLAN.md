@@ -75,7 +75,8 @@
 > Hozir ishlab turgan TV va kiosklarga kod bir marta kiritiladi. Kioskdagi karta / Click (to'lovsiz oshxonaga) — hali ochiq.
 > **Manzillar — `/shorva` (2026-11-03):** domen `newyork24.uz` olindi; xodimlar tizimi (kassa, oshxona, ombor, TV, kiosk,
 > admin) endi domen ildizida emas — `newyork24.uz/shorva` (`UI_BASE`, `src/common/web-paths.ts`); ildizda — vaqtinchalik
-> bosh sahifa (`site/index.html`: logo, "Tez orada"; haqiqiy mijozlar sahifasi keyinga qoldirildi — ROADMAP). `/api`,
+> bosh sahifa (`ReactJS_NYFF/site/index.html` — o'sha kuni backenddan web loyihaga ko'chirildi, foydalanuvchi: "UI
+> o'zgarishlari faqat UI tarafdan"; logo, "Tez orada"; haqiqiy mijozlar sahifasi keyinga qoldirildi — ROADMAP). `/api`,
 > `/socket.io`, `/images` (ikonkalar ham) — ildizda, Android o'zgarmagan. Web: `vite.config.ts` `base: /shorva/`,
 > `noindex`. "NYFF Offline": o'z build'i `--base /` (offline kassa `localhost:3100/offline`), nusxada `uiBase` —
 > "Online rejimga qaytish" `/shorva/kassa` ga; o'rnatuvchi qayta yig'ildi. Migratsiya yo'q. API.md 1, 9, 14. Testlar:

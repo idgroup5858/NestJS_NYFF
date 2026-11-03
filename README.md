@@ -130,7 +130,7 @@
                     2) KASSA KOMPYUTERIDA (Windows) bir marta:
                        PostgreSQL o'rnating — foydalanuvchi postgres, parol root (baza nyff ni dastur o'zi ochadi)
                        NYFF-Offline-Setup.exe ni o'rnating → birinchi ochilishda sozlash oynasi:
-                           Server manzili:  http://109.196.103.18:3000
+                           Server manzili:  https://newyork24.uz  (standart qiymat)
                            Offline kalit:   admin panel → Filiallar → filial → «Offline kalit» → Nusxalash
                        «Saqlash» → dastur fonda (soat yonidagi belgi), Windows bilan birga yonadi
 

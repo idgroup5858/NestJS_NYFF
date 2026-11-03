@@ -56,7 +56,7 @@ ruxsati kerak (`android:usesCleartextTraffic="true"` yoki `network_security_conf
 | `IMAGES_DIR` | `uploads` | taom va kategoriya rasmlari papkasi, admin yuklaganlari ham (nisbiy — ishga tushirilgan papkaga nisbatan; git'ga kirmaydi) |
 | `UI_DIST` | `../ReactJS_NYFF/dist` | tayyor web ilova (xodimlar tizimi); papka bo'lmasa — faqat API |
 | `UI_BASE` | `/shorva` | xodimlar tizimi yo'li; web ilova ham shu bilan build qilinadi (`ReactJS_NYFF`: `UI_BASE=/... npm run build`, standart o'sha `/shorva`) — ikkalasi bir xil bo'lsin |
-| `SITE_DIR` | `site` | domen ildizidagi sahifa papkasi (`index.html`); bo'lmasa — ildizda hech narsa (404) |
+| `SITE_DIR` | `../ReactJS_NYFF/site` | domen ildizidagi sahifa papkasi (`index.html`, web loyihada — UI fayllari backendda saqlanmaydi); bo'lmasa — ildizda hech narsa (404). Serverda Apache ortida ishlatilmaydi — sahifani Apache `/var/www/newyork24` dan beradi |
 | `GEMINI_API_KEY` | bo'sh | Google AI Studio kaliti; bo'sh — AI o'chiq (`ai_not_configured`, [13](#13-ai-yordamchi-va-telegram-bot)) |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini modeli (javob, shevaga o'girish, ovozli savolni matnga o'girish) |
 | `TELEGRAM` | yoqilgan | `off` — Telegram bot tinglanmaydi (testlar; token saqlanadi, lekin polling yo'q) |

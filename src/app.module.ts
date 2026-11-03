@@ -69,7 +69,7 @@ function uiModule(): DynamicModule[] {
 }
 
 /**
- * Domen ildizi (`newyork24.uz`) — xodimlar tizimi emas, alohida sahifa (`SITE_DIR`, standart `site`; hozircha
+ * Domen ildizi (`newyork24.uz`) — xodimlar tizimi emas, alohida sahifa (`SITE_DIR`, standart `../ReactJS_NYFF/site`; hozircha
  * vaqtinchalik bosh sahifa — logo). `/api`, `/socket.io`, `/images` va xodimlar tizimidan tashqari hamma yo'l shu
  * sahifaga (eski `/kassa`, `/admin` zakladkalari ham — xodimlar tizimi manzili oshkor bo'lmasin, yo'naltirilmaydi).
  */

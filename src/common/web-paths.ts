@@ -16,5 +16,8 @@ const fromCwd = (dir: string) => (isAbsolute(dir) ? dir : resolve(process.cwd(),
 /** Tayyor web ilova (`ReactJS_NYFF`: `npm run build` → `dist`). */
 export const uiDist = () => fromCwd(process.env.UI_DIST || '../ReactJS_NYFF/dist');
 
-/** Domen ildizidagi sahifa (`SITE_DIR`, standart — backendning `site` papkasi): hozircha vaqtinchalik bosh sahifa. */
-export const siteDir = () => fromCwd(process.env.SITE_DIR || 'site');
+/**
+ * Domen ildizidagi sahifa (`SITE_DIR`, standart — web ilovaning `site` papkasi; hozircha vaqtinchalik bosh sahifa).
+ * UI fayllari faqat web loyihada — backendda sahifa saqlanmaydi.
+ */
+export const siteDir = () => fromCwd(process.env.SITE_DIR || '../ReactJS_NYFF/site');
