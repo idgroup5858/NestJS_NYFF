@@ -15,6 +15,8 @@ import { RevocationsModule } from './common/revocations';
 import { siteDir, uiBase, uiDist } from './common/web-paths';
 import { DatabaseModule } from './database/database.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { FaceIdRequestsModule } from './faceid/faceid-requests';
+import { FaceIdModule } from './faceid/faceid.module';
 import { imagesDir } from './images/images-dir';
 import { ImagesModule } from './images/images.module';
 import { MenuModule } from './menu/menu.module';
@@ -118,6 +120,8 @@ const jobs = process.env.JOBS === 'off' ? [] : [ScheduleModule.forRoot()];
     SetupModule,
     SyncModule,
     ScreensModule,
+    FaceIdModule,
+    FaceIdRequestsModule,
     // tartib muhim: rasmlar → xodimlar tizimi → ildizdagi sahifa (u qolgan hamma yo'lni oladi)
     ...imagesModule(),
     ...uiModule(),

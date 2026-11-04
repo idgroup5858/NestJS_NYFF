@@ -6,6 +6,7 @@ import { Branch } from '../branches/branch.entity';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
 import { pageParams, type Page } from '../common/pagination';
+import { FaceIdService } from '../faceid/faceid.service';
 import { Order } from '../orders/order.entity';
 import { orderView } from '../orders/order.views';
 import { Shift } from './shift.entity';
@@ -29,17 +30,27 @@ export class ShiftsService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly events: ShiftEvents,
+    private readonly faceId: FaceIdService,
   ) {}
 
   /**
    * Kassir kirganda: shu filialda ochiq smenasi bo'lsa davom etadi, bo'lmasa yangisi ochiladi. Kassirda bir vaqtda
    * bitta ochiq smena — boshqa filialda ochiq qolgan bo'lsa `shift_open_elsewhere` (`detail` — o'sha filial nomi):
-   * avval o'sha yerda topshiradi (yoki admin yopadi), naqd pul hisobi aralashmasin.
+   * avval o'sha yerda topshiradi (yoki admin yopadi), naqd pul hisobi aralashmasin. Filialda FaceID yoqilgan bo'lsa
+   * (2026-11-04): yangi smena — terminalda «Kirish» (10 daqiqa ichida); ochiq smenani PIN bilan davom ettirish
+   * ([pinLogin]) — kassir shu filialda (`faceid_checkin_required`). Ochiq kassaning o'zi (`POST /shifts/current` — har
+   * sotuvdan oldin) tekshirilmaydi: kassir tushlikka «Chiqish» bosib ketsa ham sotuv to'xtamaydi, kassani PIN bilan
+   * ochishda tekshiriladi.
    */
-  async openOrResume(cashierId: string, branchId: string, now = new Date()): Promise<Shift> {
+  async openOrResume(cashierId: string, branchId: string, now = new Date(), pinLogin = true): Promise<Shift> {
     const em = this.dataSource.manager;
     const open = await em.findOneBy(Shift, { cashierId, closedAt: IsNull() });
-    if (open) return this.inBranch(em, open, branchId);
+    if (open) {
+      const shift = await this.inBranch(em, open, branchId);
+      if (pinLogin) await this.faceId.assert('resume', cashierId, branchId, now);
+      return shift;
+    }
+    await this.faceId.assert('open', cashierId, branchId, now);
     const shift: Shift = { id: newId('shf'), branchId, cashierId, openedAt: now, closedAt: null };
     try {
       await em.insert(Shift, shift);
@@ -58,9 +69,13 @@ export class ShiftsService {
     return this.dataSource.manager.findOneBy(Shift, { cashierId: user.id, branchId: user.branchId, closedAt: IsNull() });
   }
 
-  /** "Smenani topshirish" — kassir o'z smenasini yopadi; hisobot uchun jami bilan qaytadi. */
+  /**
+   * "Smenani topshirish" — kassir o'z smenasini yopadi; hisobot uchun jami bilan qaytadi. Filialda FaceID yoqilgan
+   * bo'lsa — terminalda «Chiqish» (10 daqiqa ichida, `faceid_checkout_required`). Admin yopishi (`close`) — tekshiruvsiz.
+   */
   async closeOwn(user: AuthUser, now = new Date()): Promise<ShiftWithSummary> {
     const shift = (await this.current(user)) ?? fail('shift_not_open');
+    await this.faceId.assert('close', user.id, shift.branchId, now);
     return this.close(shift.id, now, user);
   }
 

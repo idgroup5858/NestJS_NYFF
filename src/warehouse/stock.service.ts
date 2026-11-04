@@ -5,6 +5,7 @@ import type { MovementKind } from '../common/enums';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
 import { Product } from '../menu/product.entity';
+import { LowStockEvents } from './low-stock-events';
 import { StockMovement } from './stock-movement.entity';
 
 /** Qoldiq o'zgarishi, asosiy birlikda: musbat — kirim, manfiy — chiqim. */
@@ -35,11 +36,21 @@ export function recipeDeltas(
   return deltas;
 }
 
+/** Qoldiq chegaradan pastga tushdimi: avval chegaradan kam emas edi, endi kam (chegara qo'yilmagan — kuzatilmaydi). */
+export function crossedBelowMin(before: number, after: number, minQty: number): boolean {
+  return minQty > 0 && before >= minQty && after < minQty;
+}
+
 @Injectable()
 export class StockService {
+  constructor(private readonly lowStock: LowStockEvents) {}
+
   /**
    * Omborga o'zgarishlarni qo'llaydi va har bir mahsulot uchun harakat yozadi. Qoldiq manfiyga tushishi mumkin (savdo
    * to'xtamaydi). Bitta SQL bilan qo'shiladi (`qty = qty + delta`) — bir vaqtdagi buyurtmalar bir-birini o'chirmaydi.
+   * Qoldig'i shu o'zgarish bilan chegaradan pastga tushgan mahsulotlar — `LowStockEvents` ga (tranzaksiya tugagach
+   * Telegram'ga): qator qulflangan holda yangilanadi, shuning uchun bir vaqtdagi sotuvlardan faqat bittasi "tushirgan"
+   * bo'ladi — xabar bir marta.
    */
   async applyDeltas(
     em: EntityManager,
@@ -53,11 +64,18 @@ export class StockService {
     if (merged.size === 0) return;
     const ids = [...merged.keys()];
     const qtys = [...merged.values()];
-    await em.query(
+    const rows: { ingredientId: string; qty: number; minQty: number }[] = await em.query(
       `INSERT INTO stock ("warehouseId", "ingredientId", "qty", "minQty")
        SELECT $1, u.id, u.qty, 0 FROM unnest($2::varchar[], $3::int[]) AS u(id, qty)
-       ON CONFLICT ("warehouseId", "ingredientId") DO UPDATE SET "qty" = stock."qty" + EXCLUDED."qty"`,
+       ON CONFLICT ("warehouseId", "ingredientId") DO UPDATE SET "qty" = stock."qty" + EXCLUDED."qty"
+       RETURNING "ingredientId", "qty", "minQty"`,
       [warehouseId, ids, qtys],
+    );
+    this.lowStock.add(
+      em,
+      rows
+        .filter((row) => crossedBelowMin(row.qty - merged.get(row.ingredientId)!, row.qty, row.minQty))
+        .map((row) => ({ warehouseId, ingredientId: row.ingredientId })),
     );
     await em.insert(
       StockMovement,

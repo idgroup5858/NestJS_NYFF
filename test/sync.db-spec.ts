@@ -1,6 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull, Not } from 'typeorm';
 import { newId } from '../src/common/ids';
 import { Product } from '../src/menu/product.entity';
 import { Order } from '../src/orders/order.entity';
@@ -192,6 +192,23 @@ describe('sync: filial offline kassasi', () => {
         payment: 'card',
       });
       expect(next.number).toBe(9);
+    });
+
+    it("to'liq paket (200 ta, 100 KB dan katta) qabul qilinadi; boshqa yo'llarda chegara — standart 100 KB", async () => {
+      const name = { uz: 'Klassik burger (katta)', ru: 'Классический бургер (большой)', en: 'Classic burger (large)' };
+      const line = { productId: 'burger-classic', name, price: 32000, qty: 1 };
+      const createdAt = new Date(Date.now() - 10 * 60_000).toISOString();
+      const orders = Array.from({ length: 200 }, (_, i) =>
+        offlineOrder({ number: i + 1, items: [line, line, line], total: 96000, note: 'Piyozsiz, ketchup alohida', createdAt }),
+      );
+      // avval (Express standarti 100 KB) — 413, offline kassa navbati qotib qolardi
+      expect(Buffer.byteLength(JSON.stringify({ orders }))).toBeGreaterThan(150 * 1024);
+      const { body } = await push(orders);
+      expect(body.accepted).toHaveLength(200);
+      expect(await db.manager.countBy(Order, { branchId: C, syncedAt: Not(IsNull()) })).toBe(200);
+
+      // ochiq yo'llar (kirish, kiosk, mobil) — 100 KB dan kattasi qabul qilinmaydi
+      await http().post('/api/auth/login').send({ userId: CASHIER, pin: 'x'.repeat(150 * 1024) }).expect(413);
     });
 
     it('ikkinchi marta yuborilsa — takrorlanmaydi, ombordan qayta ayrilmaydi', async () => {

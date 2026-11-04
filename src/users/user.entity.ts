@@ -35,6 +35,14 @@ export class User {
   branchIds: string[];
 
   /**
+   * Kassirning tabel raqamlari (FaceID, 2026-11-04): filial id → filial HR tizimidagi / terminaldagi `employeeNo`. HR
+   * har filialda alohida o'rnatiladi — raqam ham filialga xos. Faqat kassirda, faqat [branchIds] dagi filiallar uchun;
+   * bir filialda bitta raqam — bitta xodim.
+   */
+  @Column({ type: 'jsonb', default: () => "'{}'" })
+  employeeNos: Record<string, number>;
+
+  /**
    * Admin va kuryer (`usesPassword`): kirish emaili (kichik harfda, takrorlanmaydi); parol xeshi — [pinHash] da. PIN
    * bilan kiradiganlarda `null`.
    */

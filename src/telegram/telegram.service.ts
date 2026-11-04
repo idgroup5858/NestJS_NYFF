@@ -6,14 +6,29 @@ import { waitingText } from '../ai/waiting';
 import { BOT_COMMANDS, COMMANDS_HELP, parseCommand } from './commands';
 import { AuthService, toAuthUser } from '../auth/auth.service';
 import type { AuthUser } from '../auth/auth.types';
+import { Branch } from '../branches/branch.entity';
 import { fail } from '../common/errors';
 import { newSecret } from '../common/ids';
 import { Setting } from '../database/setting.entity';
+import type { FaceIdRequest, FaceIdRequestMessage } from '../faceid/faceid-request.entity';
+import { FaceIdService } from '../faceid/faceid.service';
 import { ShiftEvents, type ShiftClosed } from '../shifts/shift-events';
 import { fullName, User } from '../users/user.entity';
+import { LowStockEvents, type LowStockCrossing } from '../warehouse/low-stock-events';
+import { faceIdCallback, faceIdOutcomeLine, faceIdRequestText, parseFaceIdCallback } from './faceid-text';
+import { loadCrossedLowStock, lowStockAlertText } from './low-stock';
 import { loadShiftReport, shiftReportText } from './shift-report';
 import { TelegramChat } from './telegram-chat.entity';
-import { splitMessage, TelegramApi, TelegramApiError, type TgMessage, type TgUpdate, type TgUser, type TgVoice } from './telegram.api';
+import {
+  splitMessage,
+  TelegramApi,
+  TelegramApiError,
+  type TgCallbackQuery,
+  type TgMessage,
+  type TgUpdate,
+  type TgUser,
+  type TgVoice,
+} from './telegram.api';
 
 /** `settings` kalitlari: bot tokeni, bot ma'lumoti (JSON) va har adminning start link kodi. */
 const TOKEN_KEY = 'telegram_bot_token';
@@ -85,7 +100,8 @@ const sleep = (ms: number, signal: AbortSignal) =>
  * Telegram bot: admin tokenni kiritadi, server botni long polling bilan tinglaydi (webhook ochiq HTTPS manzil talab
  * qiladi — server lokal). Start link (`t.me/<bot>?start=<kod>`) bosilgan chat shu adminga bog'lanadi va AI'dan
  * foydalanadi; boshqa chatlarga rad matni. Har xabarda xodim bazadan olinadi — bloklansa / admin bo'lmasa darhol rad.
- * Smena yopilganda ulangan admin chatlariga hisobot ketadi. `TELEGRAM=off` — polling o'chiq (testlar).
+ * Smena yopilganda ulangan admin chatlariga hisobot ketadi (filial omborida kam qolganlar bilan), filial omborida
+ * mahsulot chegaradan tushsa — darhol ogohlantirish. `TELEGRAM=off` — polling o'chiq (testlar).
  */
 @Injectable()
 export class TelegramService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -101,9 +117,12 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     private readonly api: TelegramApi,
     private readonly ai: AiService,
     private readonly auth: AuthService,
+    private readonly faceId: FaceIdService,
     shiftEvents: ShiftEvents,
+    lowStock: LowStockEvents,
   ) {
     shiftEvents.onClosed((event) => void this.sendShiftReport(event));
+    lowStock.onLow((crossings) => void this.sendLowStock(crossings));
   }
 
   async onApplicationBootstrap(): Promise<void> {
@@ -207,6 +226,26 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     }
   }
 
+  // ───────────────────────── kam qoldi ─────────────────────────
+
+  /**
+   * Filial omborida mahsulot chegaradan pastga tushdi (sotuv, ko'chirish, offline sync — tranzaksiya tugagach) — darhol
+   * ulangan admin chatlariga, har filialga bitta xabar. Markaziy ombor — yo'q. Sotuv botni kutmaydi; bot ulanmagan /
+   * Telegram javob bermasa — faqat log.
+   */
+  private async sendLowStock(crossings: LowStockCrossing[]): Promise<void> {
+    try {
+      const targets = await this.adminTargets();
+      if (!targets) return;
+      for (const group of await loadCrossedLowStock(this.dataSource.manager, crossings)) {
+        const text = lowStockAlertText(group);
+        for (const chatId of targets.chatIds) await this.send(targets.token, chatId, text);
+      }
+    } catch (error) {
+      this.logger.error(`Kam qoldi xabari: ${(error as Error).message}`);
+    }
+  }
+
   // ───────────────────────── admin chatlariga (zaxira nusxa) ─────────────────────────
 
   /** Bot ulangan va kamida bitta admin chati bor — yuborishga arziydi. */
@@ -253,6 +292,88 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     return delivered;
   }
 
+  // ───────────────────────── FaceID ruxsati ─────────────────────────
+
+  /**
+   * Kassir terminaldan o'tolmadi — ulangan hamma admin chatlariga so'rov "Ruxsat berish" / "Rad etish" tugmalari bilan.
+   * Natija — yetib borgan xabarlar (qaror qilingach tahrirlanadi); bo'sh — hech biriga yetmadi (bot yo'q / javob yo'q).
+   */
+  async sendFaceIdRequest(request: FaceIdRequest): Promise<FaceIdRequestMessage[]> {
+    const targets = await this.adminTargets();
+    if (!targets) return [];
+    const text = faceIdRequestText(await this.faceIdInfo(request));
+    const reply_markup = {
+      inline_keyboard: [
+        [
+          { text: '✅ Ruxsat berish', callback_data: faceIdCallback(request.id, true) },
+          { text: '❌ Rad etish', callback_data: faceIdCallback(request.id, false) },
+        ],
+      ],
+    };
+    const messages: FaceIdRequestMessage[] = [];
+    for (const chatId of targets.chatIds) {
+      try {
+        const sent = await this.api.call<TgMessage>(targets.token, 'sendMessage', { chat_id: chatId, text, reply_markup });
+        if (typeof sent?.message_id === 'number') messages.push({ chatId, messageId: sent.message_id });
+      } catch (error) {
+        this.logger.warn(`FaceID so'rovi ${chatId}: ${(error as Error).message}`);
+      }
+    }
+    return messages;
+  }
+
+  /**
+   * Admin tugmani bosdi: chat faol adminniki bo'lsa — qaror (birinchisi amal qiladi); so'rov xabari hamma chatlarda
+   * natija bilan tahrirlanadi (tugmalar olib tashlanadi), bosgan adminga qisqa javob.
+   */
+  private async handleCallback(token: string, query: TgCallbackQuery): Promise<void> {
+    const answer = (text?: string) =>
+      this.api.call(token, 'answerCallbackQuery', { callback_query_id: query.id, ...(text && { text }) }).catch(() => {});
+    const parsed = parseFaceIdCallback(query.data);
+    if (!parsed) return void (await answer());
+    const admin = await this.chatUser(String(query.message?.chat.id ?? query.from.id));
+    if (!admin) return void (await answer(TEXT.denied));
+
+    const result = await this.faceId.decide(parsed.requestId, parsed.approve, admin.id);
+    if (!result) return void (await answer("So'rov topilmadi"));
+    const { request, outcome } = result;
+    await answer(
+      outcome === 'expired'
+        ? "So'rov muddati o'tgan"
+        : outcome === 'already'
+          ? 'Allaqachon hal qilingan'
+          : request.status === 'approved'
+            ? 'Ruxsat berildi'
+            : 'Rad etildi',
+    );
+
+    const decider = request.decidedBy ? await this.dataSource.manager.findOneBy(User, { id: request.decidedBy }) : null;
+    const line = faceIdOutcomeLine(
+      outcome === 'expired' ? 'expired' : request.status === 'approved' ? 'approved' : 'rejected',
+      decider ? fullName(decider) : null,
+      request.decidedAt,
+    );
+    const text = `${faceIdRequestText(await this.faceIdInfo(request))}\n\n${line}`;
+    for (const { chatId, messageId } of request.messages) {
+      // tugmalarsiz (reply_markup berilmasa — olib tashlanadi); "o'zgarmadi" / o'chirilgan xabar — e'tiborsiz
+      await this.api.call(token, 'editMessageText', { chat_id: chatId, message_id: messageId, text }).catch(() => {});
+    }
+  }
+
+  private async faceIdInfo(request: FaceIdRequest) {
+    const em = this.dataSource.manager;
+    const [branch, cashier] = await Promise.all([
+      em.findOneBy(Branch, { id: request.branchId }),
+      em.findOneBy(User, { id: request.userId }),
+    ]);
+    return {
+      branchName: branch?.name ?? request.branchId,
+      cashierName: cashier ? fullName(cashier) : request.userId,
+      action: request.action,
+      createdAt: request.createdAt,
+    };
+  }
+
   /** Bot tokeni va ulangan chatlar — xodimi faol admin bo'lganlari; bot yoki shunday chat yo'q — `null`. */
   private async adminTargets(): Promise<{ token: string; chatIds: string[] } | null> {
     const token = await this.setting(TOKEN_KEY);
@@ -267,8 +388,9 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
 
   // ───────────────────────── xabarlar ─────────────────────────
 
-  /** Bitta Telegram xabari — matn yoki ovoz (polling va testlar shu yerdan). */
+  /** Bitta Telegram xabari — matn, ovoz yoki tugma bosilishi (polling va testlar shu yerdan). */
   async handleUpdate(token: string, update: TgUpdate): Promise<void> {
+    if (update.callback_query) return this.handleCallback(token, update.callback_query);
     const message = update.message;
     if (!message || message.chat.type !== 'private' || (!message.text && !message.voice)) return;
     const chatId = String(message.chat.id);
@@ -476,7 +598,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
         const updates = await this.api.call<TgUpdate[]>(
           token,
           'getUpdates',
-          { offset, timeout: 30, allowed_updates: ['message'] },
+          { offset, timeout: 30, allowed_updates: ['message', 'callback_query'] },
           signal,
         );
         failures = 0;
@@ -503,7 +625,7 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
   }
 
   private enqueue(token: string, update: TgUpdate): void {
-    const chatId = update.message?.chat.id;
+    const chatId = update.message?.chat.id ?? update.callback_query?.message?.chat.id ?? update.callback_query?.from.id;
     if (chatId === undefined) return;
     const key = String(chatId);
     const next = (this.queues.get(key) ?? Promise.resolve())

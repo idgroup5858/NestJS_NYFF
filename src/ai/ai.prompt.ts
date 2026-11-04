@@ -59,7 +59,7 @@ export function systemPrompt(ctx: PromptContext): string {
     "- Money is Uzbek so'm (integers). Separate thousands with spaces: 12 450 000 so'm.",
     '- Revenue = paid orders only (cancelled and not-yet-paid orders are excluded).',
     '- "net" in sales_report = revenue minus utility expenses. Ingredient purchases are separate (purchases tool) — say so when talking about profit.',
-    '- Stock quantities are in the item unit: kg, l or dona (pieces).',
+    '- Stock quantities are in the item unit: kg, l or dona (pieces). Packaged items (sauces in bottles) are in packs — unit "dona (600 g)"; for their stock say the breakdown ("9 dona + 550 g").',
     '- Keep names of branches, warehouses, products and people exactly as in the data — never translate or transliterate them.',
     '- You can only read data. If asked to change something (cancel an order, edit the menu, approve a purchase), explain that it is done in the admin panel.',
     '- Customer personal data (names, phones, addresses) is not available to you.',

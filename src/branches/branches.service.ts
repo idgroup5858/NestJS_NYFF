@@ -58,6 +58,8 @@ export class BranchesService {
         deliveryFee: 0,
         fallbackBranchId: null,
         onlineEnabled: true,
+        faceIdRequired: false,
+        hrSeenAt: null,
       };
       await em.insert(Branch, branch);
       await em.insert(Warehouse, { id: newId('wh'), name: fields.name, kind: 'branch', branchId: branch.id });
@@ -101,8 +103,11 @@ export class BranchesService {
       await em.update(Branch, { fallbackBranchId: id }, { fallbackBranchId: null });
       // qoldiq yozuvlari ombor bilan (FK CASCADE)
       await em.delete(Warehouse, { branchId: id });
-      // offline kassa kaliti (`offline_key:<filial>`, sync/offline-keys.service), TV va kiosk kodlari (`tv_code:`, `kiosk_code:`)
-      await em.delete(Setting, { key: In([`offline_key:${id}`, ...SCREEN_KINDS.map((kind) => screenCodeSetting(kind, id))]) });
+      // offline kassa kaliti (`offline_key:<filial>`, sync/offline-keys.service), HR kaliti (`hr_key:`, faceid/hr-keys.service),
+      // TV va kiosk kodlari (`tv_code:`, `kiosk_code:`); FaceID o'tishlari va so'rovlari — FK bilan o'zi
+      await em.delete(Setting, {
+        key: In([`offline_key:${id}`, `hr_key:${id}`, ...SCREEN_KINDS.map((kind) => screenCodeSetting(kind, id))]),
+      });
       await em.delete(Branch, { id });
     });
   }
@@ -132,6 +137,17 @@ export class BranchesService {
     const em = this.dataSource.manager;
     await this.get(em, id);
     await em.update(Branch, id, { onlineEnabled: enabled });
+    return this.get(em, id);
+  }
+
+  /**
+   * FaceID tekshiruvini yoqish / o'chirish (2026-11-04) — kartochkadan bir bosishda (terminal yoki HR buzilsa admin
+   * darhol o'chiradi; yoqilganda kassir keyingi kirishda terminaldan o'tadi).
+   */
+  async setFaceId(id: string, enabled: boolean): Promise<Branch> {
+    const em = this.dataSource.manager;
+    await this.get(em, id);
+    await em.update(Branch, id, { faceIdRequired: enabled });
     return this.get(em, id);
   }
 

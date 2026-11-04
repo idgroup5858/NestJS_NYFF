@@ -3,7 +3,7 @@ import type { LocalizedText, OrderItem, PaymentSplit } from '../common/types';
 import type { MenuProduct } from '../menu/menu.service';
 
 /**
- * Markaz (`/api/sync/*`) va filialning offline kassasi (`C:\BACKEND APPS\Electron_NYFF` — kassa kompyuterida) orasidagi
+ * Markaz (`/api/sync/*`) va filialning offline kassasi (`C:\BACKEND APPS\ElectronJS_NYFF` — kassa kompyuterida) orasidagi
  * ma'lumotlar. Offline kassa internet bor paytda markazdan nusxa oladi, internet yo'q paytda kassa unga yozadi,
  * internet qaytgach buyurtmalarni shu yerga yuboradi. Electron loyihasida shu turlarning nusxasi bor — o'zgarsa ikkalasi.
  */

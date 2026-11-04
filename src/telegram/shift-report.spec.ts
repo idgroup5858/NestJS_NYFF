@@ -27,6 +27,11 @@ const report = (patch: Partial<ShiftReport> = {}): ShiftReport => ({
     { name: 'Klassik burger', qty: 6 },
     { name: 'Kola 0,5 l', qty: 4 },
   ],
+  lowStock: [
+    { name: 'Ketchup', qty: 1300, minQty: 1800, unit: 'kg', packSize: 600 },
+    { name: 'Pishloq', qty: 1500, minQty: 2000, unit: 'kg', packSize: null },
+    { name: 'Salfetka', qty: -20, minQty: 500, unit: 'pcs', packSize: 100 },
+  ],
   ...patch,
 });
 
@@ -37,7 +42,7 @@ describe('smena hisoboti', () => {
     expect(som(12_345_000)).toBe("12 345 000 so'm");
   });
 
-  it("to'liq hisobot: vaqtlar, davomiyligi, tushum, turlar, manbalar, bekor qilinganlar, top taomlar; nol qatorlar yo'q", () => {
+  it("to'liq hisobot: vaqtlar, davomiyligi, tushum, turlar, manbalar, bekor qilinganlar, top taomlar, kam qolganlar; nol qatorlar yo'q", () => {
     expect(shiftReportText(report())).toBe(
       [
         'Smena yopildi — Chilonzor',
@@ -63,6 +68,11 @@ describe('smena hisoboti', () => {
         "Eng ko'p sotilgan:",
         '  1. Klassik burger — 6 ta',
         '  2. Kola 0,5 l — 4 ta',
+        '',
+        'Omborda kam qolgan:',
+        '  • Ketchup — 2 dona + 100 g (chegara: 3 dona)',
+        '  • Pishloq — 1,5 kg (chegara: 2 kg)',
+        '  • Salfetka — tugadi (chegara: 5 qadoq)',
       ].join('\n'),
     );
   });
@@ -81,6 +91,7 @@ describe('smena hisoboti', () => {
       },
       bySource: { cashier: 0, kiosk: 0, mobile: 0 },
       topProducts: [],
+      lowStock: [],
     });
     expect(shiftReportText(empty)).toBe(
       [

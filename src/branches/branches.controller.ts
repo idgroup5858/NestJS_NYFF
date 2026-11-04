@@ -51,6 +51,13 @@ export class BranchesController {
   setOnline(@Param('id') id: string, @Body() dto: SetOnlineDto) {
     return this.branches.setOnline(id, dto.enabled);
   }
+
+  /** FaceID tekshiruvi — kassir smenani filial terminalidan o'tib ochadi / topshiradi. */
+  @Roles('admin')
+  @Put(':id/faceid')
+  setFaceId(@Param('id') id: string, @Body() dto: SetOnlineDto) {
+    return this.branches.setFaceId(id, dto.enabled);
+  }
 }
 
 @Controller('delivery')

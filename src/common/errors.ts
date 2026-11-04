@@ -60,7 +60,13 @@ export type ErrorCode =
   | 'ai_failed'
   | 'telegram_token_invalid'
   | 'telegram_unreachable'
-  | 'telegram_not_connected';
+  | 'telegram_not_connected'
+  // ── FaceID (filial terminali → HR → markaz) ──
+  | 'faceid_checkin_required'
+  | 'faceid_checkout_required'
+  | 'employee_no_taken'
+  | 'invalid_employee_no'
+  | 'faceid_request_unavailable';
 
 const STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   unauthorized: HttpStatus.UNAUTHORIZED,
@@ -88,6 +94,10 @@ const STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   in_use: HttpStatus.CONFLICT,
   image_in_use: HttpStatus.CONFLICT,
   telegram_not_connected: HttpStatus.CONFLICT,
+  faceid_checkin_required: HttpStatus.CONFLICT,
+  faceid_checkout_required: HttpStatus.CONFLICT,
+  employee_no_taken: HttpStatus.CONFLICT,
+  faceid_request_unavailable: HttpStatus.SERVICE_UNAVAILABLE,
   too_many_attempts: HttpStatus.TOO_MANY_REQUESTS,
   ai_failed: HttpStatus.BAD_GATEWAY,
   telegram_unreachable: HttpStatus.BAD_GATEWAY,
@@ -147,6 +157,11 @@ const MESSAGES: Record<ErrorCode, string> = {
   telegram_token_invalid: "Bot tokeni noto'g'ri — @BotFather bergan tokenni to'liq nusxalang",
   telegram_unreachable: "Telegram serveriga ulanib bo'lmadi — internetni tekshiring",
   telegram_not_connected: 'Avval bot tokenini kiriting',
+  faceid_checkin_required: "Terminalda «Kirish» ni bosib, yuzingizni ko'rsating",
+  faceid_checkout_required: "Terminalda «Chiqish» ni bosib, yuzingizni ko'rsating",
+  employee_no_taken: 'Bu tabel raqami shu filialda boshqa xodimda',
+  invalid_employee_no: "Tabel raqami — 1 dan 999 999 999 gacha butun son",
+  faceid_request_unavailable: "Telegram bot ulanmagan yoki javob bermadi — ruxsat so'rab bo'lmaydi, adminga qo'ng'iroq qiling",
 };
 
 /** Javob tanasi: `{ statusCode, code, message, detail? }`. `detail` — texnik izoh (qaysi taom, qaysi id). */

@@ -1,5 +1,19 @@
 import { INestApplication, ValidationError, ValidationPipe } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { IncomingMessage } from 'node:http';
 import { appError } from './common/errors';
+
+/**
+ * Offline kassa paketi (`POST /api/sync/orders`: 200 tagacha buyurtma, taom nomlari 3 tilda) uchun so'rov tanasi
+ * chegarasi. Express standarti — 100 KB: 2–3 soatlik uzilishdan keyin (~150 buyurtma) paket undan oshib, markaz har
+ * urinishga 413 qaytarar, navbat qotib qolardi. Qolgan yo'llarda (kiosk, mobil — ochiq) standart 100 KB qoladi.
+ */
+export const SYNC_BODY_LIMIT = '5mb';
+
+/** JSON so'rov `/api/sync/…` ga — katta chegarali parser uchun (body-parser `type` funksiyasi). */
+export function isSyncJson(req: IncomingMessage): boolean {
+  return (req.url ?? '').startsWith('/api/sync/') && /^application\/json\b/i.test(req.headers['content-type'] ?? '');
+}
 
 /** Xato xabarlari: `items.0.qty: qty must be a number` ko'rinishida. */
 function flatten(errors: ValidationError[], parent = ''): string[] {
@@ -39,6 +53,11 @@ export function trustProxySetting(value = process.env.TRUST_PROXY): boolean | nu
 export function configureApp(app: INestApplication): void {
   (app.getHttpAdapter().getInstance() as { set(setting: string, value: unknown): void }).set('trust proxy', trustProxySetting());
   app.setGlobalPrefix('api');
+  // JSON parserlar: avval `/api/sync` (katta chegara) — u o'qigan so'rovni keyingisi qayta o'qimaydi; keyin qolgan hamma
+  // yo'l (standart 100 KB). Ikkalasi ham Nest'ning o'z JSON parseridan oldin turadi — u qayta qo'shilmaydi
+  const server = app as NestExpressApplication;
+  server.useBodyParser('json', { limit: SYNC_BODY_LIMIT, type: isSyncJson });
+  server.useBodyParser('json');
   const origins = (process.env.CORS_ORIGIN ?? '')
     .split(',')
     .map((origin) => origin.trim())

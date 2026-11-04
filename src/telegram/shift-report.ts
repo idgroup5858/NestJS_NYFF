@@ -15,6 +15,7 @@ import { Shift } from '../shifts/shift.entity';
 import { shiftSummaries, type ShiftSummary } from '../shifts/shift-summary';
 import { fullName, User } from '../users/user.entity';
 import { dateTime, som } from './format';
+import { loadBranchLowStock, lowStockLine, type LowStockLine } from './low-stock';
 
 /** Hisobotda eng ko'p sotilgan nechta taom ko'rsatiladi. */
 const TOP_PRODUCTS = 5;
@@ -35,6 +36,8 @@ export interface ShiftReport {
   bySource: Record<OrderSource, number>;
   /** soni bo'yicha, ko'pi birinchi */
   topProducts: { name: string; qty: number }[];
+  /** filial omborida hisobot paytida chegaradan kam qolganlar (nomi bo'yicha) */
+  lowStock: LowStockLine[];
 }
 
 const TYPE_LABEL: Record<OrderType, string> = {
@@ -54,11 +57,12 @@ export async function loadShiftReport(
   closedBy: AuthUser | null,
 ): Promise<ShiftReport> {
   const shift = (await em.findOneBy(Shift, { id: shiftId })) ?? fail('not_found', `shift ${shiftId}`);
-  const [branch, cashier, orders, summaries] = await Promise.all([
+  const [branch, cashier, orders, summaries, lowStock] = await Promise.all([
     em.findOneBy(Branch, { id: shift.branchId }),
     em.findOneBy(User, { id: shift.cashierId }),
     em.find(Order, { where: { shiftId }, order: { createdAt: 'ASC', id: 'ASC' } }),
     shiftSummaries(em, [shiftId]),
+    loadBranchLowStock(em, shift.branchId),
   ]);
 
   const byType = Object.fromEntries(
@@ -95,6 +99,7 @@ export async function loadShiftReport(
     bySource,
     // soni teng bo'lsa — smenada birinchi sotilgani oldin (Map tartibi saqlanadi, sort barqaror)
     topProducts: [...products.values()].sort((a, b) => b.qty - a.qty).slice(0, TOP_PRODUCTS),
+    lowStock,
   };
 }
 
@@ -146,6 +151,10 @@ export function shiftReportText(report: ShiftReport): string {
     report.topProducts.forEach((product, index) =>
       lines.push(`  ${index + 1}. ${product.name} — ${product.qty} ta`),
     );
+  }
+  if (report.lowStock.length) {
+    lines.push('', 'Omborda kam qolgan:');
+    for (const line of report.lowStock) lines.push(`  • ${lowStockLine(line)}`);
   }
   return lines.join('\n');
 }

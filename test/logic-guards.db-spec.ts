@@ -6,6 +6,7 @@ import { Product } from '../src/menu/product.entity';
 import { Order } from '../src/orders/order.entity';
 import { OrdersService } from '../src/orders/orders.service';
 import { ShiftsService } from '../src/shifts/shifts.service';
+import { UsersService } from '../src/users/users.service';
 import { StockItem } from '../src/warehouse/stock-item.entity';
 import { StockMovement } from '../src/warehouse/stock-movement.entity';
 import type { Transfer } from '../src/warehouse/transfer.entity';
@@ -101,6 +102,48 @@ describe("himoya: PIN bloki, huquqlar, bir vaqtdagi so'rovlar", () => {
       for (let i = 1; i <= 4; i++) await expectCode('wrong_pin', () => auth.checkPin(U, '0000', later(7)));
       await expectCode('too_many_attempts', () => auth.checkPin(U, '0000', later(7)));
       expect((await attempts(U)).until).toEqual(later(12));
+    });
+
+    it("bir vaqtda 20 ta urinish — faqat 5 tasi tekshiriladi, blok qo'yiladi va keyin tugaganlari uni o'chirmaydi", async () => {
+      const V = 'usr_cashier_c2'; // PIN 4321
+      const codes = await Promise.all(
+        Array.from({ length: 20 }, () => auth.checkPin(V, '0000', later(20)).then(() => 'ok', errorCode)),
+      );
+      expect(codes.filter((code) => code === 'wrong_pin')).toHaveLength(4);
+      expect(codes.filter((code) => code === 'too_many_attempts')).toHaveLength(16);
+      expect(await attempts(V)).toEqual({ failed: 0, until: later(25) });
+      await expectCode('too_many_attempts', () => auth.checkPin(V, '4321', later(21)));
+      // blok tugagach — to'g'ri PIN bilan kiradi
+      expect((await auth.checkPin(V, '4321', later(25))).id).toBe(V);
+      expect(await attempts(V)).toEqual({ failed: 0, until: null });
+    });
+
+    it("xatoda `detail`: qolgan urinishlar va blokda qolgan vaqt (kassa sanaydi); admin yangi PIN bersa — blok darhol tushadi", async () => {
+      const W = 'usr_cashier_y1'; // PIN 1234
+      const failure = async (fn: () => Promise<unknown>) => {
+        try {
+          await fn();
+        } catch (error) {
+          return (error as { getResponse(): { code: string; detail?: string } }).getResponse();
+        }
+        throw new Error('xato kutilgan edi');
+      };
+      for (let left = 4; left >= 1; left--) {
+        expect(await failure(() => auth.checkPin(W, '0000', later(30)))).toMatchObject({ code: 'wrong_pin', detail: String(left) });
+      }
+      expect(await failure(() => auth.checkPin(W, '0000', later(30)))).toMatchObject({ code: 'too_many_attempts', detail: '300s' });
+      expect(await failure(() => auth.checkPin(W, '1234', later(31)))).toMatchObject({ code: 'too_many_attempts', detail: '240s' });
+      // email / parolda qolgan urinishlar aytilmaydi (`wrong_login` qaysi email borligini bildirmasin)
+      expect((await failure(() => auth.checkPin('usr_admin', 'notogri-parol', later(30), 'wrong_login'))).detail).toBeUndefined();
+
+      // PIN'ni unutgan kassirga admin yangi PIN beradi — blok tugashini kutmaydi
+      await app.get(UsersService).save(
+        { id: W, name: 'Malika', surname: 'Yusupova', role: 'cashier', branchIds: [Y], active: true, pin: '7777' },
+        'usr_admin',
+        later(32),
+      );
+      expect(await attempts(W)).toEqual({ failed: 0, until: null });
+      expect((await auth.checkPin(W, '7777', later(32))).id).toBe(W);
     });
   });
 

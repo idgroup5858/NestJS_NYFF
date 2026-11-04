@@ -23,16 +23,20 @@ export interface RecipeLine {
 
 export interface PurchaseItem {
   ingredientId: string;
-  /** ombor birligida (kg / l / dona) */
+  /** ombor birligida (kg / l / dona); [packSize] bo'lsa — donada (qadoqda) */
   qty: number;
-  /** 1 birlik narxi — admin kiritadi; tasdiqlanmaguncha `null` bo'lishi mumkin */
+  /** 1 birlik ([packSize] bo'lsa — 1 dona) narxi — admin kiritadi; tasdiqlanmaguncha `null` bo'lishi mumkin */
   price: number | null;
+  /** hujjat yozilgan paytdagi qadoq hajmi (asosiy birlikda) — mahsulotniki keyin o'zgarsa ham shu bilan hisoblanadi */
+  packSize: number | null;
 }
 
 export interface TransferItem {
   ingredientId: string;
-  /** ombor birligida (kg / l / dona) */
+  /** ombor birligida (kg / l / dona); [packSize] bo'lsa — donada (qadoqda) */
   qty: number;
+  /** hujjat yozilgan paytdagi qadoq hajmi (asosiy birlikda) */
+  packSize: number | null;
 }
 
 export interface OrderItem {

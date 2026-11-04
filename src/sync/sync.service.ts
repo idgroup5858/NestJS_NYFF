@@ -36,7 +36,7 @@ function cleanItems(items: OrderItem[]): OrderItem[] {
 }
 
 /**
- * Filialning offline serveri bilan sinxronlash (`/api/sync/*`, kalit — `OFFLINE_KEYS`):
+ * Filialning offline serveri bilan sinxronlash (`/api/sync/*`, filial kaliti — bazada, `OfflineKeysService`):
  *  - **nusxa** — offline kassaga kerak bo'lgan hamma narsa: kassirlar (PIN xeshi bilan), kassa menyusi, rasmlar
  *    ro'yxati, bugungi buyurtma raqami. Offline server uni ishga tushganda va internet qaytgach oladi;
  *  - **buyurtmalar** — internet yo'q paytda offline kassada olinganlari. Har biri alohida tranzaksiyada: id bo'yicha

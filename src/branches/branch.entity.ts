@@ -49,4 +49,15 @@ export class Branch {
   /** online buyurtma qabul qilish vaqti; `null` — belgilanmagan, 24/7 */
   @Column({ type: 'jsonb', nullable: true })
   workHours: WorkHours | null;
+
+  /**
+   * FaceID tekshiruvi (2026-11-04): kassir smenani filial terminalida «Kirish» bosib ochadi, «Chiqish» bosib topshiradi
+   * (`domain/faceid.ts`). Admin kartochkadan bir bosishda o'chiradi (terminal buzilsa). Standart — o'chiq.
+   */
+  @Column({ default: false })
+  faceIdRequired: boolean;
+
+  /** filial HR tizimi markazga oxirgi marta murojaat qilgan vaqt (admin kartochkasida — HR ishlayaptimi) */
+  @Column({ type: 'timestamptz', nullable: true })
+  hrSeenAt: Date | null;
 }

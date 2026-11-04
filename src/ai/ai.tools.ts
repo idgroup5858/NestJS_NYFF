@@ -16,7 +16,8 @@ import {
   type StockUnit,
 } from '../common/enums';
 import { addDays, dateKey, isRealDateKey, parseDateKey, type DateKey } from '../domain/dates';
-import { fromBase } from '../domain/units';
+import { BASE_LABEL, packName, stockText, UNIT_LABEL } from '../domain/stock-text';
+import { fromBase, toBase } from '../domain/units';
 import { ExpensesService } from '../expenses/expenses.service';
 import { Category } from '../menu/category.entity';
 import { Product } from '../menu/product.entity';
@@ -81,9 +82,14 @@ const localTime = (date: Date | null): string | null => (date ? `${dateKey(date)
 
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
-/** Birlik javobda shu ko'rinishda — model "pcs" ni o'zbekcha javobga ham ko'chirib qo'ymasin (ruschada "шт" ga o'giradi). */
-const UNIT_LABEL: Record<StockUnit, string> = { kg: 'kg', l: 'l', pcs: 'dona' };
-const unitLabel = (unit: StockUnit | undefined) => (unit ? UNIT_LABEL[unit] : undefined);
+/**
+ * Hisob birligi: qadoq bo'lsa — "dona (600 g)", aks holda kg / l / dona (`UNIT_LABEL` — model "pcs" ni o'zbekcha
+ * javobga ham ko'chirib qo'ymasin, ruschada "шт" ga o'giradi).
+ */
+function unitLabel(unit: StockUnit | undefined, packSize: number | null = null): string | undefined {
+  if (!unit) return undefined;
+  return packSize === null ? UNIT_LABEL[unit] : `${packName(unit)} (${packSize} ${BASE_LABEL[unit]})`;
+}
 
 // ───────────────────────── sxema bo'laklari ─────────────────────────
 
@@ -459,11 +465,18 @@ export class AiTools {
         const warehouse = new Map(warehouses.map((w) => [w.id, warehouseLabel(w, branchNames)]));
         const amount = (p: Purchase) => Math.round(p.items.reduce((sum, i) => sum + i.qty * (i.price ?? 0), 0));
 
+        // miqdor — mahsulotning hozirgi birligida (eski qatorlar boshqa qadoq hajmi bilan yozilgan bo'lishi mumkin)
+        const currentQty = (item: Purchase['items'][number]) => {
+          const found = ingredient.get(item.ingredientId);
+          return found
+            ? fromBase(toBase(item.qty, found.unit, item.packSize), found.unit, found.packSize)
+            : item.qty;
+        };
         const spent = new Map<string, { qty: number; amount: number }>();
         for (const p of purchases.filter((p) => p.status === 'approved')) {
           for (const item of p.items) {
             const row = spent.get(item.ingredientId) ?? { qty: 0, amount: 0 };
-            row.qty += item.qty;
+            row.qty += currentQty(item);
             row.amount += item.qty * (item.price ?? 0);
             spent.set(item.ingredientId, row);
           }
@@ -478,7 +491,7 @@ export class AiTools {
             .map(([id, row]) => ({
               name: ingredient.get(id)?.name.uz ?? id,
               qty: round3(row.qty),
-              unit: unitLabel(ingredient.get(id)?.unit),
+              unit: unitLabel(ingredient.get(id)?.unit, ingredient.get(id)?.packSize),
               amount: Math.round(row.amount),
             }))
             .sort((a, b) => b.amount - a.amount)
@@ -492,7 +505,7 @@ export class AiTools {
             items: p.items.map((i) => ({
               name: ingredient.get(i.ingredientId)?.name.uz ?? i.ingredientId,
               qty: i.qty,
-              unit: unitLabel(ingredient.get(i.ingredientId)?.unit),
+              unit: unitLabel(ingredient.get(i.ingredientId)?.unit, i.packSize),
               price: i.price,
             })),
           })),
@@ -507,8 +520,9 @@ export class AiTools {
         name: 'stock',
         description:
           'Current warehouse stock of ingredients and packaging: quantity in the item unit (kg, l, dona), the warning minimum ' +
-          'and status (out = nothing left or negative, low = below the minimum, ok). Use lowOnly for "what is ' +
-          'running out".',
+          'and status (out = nothing left or negative, low = below the minimum, ok). Packaged items (unit like "dona (600 g)") ' +
+          'are counted in packs and also have breakdown — full packs plus the opened rest, e.g. "9 dona + 550 g"; quote ' +
+          'breakdown for them. Use lowOnly for "what is running out".',
         parameters: {
           type: Type.OBJECT,
           properties: {
@@ -541,9 +555,11 @@ export class AiTools {
               warehouse: warehouse.get(row.warehouseId) ?? row.warehouseId,
               name: item.name.uz,
               names: item.name,
-              qty: round3(fromBase(row.qty, item.unit)),
-              unit: UNIT_LABEL[item.unit],
-              min: row.minQty > 0 ? round3(fromBase(row.minQty, item.unit)) : null,
+              qty: round3(fromBase(row.qty, item.unit, item.packSize)),
+              unit: unitLabel(item.unit, item.packSize),
+              // qadoqli mahsulot: to'liq qadoqlar va ochilganida qolgani — "9 dona + 550 g"
+              ...(item.packSize !== null && { breakdown: stockText(row.qty, item.unit, item.packSize) }),
+              min: row.minQty > 0 ? round3(fromBase(row.minQty, item.unit, item.packSize)) : null,
               status,
             };
           })

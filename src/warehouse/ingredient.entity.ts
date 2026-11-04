@@ -22,7 +22,15 @@ export class Ingredient {
   @Column({ type: 'varchar', length: 4 })
   unit: StockUnit;
 
-  /** oxirgi tasdiqlangan kirimdagi 1 birlik (kg / l / dona) narxi — keyingi kirimda avtomatik yoziladi */
+  /**
+   * Qadoq hajmi asosiy birlikda (g / ml / dona): 600 — 1 dona ketchup 600 g. Berilgan bo'lsa kirim, ko'chirish, narx
+   * va qoldiqni ko'rsatish — donada (qadoqda); qoldiq, retsept va chegara baribir asosiy birlikda. `null` — qadoqsiz.
+   * O'zgartirsa bo'ladi: qoldiq asosiy birlikda, hujjat qatorlarida o'sha paytdagi hajm saqlanadi.
+   */
+  @Column('int', { nullable: true })
+  packSize: number | null;
+
+  /** oxirgi tasdiqlangan kirimdagi 1 birlik (qadoq bo'lsa — 1 dona, aks holda kg / l / dona) narxi — keyingi kirimda avtomatik yoziladi */
   @Column('bigint', { nullable: true, transformer: bigintNumber })
   lastPrice: number | null;
 

@@ -12,6 +12,8 @@ import { OrderSyncedAt1793720000000 } from './1793720000000-OrderSyncedAt';
 import { ProductKitchen1793730000000 } from './1793730000000-ProductKitchen';
 import { StaffBranches1793740000000 } from './1793740000000-StaffBranches';
 import { ProductDineInOnly1793750000000 } from './1793750000000-ProductDineInOnly';
+import { FaceId1793778202290 } from './1793778202290-FaceId';
+import { IngredientPackSize1793790000000 } from './1793790000000-IngredientPackSize';
 
 /** Barcha migratsiyalar tartib bilan. Yangisi `npm run migration:generate -- src/database/migrations/<Nom>` dan keyin shu yerga. */
 export const MIGRATIONS: Function[] = [
@@ -29,4 +31,6 @@ export const MIGRATIONS: Function[] = [
   ProductKitchen1793730000000,
   StaffBranches1793740000000,
   ProductDineInOnly1793750000000,
+  FaceId1793778202290,
+  IngredientPackSize1793790000000,
 ];

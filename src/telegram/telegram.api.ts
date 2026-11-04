@@ -34,9 +34,19 @@ export interface TgUpload {
   data: Buffer;
 }
 
+/** Inline tugma bosildi (FaceID ruxsati: "Ruxsat berish" / "Rad etish"). */
+export interface TgCallbackQuery {
+  id: string;
+  from: TgUser;
+  /** tugmali xabar */
+  message?: TgMessage;
+  data?: string;
+}
+
 export interface TgUpdate {
   update_id: number;
   message?: TgMessage;
+  callback_query?: TgCallbackQuery;
 }
 
 /** Telegram javobidagi xato: `status` — `error_code` (401 — token yaroqsiz, 409 — boshqa getUpdates / webhook). */

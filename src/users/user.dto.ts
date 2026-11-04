@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ROLES, type Role } from '../common/enums';
 
 /**
@@ -25,6 +25,14 @@ export class SaveUserDto {
   @IsString({ each: true })
   @MaxLength(40, { each: true })
   branchIds?: string[];
+
+  /**
+   * Kassir (FaceID): filial id → tabel raqami (filial HR'idagi / terminaldagi `employeeNo`, butun son). Berilmasa —
+   * o'zgarmaydi; `branchIds` da yo'q filial va bo'sh qiymat — tashlanadi.
+   */
+  @IsOptional()
+  @IsObject()
+  employeeNos?: Record<string, unknown>;
 
   @IsOptional()
   @IsString()

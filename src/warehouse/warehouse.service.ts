@@ -9,7 +9,7 @@ import { assertUnused } from '../common/in-use';
 import { pageParams, type Page } from '../common/pagination';
 import type { PurchaseItem, TransferItem } from '../common/types';
 import { nextCounter } from '../database/counters';
-import { toBase } from '../domain/units';
+import { convertPrice, toBase, unitSize } from '../domain/units';
 import { Ingredient } from './ingredient.entity';
 import { Purchase } from './purchase.entity';
 import { StockItem } from './stock-item.entity';
@@ -28,6 +28,9 @@ import {
 
 export type MovementWithRef = StockMovement & { refNumber: number | null; refWarehouseId: string | null };
 
+/** Qadoq hajmining yuqori chegarasi (asosiy birlikda): 1 dona = 1 t / 1000 l / 1 mln dona. */
+const MAX_PACK_SIZE = 1_000_000;
+
 @Injectable()
 export class WarehouseService {
   constructor(
@@ -45,12 +48,15 @@ export class WarehouseService {
     return this.dataSource.manager.find(Ingredient, { order: { group: 'ASC', id: 'ASC' } });
   }
 
-  /** Ombor mahsuloti. Narxni ([lastPrice]) faqat admin kiritadi — ta'minotchi yuborsa `forbidden`. */
+  /**
+   * Ombor mahsuloti. Narxni ([lastPrice]) faqat admin kiritadi — ta'minotchi yuborsa `forbidden`. Qadoq hajmi
+   * ([packSize]) o'zgarib, narx yuborilmagan bo'lsa (ta'minotchi tahriri) — eski narx yangi birlikka qayta hisoblanadi
+   * (28 000 / kg → 600 g lik qadoq — 16 800 / dona); admin yuborgan narx — yangi birlikda.
+   */
   async saveIngredient(
     input: (CreateIngredientDto | UpdateIngredientDto) & { id?: string },
     actorRole: Role,
   ): Promise<Ingredient> {
-    const em = this.dataSource.manager;
     const name = { uz: input.name.uz.trim(), ru: input.name.ru.trim(), en: input.name.en.trim() };
     if (!name.uz) fail('name_required');
     const lastPrice = input.lastPrice;
@@ -58,15 +64,32 @@ export class WarehouseService {
       if (actorRole !== 'admin') fail('forbidden', 'lastPrice');
       if (lastPrice !== null && (!Number.isInteger(lastPrice) || lastPrice < 0)) fail('invalid_price');
     }
-    if (input.id) {
-      await this.getIngredient(em, input.id);
-      await em.update(Ingredient, input.id, {
-        name,
-        group: input.group,
-        active: input.active,
-        ...(lastPrice !== undefined && { lastPrice }),
+    const packSize = input.packSize;
+    if (packSize != null && (!Number.isInteger(packSize) || packSize < 1 || packSize > MAX_PACK_SIZE)) {
+      fail('invalid_qty', 'packSize');
+    }
+    const id = input.id;
+    if (id) {
+      return this.dataSource.transaction(async (em) => {
+        const current = await this.getIngredient(em, id, true);
+        const repack = packSize !== undefined && packSize !== current.packSize;
+        const repriced =
+          repack && lastPrice === undefined && current.lastPrice !== null
+            ? convertPrice(
+                current.lastPrice,
+                unitSize(current.unit, current.packSize),
+                unitSize(current.unit, packSize),
+              )
+            : lastPrice;
+        await em.update(Ingredient, id, {
+          name,
+          group: input.group,
+          active: input.active,
+          ...(repack && { packSize }),
+          ...(repriced !== undefined && { lastPrice: repriced }),
+        });
+        return this.getIngredient(em, id);
       });
-      return this.getIngredient(em, input.id);
     }
     const unit = (input as CreateIngredientDto).unit ?? fail('invalid_input', 'unit');
     const ingredient: Ingredient = {
@@ -74,10 +97,11 @@ export class WarehouseService {
       name,
       group: input.group,
       unit,
+      packSize: packSize ?? null,
       lastPrice: lastPrice ?? null,
       active: input.active,
     };
-    await em.insert(Ingredient, ingredient);
+    await this.dataSource.manager.insert(Ingredient, ingredient);
     return ingredient;
   }
 
@@ -199,7 +223,7 @@ export class WarehouseService {
       const items: PurchaseItem[] = input.items.map((line) => {
         const ingredient = ingredients.get(line.ingredientId) ?? fail('not_found', `ingredient ${line.ingredientId}`);
         if (!(line.qty > 0)) fail('invalid_qty', ingredient.id);
-        return { ingredientId: ingredient.id, qty: line.qty, price: ingredient.lastPrice };
+        return { ingredientId: ingredient.id, qty: line.qty, price: ingredient.lastPrice, packSize: ingredient.packSize };
       });
       const purchase: Purchase = {
         id: newId('pur'),
@@ -220,7 +244,9 @@ export class WarehouseService {
 
   /**
    * Admin narxlarni kiritib tasdiqlaydi: mahsulotlar omborga qo'shiladi, har bir mahsulotning "oxirgi narxi" yangilanadi.
-   * [prices] — mahsulot id → 1 birlik narxi; berilmaganlari kirimdagi narxida qoladi.
+   * [prices] — mahsulot id → 1 birlik (qatorda qadoq bo'lsa — 1 dona) narxi; berilmaganlari kirimdagi narxida qoladi.
+   * Miqdor qatordagi qadoq hajmi bilan hisoblanadi; mahsulotning qadoq hajmi kirimdan keyin o'zgargan bo'lsa, "oxirgi
+   * narx" uning hozirgi birligiga o'giriladi.
    */
   async approvePurchase(id: string, prices: Record<string, number>, adminId: string, now = new Date()) {
     return this.dataSource.transaction(async (em) => {
@@ -233,15 +259,23 @@ export class WarehouseService {
         if (typeof price !== 'number' || !Number.isInteger(price) || price < 0) fail('invalid_price', item.ingredientId);
         return { ...item, price };
       });
-      const ingredients = await this.ingredientMap(em, items.map((item) => item.ingredientId));
-      for (const item of items) await em.update(Ingredient, item.ingredientId, { lastPrice: item.price });
+      const ingredients = await this.ingredientMap(em, items.map((item) => item.ingredientId), true);
+      const ingredientOf = (item: PurchaseItem) =>
+        ingredients.get(item.ingredientId) ?? fail('not_found', `ingredient ${item.ingredientId}`);
+      for (const item of items) {
+        const ingredient = ingredientOf(item);
+        const lineSize = unitSize(ingredient.unit, item.packSize);
+        const currentSize = unitSize(ingredient.unit, ingredient.packSize);
+        const lastPrice = lineSize === currentSize ? item.price! : convertPrice(item.price!, lineSize, currentSize);
+        await em.update(Ingredient, item.ingredientId, { lastPrice });
+      }
 
       const approved: Purchase = { ...purchase, items, status: 'approved', decidedBy: adminId, decidedAt: now };
       await em.update(Purchase, id, { items, status: 'approved', decidedBy: adminId, decidedAt: now });
-      const deltas = items.map((item) => {
-        const ingredient = ingredients.get(item.ingredientId) ?? fail('not_found', `ingredient ${item.ingredientId}`);
-        return { ingredientId: item.ingredientId, qty: toBase(item.qty, ingredient.unit) };
-      });
+      const deltas = items.map((item) => ({
+        ingredientId: item.ingredientId,
+        qty: toBase(item.qty, ingredientOf(item).unit, item.packSize),
+      }));
       await this.stock.applyDeltas(em, purchase.warehouseId, deltas, 'purchase', purchase.id, now);
       return approved;
     });
@@ -284,7 +318,7 @@ export class WarehouseService {
       const baseDeltas = input.items.map((item) => {
         const ingredient = ingredients.get(item.ingredientId) ?? fail('not_found', `ingredient ${item.ingredientId}`);
         if (!(item.qty > 0)) fail('invalid_qty', ingredient.id);
-        return { ingredientId: ingredient.id, qty: toBase(item.qty, ingredient.unit) };
+        return { ingredientId: ingredient.id, qty: toBase(item.qty, ingredient.unit, ingredient.packSize) };
       });
       // bir mahsulot ikki qatorda bo'lsa ham jami qoldiqdan oshmasin
       const needed = new Map<string, number>();
@@ -299,7 +333,13 @@ export class WarehouseService {
         number: await nextCounter(em, 'transfer'),
         fromWarehouseId: input.fromWarehouseId,
         toWarehouseId: input.toWarehouseId,
-        items: input.items.map((item): TransferItem => ({ ingredientId: item.ingredientId, qty: item.qty })),
+        items: input.items.map(
+          (item): TransferItem => ({
+            ingredientId: item.ingredientId,
+            qty: item.qty,
+            packSize: ingredients.get(item.ingredientId)!.packSize,
+          }),
+        ),
         note: input.note?.trim() ?? '',
         createdBy,
         createdAt: now,
@@ -321,13 +361,20 @@ export class WarehouseService {
     );
   }
 
-  private async ingredientMap(em: EntityManager, ids: string[]): Promise<Map<string, Ingredient>> {
-    const ingredients = await em.findBy(Ingredient, { id: In(ids) });
+  /** [lock] — tranzaksiya oxirigacha (qadoq hajmi va narx bir vaqtda o'zgarib qolmasin), id tartibida */
+  private async ingredientMap(em: EntityManager, ids: string[], lock = false): Promise<Map<string, Ingredient>> {
+    const ingredients = await em.find(Ingredient, {
+      where: { id: In(ids) },
+      ...(lock && { order: { id: 'ASC' }, lock: { mode: 'pessimistic_write' } }),
+    });
     return new Map(ingredients.map((i) => [i.id, i]));
   }
 
-  private async getIngredient(em: EntityManager, id: string): Promise<Ingredient> {
-    return (await em.findOneBy(Ingredient, { id })) ?? fail('not_found', `ingredient ${id}`);
+  private async getIngredient(em: EntityManager, id: string, lock = false): Promise<Ingredient> {
+    return (
+      (await em.findOne(Ingredient, { where: { id }, ...(lock && { lock: { mode: 'pessimistic_write' } }) })) ??
+      fail('not_found', `ingredient ${id}`)
+    );
   }
 
   private async getWarehouse(em: EntityManager, id: string): Promise<Warehouse> {

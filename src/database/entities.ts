@@ -2,6 +2,8 @@ import { AiMessage } from '../ai/ai-message.entity';
 import { Branch } from '../branches/branch.entity';
 import { Warehouse } from '../branches/warehouse.entity';
 import { Expense } from '../expenses/expense.entity';
+import { FaceIdEvent } from '../faceid/faceid-event.entity';
+import { FaceIdRequest } from '../faceid/faceid-request.entity';
 import { Category } from '../menu/category.entity';
 import { Product } from '../menu/product.entity';
 import { Order } from '../orders/order.entity';
@@ -34,4 +36,6 @@ export const ENTITIES = [
   Expense,
   AiMessage,
   TelegramChat,
+  FaceIdEvent,
+  FaceIdRequest,
 ];

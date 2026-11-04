@@ -27,12 +27,21 @@ export class UpdateIngredientDto {
   active: boolean;
 
   /**
-   * 1 birlik (kg / l / dona) narxi, so'm (butun ≥ 0 — servisda `invalid_price`). Faqat admin; berilmasa — o'zgarmaydi,
-   * `null` — narxsiz. Keyingi kirimga avtomatik yoziladi, kirim tasdiqlanganda yangilanadi.
+   * 1 birlik (qadoq bo'lsa — 1 dona, aks holda kg / l / dona) narxi, so'm (butun ≥ 0 — servisda `invalid_price`). Faqat
+   * admin; berilmasa — o'zgarmaydi (qadoq hajmi o'zgarsa — yangi birlikka qayta hisoblanadi), `null` — narxsiz. Keyingi
+   * kirimga avtomatik yoziladi, kirim tasdiqlanganda yangilanadi.
    */
   @IsOptional()
   @IsNumber()
   lastPrice?: number | null;
+
+  /**
+   * Qadoq hajmi asosiy birlikda (g / ml / dona), butun 1–1 000 000 (servisda `invalid_qty`): 600 — 1 dona = 600 g.
+   * Berilmasa — o'zgarmaydi (yangi mahsulotda — qadoqsiz), `null` — qadoqsiz.
+   */
+  @IsOptional()
+  @IsNumber()
+  packSize?: number | null;
 }
 
 export class CreateIngredientDto extends UpdateIngredientDto {
@@ -76,7 +85,7 @@ export class DocumentLineDto {
   @MaxLength(40)
   ingredientId: string;
 
-  /** ombor birligida (kg / l / dona), > 0 — servisda `invalid_qty` */
+  /** ombor birligida (kg / l / dona; qadoq hajmi berilgan mahsulotda — donada), > 0 — servisda `invalid_qty` */
   @IsNumber()
   qty: number;
 }
@@ -98,7 +107,7 @@ export class CreatePurchaseDto {
 }
 
 export class ApprovePurchaseDto {
-  /** mahsulot id → 1 birlik narxi; berilmaganlari kirimdagi (oldingi) narxida qoladi */
+  /** mahsulot id → 1 birlik (qatorda qadoq bo'lsa — 1 dona) narxi; berilmaganlari kirimdagi (oldingi) narxida qoladi */
   @IsOptional()
   @IsObject()
   prices?: Record<string, number>;

@@ -23,6 +23,7 @@ TV, kiosk, ombor, admin; [9-bo'lim](#9-web-ilovani-ulash)).
 12. [Kuryer ilovasi (Android)](#12-kuryer-ilovasi-android)
 13. [AI yordamchi va Telegram bot](#13-ai-yordamchi-va-telegram-bot)
 14. [Offline kassa (internet yo'q paytda)](#14-offline-kassa-internet-yoq-paytda)
+15. [FaceID (filial HR tizimi)](#15-faceid-filial-hr-tizimi)
 
 ---
 
@@ -75,6 +76,10 @@ ruxsati kerak (`android:usesCleartextTraffic="true"` yoki `network_security_conf
 - **Ombor miqdorlari**: qoldiq, retsept, chegara (`minQty`) va harakatlar — **asosiy birlikda**, butun son: g / ml /
   dona. Hujjatlar (kirim, ko'chirish qatorlari) va narxlar — **ombor birligida**: kg / l / dona, kasr bo'lishi mumkin
   (`12.5` kg → qoldiqqa `12500` g). Mahsulot birligi `Ingredient.unit`: `kg` → g, `l` → ml, `pcs` → dona.
+  **Qadoq** (2026-11-04): `Ingredient.packSize` berilgan bo'lsa (600 — 1 dona ketchup = 600 g), hujjatlar va narx —
+  **donada** (`10` dona → qoldiqqa `6000` g), retsept va qoldiq baribir grammda; qoldiq ekranda — to'liq donalar va
+  ochilgani: 5950 g → "9 dona + 550 g". Hujjat qatorida yozilgan paytdagi hajm (`items[].packSize`) saqlanadi —
+  mahsulotniki keyin o'zgarsa ham qator o'sha hajm bilan hisoblanadi.
 - **ID**: satr, prefiks + 16 ta hex: `ord_3f2a9c1b7e4d8a05` (`br_`, `usr_`, `cat_`, `prd_`, `ing_`, `pur_`,
   `trf_`, `mov_`, `shf_`, `exp_`, `wh_`). Eski va sinov id'lari boshqacha (`br_chilonzor`, `burger-classic`) — id'ni hech qachon
   tahlil qilmang, faqat solishtiring.
@@ -123,7 +128,7 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `code` | HTTP | Backend | `message` | Qachon |
 |---|---|---|---|---|
 | `not_found` | 404 | | Topilmadi | id bo'yicha yozuv yo'q; noto'g'ri `trackingToken`; buyurtma berilgan filial faol emas (`detail`: `branch … inactive`); TV navbatida (kod to'g'ri) filial faol emas; zaxira filial filialning o'zi (`PUT /branches/:id/delivery`) |
-| `wrong_pin` | 401 | | PIN noto'g'ri | login / unlock / PIN almashtirish |
+| `wrong_pin` | 401 | ✔ | PIN noto'g'ri | login / unlock / PIN almashtirish (`detail` — 2026-11-04 dan: blokkacha qolgan urinishlar, `"4"` … `"1"`; web kassa `"1"` da "1 ta urinish qoldi" deb ogohlantiradi). Offline kassa (`/api/offline/login`) — xuddi shunday |
 | `invalid_pin` | 400 | | PIN 4 tadan 8 tagacha raqamdan iborat bo'lishi kerak | yangi PIN formati |
 | `user_inactive` | 403 | | Bu xodim bloklangan | login / unlock |
 | `empty_order` | 400 | | Ro'yxat bo'sh | buyurtma, kirim yoki ko'chirish qatorsiz |
@@ -151,7 +156,7 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `image_in_use` | 409 | | Bu rasm menyuda yoki kioskda ishlatilgan — avval u yerda boshqa rasmni tanlang | `DELETE /images/...`: rasm taomda, kategoriyada yoki kiosk ekranida (`detail` — qayerda) |
 | `unauthorized` | 401 | ✔ | Avval tizimga kiring | token yo'q / eskirgan / xodim bloklangan / tokendagi filialdan olib tashlangan |
 | `invalid_input` | 400 | ✔ | So'rov ma'lumotlari noto'g'ri | DTO tekshiruvi (tur, majburiy maydon, ruxsat etilgan qiymat, uzunlik); `workHours.open = close` |
-| `too_many_attempts` | 429 | ✔ | Ko'p marta xato kiritildi — birozdan keyin urinib ko'ring | PIN bloki (`detail`: qolgan soniya, `"287s"`) yoki IP chegarasi (`Retry-After` sarlavhasi, soniya). TV / kiosk kodi uchun blok yo'q ([4.4](#44-tv-va-kiosk)) |
+| `too_many_attempts` | 429 | ✔ | Ko'p marta xato kiritildi — birozdan keyin urinib ko'ring | PIN bloki (`detail`: qolgan soniya, `"287s"` — 2026-11-04 dan blokni qo'ygan 5-xatoning o'zida ham, `"300s"`; offline kassada ham) yoki IP chegarasi (`detail` yo'q, `Retry-After` sarlavhasi, soniya). Web PIN pad blok paytida o'chadi va `detail` bo'yicha "4:59 dan keyin" sanaydi (`detail` siz — 1 daqiqa). TV / kiosk kodi uchun blok yo'q ([4.4](#44-tv-va-kiosk)) |
 | `branch_closed` | 409 | ✔ | Filial hozir buyurtma qabul qilmayapti | mobil: tanlangan filial yopiq (`detail`: branchId) yoki dostavka uchun ochiq filial yo'q |
 | `location_required` | 400 | ✔ | Yetkazib berish joyini xaritada belgilang (GPS) | mobil dostavkada `online.location` yo'q |
 | `off_duty` | 409 | ✔ | Avval «Ishdaman» ni yoqing | kuryer "Ishdaman" o'chiq holda buyurtma olmoqchi |
@@ -173,6 +178,11 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `telegram_token_invalid` | 400 | ✔ | Bot tokeni noto'g'ri — @BotFather bergan tokenni to'liq nusxalang | `PUT /telegram/token`: shakli `123456789:AA…` emas yoki Telegram rad etdi |
 | `telegram_unreachable` | 502 | ✔ | Telegram serveriga ulanib bo'lmadi — internetni tekshiring | tokenni tekshirishda tarmoq xatosi |
 | `telegram_not_connected` | 409 | ✔ | Avval bot tokenini kiriting | `POST /telegram/link` — bot yo'q |
+| `faceid_checkin_required` | 409 | ✔ | Terminalda «Kirish» ni bosib, yuzingizni ko'rsating | FaceID filiali ([15](#15-faceid-filial-hr-tizimi)): `POST /auth/login` (yangi smena — «Kirish» 10 daqiqa ichida; ochiq smena — oxirgi o'tishi shu filialda «Kirish», 16 soat ichida), `POST /auth/unlock`, `POST /shifts/current` (yangi smena). PIN to'g'ri bo'lgandan keyin |
+| `faceid_checkout_required` | 409 | ✔ | Terminalda «Chiqish» ni bosib, yuzingizni ko'rsating | FaceID filiali: `POST /shifts/current/close` — oxirgi o'tishi shu filialda «Chiqish», 10 daqiqa ichida |
+| `employee_no_taken` | 409 | ✔ | Bu tabel raqami shu filialda boshqa xodimda | `POST /users`, `PATCH /users/:id` — `employeeNos` dagi raqam shu filialda boshqa kassirda (`detail`: o'sha kassir "Ism Familiya") |
+| `invalid_employee_no` | 400 | ✔ | Tabel raqami — 1 dan 999 999 999 gacha butun son | `employeeNos` qiymati butun son emas / chegaradan tashqari (`detail`: filial id) |
+| `faceid_request_unavailable` | 503 | ✔ | Telegram bot ulanmagan yoki javob bermadi — ruxsat so'rab bo'lmaydi, adminga qo'ng'iroq qiling | `POST /auth/faceid-request`, `POST /shifts/current/faceid-request`: bot yo'q / faol admin chati yo'q / hech biriga yetmadi |
 
 ---
 
@@ -225,7 +235,9 @@ majburiy); TV navbati — faqat filial TV kodi, kiosk buyurtmasi — faqat filia
    ochiladi yoki ochig'i davom etadi (`shift`); boshqa rollarda `shift: null`. **Kassirda bir vaqtda bitta ochiq
    smena**: boshqa filialda ochiq qolgan bo'lsa — `409 shift_open_elsewhere` (`detail` — o'sha filial nomi; PIN
    to'g'ri — xato urinish sanalmaydi): avval o'sha filialda "Smenani topshirish" yoki admin yopadi
-   (`POST /shifts/:id/close`).
+   (`POST /shifts/:id/close`). Filialda FaceID yoqilgan bo'lsa (2026-11-04) — kassir avval terminaldan «Kirish» bilan
+   o'tadi, aks holda `409 faceid_checkin_required` (PIN to'g'ri bo'lgandan keyin; terminal ishlamasa — admindan Telegram
+   orqali ruxsat, [15](#15-faceid-filial-hr-tizimi)).
 4. Keyingi so'rovlarda `Authorization: Bearer <token>`. Token 24 soat amal qiladi; yangilash — `POST /auth/unlock`
    (kassa blokdan chiqishi; amaldagi token kerak, yangisi o'sha filial bilan). Token eskirsa (`401`) — qaytadan
    kirish. Admin xodimni tokendagi filialdan olib tashlasa — o'sha token `401` (boshqa filialdagi sessiyasi ishlayveradi).
@@ -247,6 +259,10 @@ bloklanish va IP chegarasi PIN'dagidek. Ikkala yo'l o'z roli uchun: kuryer email
 
 **Admin paroli unutilsa**: boshqa admin "Xodimlar" da yangisini beradi (`PATCH /users/:id`, `password`) yoki Telegram
 botda `/parol` ([13](#13-ai-yordamchi-va-telegram-bot)).
+
+**Kassir (xodim) PIN'i unutilsa**: admin "Xodimlar" da yangi PIN beradi (`PATCH /users/:id`, `pin`) — blok va xato
+urinishlar hisobi ham tozalanadi, xodim darhol yangi PIN bilan kiradi (2026-11-04; avval blok tugashini kutardi).
+Offline kassaga yangi PIN keyingi nusxa bilan yetadi (internet kerak).
 
 **PIN / parol bloki**: bir xodimga ketma-ket 5 marta noto'g'ri PIN (parol) → 5 daqiqa blok. 5-urinishning o'zi
 `too_many_attempts` qaytaradi; blok paytida to'g'ri PIN ham `too_many_attempts` (`detail`: qolgan soniya). To'g'ri PIN
@@ -536,6 +552,8 @@ interface Branch {
   fallbackBranchId: string | null  // yopiq bo'lsa hududidagi buyurtmalar shu filialga; null — eng yaqin ochiq
   onlineEnabled: boolean           // false — admin online qabulni to'xtatgan
   workHours: WorkHours | null      // online qabul vaqti; null — 24/7
+  faceIdRequired: boolean          // FaceID tekshiruvi (2026-11-04, standart false) — 15-bo'lim
+  hrSeenAt: string | null          // filial HR tizimi oxirgi marta murojaat qilgan vaqt; null — hali ulanmagan
   onlineState: BranchOnlineState   // faqat GET /branches va GET /branches/:id javobida
 }
 type BranchOnlineState = 'open' | 'inactive' | 'paused' | 'off_hours' | 'no_shift' | 'no_kassa'
@@ -665,7 +683,11 @@ interface AuthUser {
   branchId: string | null; branchIds: string[]; email: string | null
 }
 // PIN / parol hech qachon qaytmaydi; 2026-11-04 dan `branchId` o'rniga `branchIds`
-interface User extends Omit<AuthUser, 'branchId'> { active: boolean; onDuty: boolean; createdAt: string }
+// employeeNos — kassirning tabel raqamlari (FaceID): filial id → filial HR'idagi / terminaldagi raqam; boshqa rollarda {}
+interface User extends Omit<AuthUser, 'branchId'> {
+  active: boolean; onDuty: boolean; createdAt: string
+  employeeNos: Record<string, number>
+}
 
 interface Shift { id: string; branchId: string; cashierId: string; openedAt: string; closedAt: string | null }
 interface ShiftSummary {
@@ -686,7 +708,8 @@ type IngredientGroup = 'bread' | 'meat' | 'seafood' | 'dairy' | 'vegetables' | '
 interface Ingredient {
   id: string; name: LocalizedText; group: IngredientGroup
   unit: StockUnit                  // yaratilgandan keyin o'zgarmaydi
-  lastPrice: number | null         // oxirgi tasdiqlangan kirimdagi 1 kg / l / dona narxi
+  packSize: number | null          // qadoq hajmi asosiy birlikda (600 — 1 dona = 600 g); null — qadoqsiz. O'zgartirsa bo'ladi
+  lastPrice: number | null         // oxirgi tasdiqlangan kirimdagi 1 kg / l / dona narxi (qadoqli — 1 dona narxi)
   active: boolean
 }
 interface StockItem { warehouseId: string; ingredientId: string; qty: number; minQty: number }   // asosiy birlikda; qty manfiy bo'lishi mumkin
@@ -700,13 +723,14 @@ interface StockMovement {
 }
 interface Purchase {
   id: string; number: number; warehouseId: string
-  items: { ingredientId: string; qty: number; price: number | null }[]   // ombor birligida; narx — 1 birlik
+  items: { ingredientId: string; qty: number; price: number | null; packSize: number | null }[]
+  // ombor birligida (packSize bo'lsa — donada); narx — 1 birlik (1 dona); packSize — yozilgan paytdagi qadoq hajmi
   note: string; status: 'pending' | 'approved' | 'rejected'
   createdBy: string; createdAt: string; decidedBy: string | null; decidedAt: string | null
 }
 interface Transfer {
   id: string; number: number; fromWarehouseId: string; toWarehouseId: string
-  items: { ingredientId: string; qty: number }[]   // ombor birligida
+  items: { ingredientId: string; qty: number; packSize: number | null }[]   // ombor birligida (packSize bo'lsa — donada)
   note: string; createdBy: string; createdAt: string
 }
 type ExpenseKind = 'electricity' | 'gas' | 'water' | 'internet' | 'other'
@@ -729,11 +753,13 @@ joyda: DTO xatosi — `invalid_input`, tokensiz — `unauthorized`, rol mos emas
 | Metod va yo'l | Kim | So'rov | Javob | Xatolar |
 |---|---|---|---|---|
 | `GET /auth/staff` | ochiq | query: `branchId?`, `role?` | `AuthUser[]` (faollari, ism bo'yicha; kuryerlarsiz; `branchId` berilsa — shu filialda ishlaydiganlar) | |
-| `POST /auth/login` | ochiq | `{ userId: string ≤40, pin: string ≤8, branchId?: string ≤40 }` — kassir, oshpaz yordamchisi, ta'minotchi; `branchId` — kassa turgan filial ([4.3](#43-xodim-kirishi)) | `200 { token, user: AuthUser, shift: Shift \| null }` | `not_found`, `user_inactive`, `wrong_pin`, `too_many_attempts`, `forbidden` (admin / kuryer; xodim bu filialda ishlamaydi), `branch_required` (bir nechta filial, `branchId` yo'q), `shift_open_elsewhere` |
+| `POST /auth/login` | ochiq | `{ userId: string ≤40, pin: string ≤8, branchId?: string ≤40 }` — kassir, oshpaz yordamchisi, ta'minotchi; `branchId` — kassa turgan filial ([4.3](#43-xodim-kirishi)) | `200 { token, user: AuthUser, shift: Shift \| null }` | `not_found`, `user_inactive`, `wrong_pin`, `too_many_attempts`, `forbidden` (admin / kuryer; xodim bu filialda ishlamaydi), `branch_required` (bir nechta filial, `branchId` yo'q), `shift_open_elsewhere`, `faceid_checkin_required` (FaceID filiali, [15](#15-faceid-filial-hr-tizimi)) |
 | `POST /auth/admin-login` | ochiq | `{ email: string ≤100, password: string ≤64 }` | `200 { token, user: AuthUser, shift: null }` | `wrong_login`, `user_inactive`, `too_many_attempts` |
 | `POST /auth/courier-login` | ochiq | `{ email: string ≤100, password: string ≤64 }` | `200 { token, user: AuthUser, shift: null }` | `wrong_login`, `user_inactive`, `too_many_attempts` |
 | `GET /auth/me` | xodim | | `{ user: AuthUser, shift: Shift \| null }` (`shift` — kassirning ochiq smenasi) | |
-| `POST /auth/unlock` | PIN bilan kiradigan xodim | `{ pin: string ≤8 }` — shu xodimning PIN'i | `200 { token }` — yangi 24 soatlik token (o'sha joriy filial bilan) | `wrong_pin`, `user_inactive`, `too_many_attempts`, `forbidden` (admin / kuryer) |
+| `POST /auth/unlock` | PIN bilan kiradigan xodim | `{ pin: string ≤8 }` — shu xodimning PIN'i | `200 { token }` — yangi 24 soatlik token (o'sha joriy filial bilan) | `wrong_pin`, `user_inactive`, `too_many_attempts`, `forbidden` (admin / kuryer), `faceid_checkin_required` (kassir, FaceID filiali) |
+| `POST /auth/faceid-request` | ochiq (IP chegarasi — login'dagidek) | `{ userId: string ≤40, pin: string ≤8, branchId: string ≤40 }` — kassir terminaldan o'tolmadi, admindan Telegram orqali ruxsat ([15.4](#154-telegram-orqali-ruxsat)) | `200 FaceIdRequest` (javob kutilayotgan so'rov bo'lsa — o'sha) | `not_found`, `forbidden` (kassir emas — rol PIN'dan oldin; bu filialda ishlamaydi), `wrong_pin`, `user_inactive`, `too_many_attempts`, `shift_open_elsewhere`, `faceid_request_unavailable` |
+| `GET /auth/faceid-request/:id` | ochiq | | `FaceIdRequest` — kassa javobni kutadi (har 3 s) | `not_found` |
 | `PUT /auth/pin` | PIN bilan kiradigan xodim | `{ oldPin: string ≤8, newPin: string ≤8 }` | `204` | `wrong_pin`, `too_many_attempts`, `invalid_pin`, `forbidden` (admin / kuryer) |
 | `PUT /auth/profile` | admin | `{ name: string ≤100, surname: string ≤100, email: string ≤100 }` — o'zi | `AuthUser` | `name_required`, `surname_required`, `invalid_email`, `email_taken` |
 | `PUT /auth/password` | admin | `{ oldPassword: string ≤64, newPassword: string ≤64 }` — o'zi | `204` | `wrong_password`, `too_many_attempts`, `invalid_password` |
@@ -748,7 +774,10 @@ joyda: DTO xatosi — `invalid_input`, tokensiz — `unauthorized`, rol mos emas
 | `PATCH /branches/:id` | admin | `BranchFields` (`workHours` dan tashqari hammasi majburiy) | `Branch` | `not_found`, `name_required`, `invalid_input` |
 | `PUT /branches/:id/delivery` | admin | `{ location: LatLng \| null, zone: LatLng[], fee: number, fallbackBranchId: string \| null, onlineEnabled: boolean }` | `Branch` | `not_found`, `zone_too_small`, `invalid_location`, `invalid_amount` (fee butun ≥ 0 emas) |
 | `PUT /branches/:id/online` | admin | `{ enabled: boolean }` | `Branch` | `not_found` |
-| `DELETE /branches/:id` | admin | | `204` — ombori (qoldiq yozuvlari), offline kaliti, TV va kiosk kodlari ham; boshqa filiallarning zaxirasi bo'lsa — `null` ga, taomlarning `unavailableBranchIds` idan chiqariladi | `not_found`, `in_use` — buyurtma (`orders`, o'tkazilganlari ham), smena (`shifts`), chiqim (`expenses`), xodim (`users`), omborida kirim / ko'chirish / harakat (`purchases`, `transfers`, `movements`) bor — faolsizlantiring |
+| `PUT /branches/:id/faceid` | admin | `{ enabled: boolean }` — FaceID tekshiruvi (kartochkadan bir bosishda; terminal buzilsa o'chiriladi) | `Branch` | `not_found`, `invalid_input` |
+| `GET /branches/:id/hr-key` | admin | | `{ key }` — filial HR tizimi ("NYFF HR") kaliti `br_….<maxfiy qism>`; hali yo'q bo'lsa yaratiladi (offline kalitdan alohida) ([15](#15-faceid-filial-hr-tizimi)) | `not_found` |
+| `POST /branches/:id/hr-key` | admin | | `200 { key }` — yangi kalit, eskisi bilan HR endi ulana olmaydi | `not_found` |
+| `DELETE /branches/:id` | admin | | `204` — ombori (qoldiq yozuvlari), offline va HR kalitlari, TV va kiosk kodlari, FaceID o'tishlari va so'rovlari ham; boshqa filiallarning zaxirasi bo'lsa — `null` ga, taomlarning `unavailableBranchIds` idan chiqariladi | `not_found`, `in_use` — buyurtma (`orders`, o'tkazilganlari ham), smena (`shifts`), chiqim (`expenses`), xodim (`users`), omborida kirim / ko'chirish / harakat (`purchases`, `transfers`, `movements`) bor — faolsizlantiring |
 | `GET /branches/:id/offline-key` | admin | | `{ key }` — filial offline kassasi (Electron ilova) kaliti `br_….<maxfiy qism>`; hali yo'q bo'lsa yaratiladi (bazada, `settings`) ([14](#14-offline-kassa-internet-yoq-paytda)) | `not_found` |
 | `POST /branches/:id/offline-key` | admin | | `200 { key }` — yangi kalit, eskisi bilan kassa kompyuteri endi ulana olmaydi | `not_found` |
 | `GET /branches/:id/tv-code` | admin | | `{ code }` — filial TV kodi, 8 raqam (`"48217390"`); hali yo'q bo'lsa yaratiladi (bazada, `settings`) ([4.4](#44-tv-va-kiosk)) | `not_found` |
@@ -843,8 +872,9 @@ Tafsilotlar:
 | Metod va yo'l | Kim | So'rov | Javob | Xatolar |
 |---|---|---|---|---|
 | `GET /shifts/current` | cashier | | `{ shift: Shift \| null }` | |
-| `POST /shifts/current` | cashier | | `200 Shift` — ochig'i bo'lsa o'sha, bo'lmasa yangi (masalan boshqa tabda topshirilgan) | `shift_open_elsewhere` (boshqa filialda ochiq — `detail`: filial nomi) |
-| `POST /shifts/current/close` | cashier | | `200 ShiftWithSummary` — "Smenani topshirish" | `shift_not_open` |
+| `POST /shifts/current` | cashier | | `200 Shift` — ochig'i bo'lsa o'sha (FaceID tekshiruvisiz — kassa har sotuvdan oldin chaqiradi), bo'lmasa yangi (masalan boshqa tabda topshirilgan) | `shift_open_elsewhere` (boshqa filialda ochiq — `detail`: filial nomi), `faceid_checkin_required` (yangi smena, FaceID filiali) |
+| `POST /shifts/current/close` | cashier | | `200 ShiftWithSummary` — "Smenani topshirish" | `shift_not_open`, `faceid_checkout_required` (FaceID filiali) |
+| `POST /shifts/current/faceid-request` | cashier | | `200 FaceIdRequest` — ochiq kassadan ruxsat so'rash ("Smenani topshirish" uchun; smena yo'q bo'lsa — ochish uchun) ([15.4](#154-telegram-orqali-ruxsat)) | `faceid_request_unavailable` |
 | `GET /shifts` | admin | query: `branchId?`, `cashierId?`, `open?: 'true' \| 'false'`, `from?`, `to?` (ISO — oraliq bilan **kesishgan** smenalar: `to` dan oldin ochilgan va `from` dan keyin yopilgan yoki hali ochiq), `page?`, `limit?` | `Page<ShiftWithSummary> & { summary: { count, open, revenue, cash } }` — ochiqlari tepada, keyin yangisi; `summary` — filtrlangan hammasi bo'yicha | |
 | `GET /shifts/:id` | admin, cashier (faqat o'ziniki) | | `ShiftWithSummary & { orders: Order[] }` | `not_found`, `forbidden` |
 | `POST /shifts/:id/close` | admin | | `200 ShiftWithSummary` — kassir yopmay ketgan smena | `not_found`, `shift_not_open` (allaqachon yopilgan) |
@@ -866,27 +896,36 @@ Hammasi — `admin` va `supplier`; kirimni tasdiqlash / rad etish — faqat `adm
 |---|---|---|---|
 | `GET /warehouses` | | `Warehouse[]` (markaziy birinchi) | |
 | `GET /ingredients` | | `Ingredient[]` (guruh, id bo'yicha) | |
-| `POST /ingredients` | `{ name: LocalizedText, group: IngredientGroup, unit: StockUnit, active: boolean, lastPrice?: number \| null }` | `201 Ingredient` | `name_required`, `invalid_price`, `forbidden` (ta'minotchi narx yubordi) |
-| `PATCH /ingredients/:id` | `{ name, group, active, lastPrice?: number 
-| `DELETE /ingredients/:id` | | `204` — qoldiq yozuvlari ham (harakatsiz — 0) | `not_found`, `in_use` — retseptda (`recipes`), kirimda (`purchases`), ko'chirishda (`transfers`), qoldiq harakatida (`movements`) |\| null }` (`unit` o'zgarmaydi — yuborilsa tashlanadi) | `Ingredient` | `not_found`, `name_required`, `invalid_price`, `forbidden` |
-
-`lastPrice` — 1 birlik (kg / l / dona) narxi, so'm, butun ≥ 0; **faqat admin** yuboradi (ta'minotchi — `403
-forbidden`, u narxsiz qo'shadi / tahrirlaydi). Yuborilmasa — o'zgarmaydi, `null` — narxsiz. Keyingi kirimga avtomatik
-yoziladi va kirim tasdiqlanganda yangilanadi.
+| `POST /ingredients` | `{ name: LocalizedText, group: IngredientGroup, unit: StockUnit, active: boolean, packSize?: number \| null, lastPrice?: number \| null }` | `201 Ingredient` | `name_required`, `invalid_price`, `invalid_qty` (`packSize`), `forbidden` (ta'minotchi narx yubordi) |
+| `PATCH /ingredients/:id` | `{ name, group, active, packSize?: number \| null, lastPrice?: number \| null }` (`unit` o'zgarmaydi — yuborilsa tashlanadi) | `Ingredient` | `not_found`, `name_required`, `invalid_price`, `invalid_qty` (`packSize`), `forbidden` |
+| `DELETE /ingredients/:id` | | `204` — qoldiq yozuvlari ham (harakatsiz — 0) | `not_found`, `in_use` — retseptda (`recipes`), kirimda (`purchases`), ko'chirishda (`transfers`), qoldiq harakatida (`movements`) |
 | `GET /stock` | query: `warehouseId?` | `StockItem[]` (yozuvi yo'q mahsulot — qoldiq 0) | |
 | `GET /stock/low` | query: `warehouseId?` | `StockItem[]` — `minQty > 0` va `qty < minQty` | |
 | `PUT /stock/:warehouseId/:ingredientId/min-qty` | `{ minQty: number }` — asosiy birlikda, butun ≥ 0 (0 — kuzatilmaydi) | `StockItem` | `not_found`, `invalid_qty` |
 | `GET /movements` | query: `warehouseId?`, `ingredientId?`, `kind?`, `refId?`, `page?`, `limit?` (standart 100) | `Page<StockMovement & { refNumber: number \| null; refWarehouseId: string \| null }>` (yangisi birinchi) — `refNumber`: buyurtma / kirim / ko'chirish raqami; `refWarehouseId`: ko'chirishda ikkinchi ombor (kirimda — qayerdan, chiqimda — qayerga) | |
 | `GET /purchases` | query: `status?`, `warehouseId?`, `page?`, `limit?` | `Page<Purchase>` | |
 | `GET /purchases/:id` | | `Purchase` | `not_found` |
-| `POST /purchases` | `{ warehouseId, items: { ingredientId, qty }[] (ombor birligida, > 0), note?: string ≤1000 }` | `201 Purchase` (`pending`; narx — `lastPrice` dan) | `empty_order`, `not_found`, `invalid_qty` |
-| `POST /purchases/:id/approve` | admin: `{ prices?: { [ingredientId]: number } }` — 1 birlik narxi (so'm, butun ≥ 0); berilmagani kirimdagi narxida qoladi | `200 Purchase` (`approved`) — qoldiqqa qo'shiladi, `lastPrice` yangilanadi | `not_found`, `already_decided`, `invalid_price` |
+| `POST /purchases` | `{ warehouseId, items: { ingredientId, qty }[] (ombor birligida, qadoqli — donada, > 0), note?: string ≤1000 }` | `201 Purchase` (`pending`; narx — `lastPrice` dan, `packSize` — mahsulotning hozirgisi) | `empty_order`, `not_found`, `invalid_qty` |
+| `POST /purchases/:id/approve` | admin: `{ prices?: { [ingredientId]: number } }` — 1 birlik (qatorda qadoq bo'lsa — 1 dona) narxi (so'm, butun ≥ 0); berilmagani kirimdagi narxida qoladi | `200 Purchase` (`approved`) — qoldiqqa qatordagi `packSize` bilan qo'shiladi, `lastPrice` yangilanadi | `not_found`, `already_decided`, `invalid_price` |
 | `POST /purchases/:id/reject` | admin | `200 Purchase` (`rejected`) | `not_found`, `already_decided` |
 | `GET /transfers` | query: `warehouseId?` (chiqqan yoki kirgan), `page?`, `limit?` | `Page<Transfer>` | |
-| `POST /transfers` | `{ fromWarehouseId, toWarehouseId, items: { ingredientId, qty }[] (> 0), note?: string ≤1000 }` | `201 Transfer` — bitta tranzaksiyada chiqim + kirim | `same_warehouse`, `empty_order`, `not_found`, `invalid_qty`, `insufficient_stock` |
+| `POST /transfers` | `{ fromWarehouseId, toWarehouseId, items: { ingredientId, qty }[] (ombor birligida, qadoqli — donada, > 0), note?: string ≤1000 }` | `201 Transfer` — bitta tranzaksiyada chiqim + kirim | `same_warehouse`, `empty_order`, `not_found`, `invalid_qty`, `insufficient_stock` |
+
+`lastPrice` — 1 birlik (kg / l / dona; qadoqli — 1 dona) narxi, so'm, butun ≥ 0; **faqat admin** yuboradi (ta'minotchi —
+`403 forbidden`, u narxsiz qo'shadi / tahrirlaydi). Yuborilmasa — o'zgarmaydi, `null` — narxsiz. Keyingi kirimga
+avtomatik yoziladi va kirim tasdiqlanganda yangilanadi (qator boshqa qadoq hajmi bilan yozilgan bo'lsa — mahsulotning
+hozirgi birligiga o'giriladi).
+
+`packSize` — qadoq hajmi **asosiy birlikda** (g / ml / dona), butun 1…1 000 000 (aks holda `invalid_qty`, `detail`:
+`packSize`): ketchup `unit: 'kg'`, `packSize: 600` — 1 dona = 600 g; salfetka `unit: 'pcs'`, `packSize: 100` — 1 qadoq
+= 100 dona. Yuborilmasa — o'zgarmaydi (yangisida — qadoqsiz), `null` — qadoqsiz; ta'minotchi ham o'zgartiradi. Qadoq
+hajmi o'zgarib `lastPrice` **yuborilmasa** — narx yangi birlikka proporsional qayta hisoblanadi (28 000 / kg → 600 g
+lik dona — 16 800; 600 g → 500 g — 18 000 → 15 000); admin yuborgan `lastPrice` — yangi birlikda, o'zgarishsiz.
+Qoldiq, retsept, chegara, harakatlar — asosiy birlikda (o'zgarmaydi); kutayotgan kirim — o'zining `packSize` i bilan.
 
 `createdBy`, `decidedBy` — tokendan. Ko'chirish qoldiqdan oshmaydi (bir mahsulot ikki qatorda bo'lsa — jami); sotuv
-esa qoldiqni manfiyga tushirishi mumkin.
+esa qoldiqni manfiyga tushirishi mumkin. Filial omborida qoldiq chegaradan pastga tushsa — Telegram botga darhol
+xabar ([13](#13-ai-yordamchi-va-telegram-bot), "Kam qoldi").
 
 ### 7.7 Xodimlar (`/users`) — admin
 
@@ -894,8 +933,8 @@ esa qoldiqni manfiyga tushirishi mumkin.
 |---|---|---|---|
 | `GET /users` | admin, supplier (kirim / ko'chirish muallifi ismi uchun) | `User[]` (qo'shilgan vaqti bo'yicha) | |
 | `GET /users/couriers` | admin, cashier (kassaning "Dostavka" ro'yxati — kuryer ismi va ishdagilar soni; admin "Xodimlar" — kuryerlar holati) | `CourierStatus[]` (bloklanganlari ham, ism bo'yicha): `{ id, name, surname, active, onDuty, orders, branchId, departed }` — `onDuty` — ilovada "Ishdaman"; `orders` — qo'ldagi (olgan, hali yetkazmagan / qaytarmagan) buyurtmalar soni; `branchId` — ular qaysi filialdan (bo'sh qo'l — `null`); `departed` — "Yo'lga chiqdim" bosgan | |
-| `POST /users` | `{ name: string ≤100, surname: string ≤100, role: Role, branchIds?: string[] (har biri ≤40), pin?: string ≤8, email?: string ≤100, password?: string ≤64, active: boolean }` — admin va kuryer: `email` + `password` (PIN'siz), boshqalar: `pin` | `201 User` | `name_required`, `surname_required`, `branch_required`, `not_found` (filial), `invalid_pin`, `invalid_email`, `invalid_password`, `email_taken` |
-| `PATCH /users/:id` | xuddi shunday (to'liq); `pin: ""` / `password: ""` — eskisi qoladi; PIN'li rol ↔ admin / kuryer o'tishida yangisi majburiy (eski PIN parol bo'lib qolmasin) | `User` | yuqoridagilar + `not_found`, `self_action` (o'zini bloklash / o'z rolini o'zgartirish) |
+| `POST /users` | `{ name: string ≤100, surname: string ≤100, role: Role, branchIds?: string[] (har biri ≤40), employeeNos?: Record<string, number>, pin?: string ≤8, email?: string ≤100, password?: string ≤64, active: boolean }` — admin va kuryer: `email` + `password` (PIN'siz), boshqalar: `pin` | `201 User` | `name_required`, `surname_required`, `branch_required`, `not_found` (filial), `invalid_pin`, `invalid_email`, `invalid_password`, `email_taken`, `invalid_employee_no`, `employee_no_taken` |
+| `PATCH /users/:id` | xuddi shunday (to'liq); `pin: ""` / `password: ""` — eskisi qoladi; PIN'li rol ↔ admin / kuryer o'tishida yangisi majburiy (eski PIN parol bo'lib qolmasin); yangi PIN / parol berilsa — blok va xato urinishlar hisobi ham tozalanadi (2026-11-04: PIN'ni unutgan kassir darhol kiradi, 5 daqiqani kutmaydi) | `User` | yuqoridagilar + `not_found`, `self_action` (o'zini bloklash / o'z rolini o'zgartirish) |
 | `DELETE /users/:id` | | `204` — Telegram chatlari va AI xotirasi ham | `not_found`, `self_action` (o'zini), `in_use` — buyurtma (`orders`, `deliveries`, `cancellations`), smena (`shifts`), kirim (`purchases`), ko'chirish (`transfers`), chiqim (`expenses`) — bloklang |
 
 `cashier` / `kitchen` uchun `branchIds` — kamida bitta filial (bir nechtasi ham mumkin: xodim har birining kirish
@@ -905,6 +944,12 @@ olinmaydi (`whitelist`). Xodim filiallaridan biri olib tashlansa — faqat o'sha
 bekor bo'ladi; bloklansa yoki roli o'zgarsa — hammasi.
 PIN bilan kiradiganlarda `email` yuborilsa ham `null` saqlanadi. Izi bor xodimni o'chirib bo'lmaydi — `active: false`
 (eski token darhol ishlamaydi).
+
+`employeeNos` (FaceID, [15](#15-faceid-filial-hr-tizimi)) — faqat kassirda: filial id → o'sha filial HR'idagi /
+terminaldagi tabel raqami (butun son 1 … 999 999 999, aks holda `invalid_employee_no`). `branchIds` da yo'q filial va
+bo'sh qiymat (`null`, `""`) — tashlanadi; filialdan olib tashlansa — raqami ham. Bir filialda bitta raqam — bitta kassirda
+(`employee_no_taken`, `detail` — kimda); boshqa filialda o'sha raqam bo'lishi mumkin (HR har filialda alohida).
+Yuborilmasa (`PATCH`) — o'zgarmaydi; boshqa rollarda — `{}`.
 
 ### 7.8 Chiqimlar (`/expenses`) — admin
 
@@ -1222,7 +1267,8 @@ asosida model javob yozadi. Ikki kanal: admin paneldagi chat va Telegram bot —
   bo'yicha, kommunal chiqimlar va sof, filiallar, har taom sotuvi va sotilmaganlar, gavjum soatlar, kunlar yoki oylar),
   `current_status` (filiallar: ishlayaptimi — ochiq smena, kassirlar, faol buyurtmalar, online holati; ishdagi kuryerlar),
   `shifts` (smena jami — butun smena uchun, bir necha kunga cho'zilishi mumkin), `expenses`, `purchases` (masalliq xaridlari),
-  `stock` (qoldiq, kam qolganlar — o'z birligida; filial ombori — filialning hozirgi nomi bilan), `orders`, `menu`
+  `stock` (qoldiq, kam qolganlar — o'z birligida; qadoqli mahsulot — donada, `unit: "dona (600 g)"` va
+  `breakdown: "9 dona + 550 g"`; filial ombori — filialning hozirgi nomi bilan), `orders`, `menu`
   (kategoriyalar tartibida taomlar va narxlar, filialda sotilmaydiganlari, o'chirilganlari).
 - Modelga **mijoz ismi, telefoni va manzili yuborilmaydi**; filial, kassir, mahsulot — nomi bilan.
 - Javob — **oddiy matn** (Markdown belgilari olib tashlanadi, ro'yxat «•»), **doim Xorazm shevasida** (savol adabiy,
@@ -1288,8 +1334,31 @@ talab qiladi). Faqat shaxsiy chatlar; guruh xabarlari e'tiborsiz.
 hamma chatlarga (xodimi faol admin bo'lsa) oddiy matnli xabar yuboradi — AI'siz, adabiy tilda, AI xotirasiga yozilmaydi
 (`src/telegram/shift-report.ts`): filial, kassir, admin yopgan bo'lsa — uning ismi, ochilgan va yopilgan vaqt (davomiyligi
 bilan), to'langan buyurtmalar soni, tushum va to'lov turlari (kassadagi `ShiftWithSummary.summary` bilan bir xil), o'rtacha
-chek, bekor qilinganlar (soni va summasi), buyurtma turi (soni va summa) va manba bo'yicha, eng ko'p sotilgan 5 taom.
-Nol qatorlar chiqmaydi. Bot ulanmagan yoki Telegram javob bermasa smena baribir yopiladi (xato logga).
+chek, bekor qilinganlar (soni va summasi), buyurtma turi (soni va summa) va manba bo'yicha, eng ko'p sotilgan 5 taom,
+oxirida (2026-11-04) — **"Omborda kam qolgan:"**: shu filial omborida hisobot paytida chegaradan (`minQty`) kam qolgan
+faol mahsulotlarning hammasi, nomi bo'yicha ("Ketchup — 2 dona + 550 g (chegara: 3 dona)"; qoldiq 0 yoki manfiy —
+"tugadi"). Nol qatorlar va bo'sh bo'limlar chiqmaydi. Bot ulanmagan yoki Telegram javob bermasa smena baribir yopiladi
+(xato logga).
+
+**Kam qoldi** (2026-11-04, `src/telegram/low-stock.ts`). **Filial** omborida mahsulot qoldig'i chegaradan pastga
+tushgan zahoti (avval `qty ≥ minQty`, shu o'zgarish bilan `qty < minQty`; sotuv, filialdan ko'chirish, offline sync)
+hamma admin chatlariga oddiy matnli xabar — AI'siz, adabiy tilda:
+
+```
+⚠️ Luchvoy filialida kam qolgan mahsulotlar:
+  • Ketchup — 2 dona + 550 g (chegara: 3 dona)
+```
+
+Bir mahsulotga bir marta: keyingi sotuvlarda takrorlanmaydi; to'ldirilib chegaradan oshgach yana tushsa — yana xabar.
+Bir tranzaksiyada (bitta buyurtma / ko'chirish) tushganlar — bitta xabarda. Xabar **tranzaksiya tugagach** ketadi
+(`LowStockEvents` — TypeORM `afterTransactionCommit`; bekor bo'lgan tranzaksiyadan — yo'q), qoldiq shu paytda qayta
+o'qiladi (orada to'ldirilgan bo'lsa — chiqmaydi). Markaziy ombor, chegarasi qo'yilmagan va faol bo'lmagan mahsulot,
+chegaraning o'zgarishi — xabarsiz. Sotuv botni kutmaydi; bot ulanmagan bo'lsa — hech narsa.
+
+**FaceID ruxsati** (2026-11-04, [15.4](#154-telegram-orqali-ruxsat)). Kassir terminaldan o'tolmasa — hamma admin
+chatlariga so'rov (filial, kassir, amal, vaqt) "✅ Ruxsat berish" / "❌ Rad etish" tugmalari bilan. Bot `message` bilan
+birga `callback_query` ni ham tinglaydi; tugmani faqat faol admin chati bosa oladi (boshqasiga — rad matni), birinchi
+qaror amal qiladi va xabar hamma chatlarda natija bilan tahrirlanadi (tugmalarsiz).
 
 **Oylik zaxira nusxa** (`src/backup`). Har oyning oxirgi kuni 23:00 dan keyin (fon ishi har 10 daqiqada tekshiradi)
 bazaning to'liq nusxasi (`pg_dump -Fc`) bot ulangan hamma admin chatlariga fayl bo'lib yuboriladi, keyin serverdan
@@ -1350,7 +1419,12 @@ unauthorized`. Kalit qaysi filialniki bo'lsa — so'rov o'sha filial nomidan.
 | Metod va yo'l | So'rov | Javob |
 |---|---|---|
 | `GET /sync/snapshot` | query: `since?` (oldingi `version`) | `{ version, unchanged: false, branch: { id, name }, cashiers: { id, name, surname, pinHash }[], menu: Menu (kassa menyusi, `all=true`), images: { path, size, modifiedAt }[], uiBase: '/shorva/' (xodimlar tizimi yo'li — offline kassadan "Online rejimga qaytish" online kassadan o'tilmagan bo'lsa `<markaz><uiBase>kassa` ga), counter: { date, value } }`; `since` = joriy versiya bo'lsa — `{ version, unchanged: true, counter }` |
-| `POST /sync/orders` | `{ orders: SyncOrder[] }` (≤ 200) | `200 { accepted: string[], rejected: { id, code, detail? }[] }` |
+| `POST /sync/orders` | `{ orders: SyncOrder[] }` (≤ 200; so'rov tanasi ≤ 5 MB) | `200 { accepted: string[], rejected: { id, code, detail? }[] }`; tana 5 MB dan katta — `413` (`code` siz) |
+
+So'rov tanasi chegarasi (2026-11-04): `/api/sync/*` da **5 MB**, qolgan hamma yo'lda — Express standarti **100 KB**
+(kattasiga `413`, `code` siz). Avval sync ham 100 KB edi — 200 talik paket (taom nomlari 3 tilda) ~150 buyurtmadan
+oshganda markaz har urinishga `413` qaytarib, offline kassa navbati qotib qolardi. Offline kassa `413` olsa paketni
+yarmiga bo'lib darhol qayta yuboradi (eski markaz bilan ham ishlaydi).
 
 ```ts
 interface SyncOrder {
@@ -1401,3 +1475,80 @@ Har buyurtma alohida tranzaksiyada:
   kassadan o'tilgan bo'lsa o'sha sahifaga (`…/shorva/kassa`), aks holda `<markaz manzili><uiBase>kassa` (nusxadagi
   `uiBase`, 14.2). `/offline` so'rov va rasmlarni doim o'zi ochilgan serverdan oladi (`VITE_API_URL` e'tiborga olinmaydi).
 - **Admin** — "Filiallar" → "Offline kalit" (14.1).
+
+---
+
+## 15. FaceID (filial HR tizimi)
+
+2026-11-04. Kassir smenani faqat ishxonada ochadi va topshiradi: filial terminalida «Kirish» (yoki «Chiqish») tugmasini
+bosib yuzini ko'rsatadi, filialning **HR tizimi** ("NYFF HR" — `C:\BACKEND APPS\ElectronJS_HR_System_NYFF`, kassir
+kompyuterida, lokal tarmoqda terminal bilan) o'tishni markazga yuboradi, kassa shunga qarab ruxsat beradi. Offline kassa
+("NYFF Offline") bunga **aralashmaydi** — internet yo'q paytda kassir hozirgidek offline kassada ishlaydi (u yerda
+smena ochilmaydi / yopilmaydi).
+
+### 15.1 Sozlash
+
+1. Admin "Filiallar" → filial → **"HR kaliti"** (`GET /branches/:id/hr-key`) → nusxalaydi → filialdagi "NYFF HR" →
+   Sozlamalar → NYFF: server manzili va kalit. Kalit `br_….<maxfiy qism>` — offline kalitdan alohida, "Yangilash" —
+   eskisi ishlamaydi.
+2. Admin "Xodimlar" → kassir → har filial uchun **tabel raqami** (`employeeNos` — o'sha filial HR'idagi / terminaldagi
+   `employeeNo`; HR har filialda alohida — raqam ham filialga xos).
+3. Filial kartochkasida **"FaceID tekshiruvi"** (`PUT /branches/:id/faceid`) — standart o'chiq; yoqilganda tekshiruv
+   boshlanadi. Kartochkada "HR: 3 daqiqa oldin" — `hrSeenAt` (HR har 5 daqiqada `ping` yuboradi; 15 daqiqadan eski —
+   sariq).
+
+### 15.2 HR → markaz (`/api/hr/*`, `X-Hr-Key`)
+
+| Metod va yo'l | So'rov | Javob | Xatolar |
+|---|---|---|---|
+| `GET /hr/ping` | | `{ branch: { id, name } }` — HR "Sinov" va tiriklik (har 5 daqiqada); `hrSeenAt` yangilanadi | `unauthorized` (kalit yo'q / noto'g'ri / yangilangan) |
+| `POST /hr/events` | `{ events: { employeeNo: string ≤32, occurredAt: ISO 8601, status: string ≤16, device?: string ≤200 }[] }` (≤ 200 ta) | `200 { saved, ignored }` | `unauthorized`, `invalid_input` (shakl) |
+
+- Saqlanadi faqat `status` — `checkIn` / `checkOut` (Tushlik, Qo'shimcha ish, tugmasiz — yo'q) va tabel raqami **shu
+  filialdagi faol kassirnikiga** mos kelgani (oshpaz, farrosh… — `ignored`). Rasm, ism, oylik yuborilmaydi.
+- Takrori — bir xil kassir, filial va vaqt bo'yicha tashlanadi (HR javobni olmay qayta yuborsa ham). Kelajakdagi vaqt
+  (terminal soati oldinda) — qabul qilingan vaqt bilan.
+- Internet yo'q paytda HR o'tishlarni navbatda ushlab turadi (24 soatgacha), keyin yuboradi.
+
+### 15.3 Kassa qoidalari
+
+Filialda `faceIdRequired: true` bo'lsa, faqat kassirga; hammasi kassirning **oxirgi** «Kirish» / «Chiqish» o'tishiga
+qarab (qaysi filialda bo'lishidan qat'i nazar — `src/domain/faceid.ts`):
+
+| Amal | Talab | Xato |
+|---|---|---|
+| Yangi smena (`POST /auth/login` ochiq smenasiz, `POST /shifts/current`) | oxirgisi — shu filialda «Kirish», 10 daqiqa ichida | `faceid_checkin_required` |
+| Ochiq smenaga PIN bilan kirish (`POST /auth/login`), blokdan chiqish (`POST /auth/unlock`) | oxirgisi — shu filialda «Kirish» (16 soat ichida) yoki «Chiqish» (10 daqiqa ichida — topshirish uchun kassa ochilsin) | `faceid_checkin_required` |
+| "Smenani topshirish" (`POST /shifts/current/close`) | oxirgisi — shu filialda «Chiqish», 10 daqiqa ichida | `faceid_checkout_required` |
+| Ochiq kassada sotuv (`POST /shifts/current` ochiq smena bilan, buyurtmalar) | tekshirilmaydi (tushlikka «Chiqish» bosilsa ham sotuv to'xtamaydi) | |
+| Admin smenani yopadi (`POST /shifts/:id/close`) | tekshirilmaydi | |
+
+- Xato PIN to'g'ri bo'lgandan keyin (PIN xato bo'lsa — avval `wrong_pin`); `shift_open_elsewhere` undan oldin.
+- "Chiqish" smenani o'zi yopmaydi — faqat ruxsat beradi (smena hisobotini kassir o'zi ko'radi).
+- Boshqa filialda «Kirish» bosgan kassir bu filial kassasiga kira olmaydi (smenasi ochiq qolgan bo'lsa ham) — ochiq
+  smenani o'sha filialga qaytib topshiradi yoki admin yopadi.
+- `faceIdRequired: false` — hech narsa tekshirilmaydi (terminal yoki HR buzilsa admin kartochkadan o'chiradi;
+  yoqilganda kassir keyingi kirishda terminaldan bir marta o'tadi).
+
+### 15.4 Telegram orqali ruxsat
+
+Terminal ishlamasa (buzilgan, HR o'chiq…), kassa xato ostida **"Admindan ruxsat so'rash"** ni ko'rsatadi:
+
+- kirish / blok ekranidan — `POST /auth/faceid-request { userId, pin, branchId }` (amal: `open` yoki `resume`);
+- ochiq kassadan — `POST /shifts/current/faceid-request` (amal: `close`, smena yo'q bo'lsa — `open`).
+
+Javob — `FaceIdRequest`; kassa `GET /auth/faceid-request/:id` ni har 3 soniyada so'raydi:
+
+```ts
+interface FaceIdRequest {
+  id: string                                        // fid_…
+  action: 'open' | 'resume' | 'close'
+  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  until: string | null   // pending — javob kutish muddati (10 daqiqa), approved — ruxsat tugash vaqti
+}
+```
+
+Telegram'da hamma faol admin chatlariga tugmali xabar ketadi (13). "Ruxsat berish" — shu kassirga, shu filialda **10
+daqiqa** hamma FaceID tekshiruvlari o'tadi (kirish, smena ochish, topshirish); "Rad etish" — yo'q. Javob kutilayotgan
+so'rov bo'lsa — yangisi yuborilmaydi (o'sha qaytadi); 10 daqiqada javob bo'lmasa — `expired`. Bot ulanmagan / admin
+chati yo'q / Telegram javob bermadi — `faceid_request_unavailable` (adminga qo'ng'iroq).

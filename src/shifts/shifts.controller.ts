@@ -16,12 +16,15 @@ export class ShiftsController {
     return { shift: await this.shifts.current(user) };
   }
 
-  /** Smena ochiq ekanini ta'minlaydi (boshqa tabda topshirilgan bo'lsa — yangisi ochiladi). */
+  /**
+   * Smena ochiq ekanini ta'minlaydi (boshqa tabda topshirilgan bo'lsa — yangisi ochiladi; FaceID filialida — «Kirish»
+   * bilan). Ochiq smena — FaceID tekshiruvisiz (kassa har sotuvdan oldin chaqiradi).
+   */
   @Roles('cashier')
   @Post('current')
   @HttpCode(200)
   openOrResume(@CurrentUser() user: AuthUser) {
-    return this.shifts.openOrResume(user.id, user.branchId ?? fail('branch_required'));
+    return this.shifts.openOrResume(user.id, user.branchId ?? fail('branch_required'), new Date(), false);
   }
 
   /** "Smenani topshirish" — yopiladi, hisobot uchun jami bilan qaytadi. */

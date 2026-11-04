@@ -6,6 +6,7 @@ import { In, Repository } from 'typeorm';
 import { ROLES, roleNeedsBranch, usesPassword, type Role } from '../common/enums';
 import { fail } from '../common/errors';
 import { Setting } from '../database/setting.entity';
+import { FaceIdService } from '../faceid/faceid.service';
 import type { Shift } from '../shifts/shift.entity';
 import { ShiftsService } from '../shifts/shifts.service';
 import { User, worksAt } from '../users/user.entity';
@@ -43,6 +44,9 @@ function sessionBranch(user: User, tokenBranch: string | undefined): string | nu
   return user.branchIds.length === 1 ? user.branchIds[0] : undefined;
 }
 
+/** `too_many_attempts` ning `detail` i: blok tugashiga qolgan soniyalar (`"273s"`). */
+const lockLeft = (until: Date, now: Date) => `${Math.max(1, Math.ceil((until.getTime() - now.getTime()) / 1000))}s`;
+
 /** PIN bilan kirishda joriy filial (qoidasi — [AuthService.login] da). */
 function loginBranch(user: User, requested: string | undefined): string | null {
   if (!roleNeedsBranch(user.role)) return null;
@@ -66,6 +70,7 @@ export class AuthService implements OnModuleInit {
     @InjectRepository(Setting) private readonly settings: Repository<Setting>,
     private readonly jwt: JwtService,
     private readonly shifts: ShiftsService,
+    private readonly faceId: FaceIdService,
   ) {}
 
   /** `.env` da JWT_SECRET bo'lmasa — bazada bir marta yaratilib saqlanadi. */
@@ -129,10 +134,15 @@ export class AuthService implements OnModuleInit {
     return { token: await this.sign(user.id, null), user: toAuthUser(user), shift: null };
   }
 
-  /** Kassa blokdan chiqadi — faqat shu xodimning PIN'i bilan; yangi token o'sha filial bilan qaytadi. */
+  /**
+   * Kassa blokdan chiqadi — faqat shu xodimning PIN'i bilan; yangi token o'sha filial bilan qaytadi. Kassirda, filialda
+   * FaceID yoqilgan bo'lsa — kassir shu filialda bo'lishi kerak (oxirgi o'tishi — shu yerda «Kirish»;
+   * `faceid_checkin_required`).
+   */
   async unlock(user: AuthUser, pin: string, now = new Date()): Promise<{ token: string }> {
     await this.assertPinRole(user.id);
     await this.checkPin(user.id, pin, now);
+    if (user.role === 'cashier' && user.branchId) await this.faceId.assert('resume', user.id, user.branchId, now);
     return { token: await this.sign(user.id, user.branchId) };
   }
 
@@ -179,6 +189,11 @@ export class AuthService implements OnModuleInit {
   /**
    * PIN (admin va kuryerda — parol) tekshiruvi (tartib frontend `verifyPin` dagidek: topilmadi → bloklangan →
    * noto'g'ri). Ketma-ket 5 marta noto'g'ri — 5 daqiqa blok; to'g'ri kiritilsa hisoblagich nolga tushadi.
+   *
+   * Urinish PIN solishtirilishidan (bcrypt, ~50–100 ms) **oldin** bitta atomik `UPDATE` bilan band qilinadi va 5-urinish
+   * blokni o'zi qo'yadi (2026-11-04): avval blok oddiy `SELECT` bilan o'qilib, xato keyin sanalardi — bir vaqtda
+   * yuborilgan 20 ta so'rovning hammasi blokni "yo'q" deb ko'rardi, blokdan keyin tugagan xato urinish esa uni o'chirib
+   * yuborardi. Endi bir vaqtda kelganlardan faqat 5 tasi tekshiriladi, qolgani — `too_many_attempts`.
    */
   async checkPin(
     userId: string,
@@ -193,26 +208,41 @@ export class AuthService implements OnModuleInit {
       .getOne();
     if (!user) fail('not_found', `user ${userId}`);
     if (!user.active) fail('user_inactive');
-    if (user.pinLockedUntil && user.pinLockedUntil > now) {
-      fail('too_many_attempts', `${Math.ceil((user.pinLockedUntil.getTime() - now.getTime()) / 1000)}s`);
-    }
+    if (user.pinLockedUntil && user.pinLockedUntil > now) fail('too_many_attempts', lockLeft(user.pinLockedUntil, now));
+
+    // urinish oldindan sanaladi (to'g'ri chiqsa — pastda nolga tushadi); 5-si blokni qo'yadi, hisoblagich yangidan
+    const [reserved] = (await this.users.query(
+      `UPDATE users SET
+         "failedPinAttempts" = CASE WHEN "failedPinAttempts" + 1 >= $2 THEN 0 ELSE "failedPinAttempts" + 1 END,
+         "pinLockedUntil" = CASE WHEN "failedPinAttempts" + 1 >= $2 THEN $4::timestamptz ELSE "pinLockedUntil" END
+       WHERE id = $1 AND ("pinLockedUntil" IS NULL OR "pinLockedUntil" <= $3)
+       RETURNING "pinLockedUntil", "failedPinAttempts"`,
+      [user.id, MAX_PIN_ATTEMPTS, now, new Date(now.getTime() + PIN_LOCK_MS)],
+    )) as [{ pinLockedUntil: Date | null; failedPinAttempts: number }[], number];
+    // shu orada boshqa urinish blokni qo'ydi
+    if (reserved.length === 0) fail('too_many_attempts', await this.lockLeftOf(user.id, now));
+    const { pinLockedUntil, failedPinAttempts } = reserved[0];
 
     if (!(await comparePin(pin, user.pinHash))) {
-      // bitta SQL — bir vaqtda kelgan urinishlar ham to'g'ri sanaladi
-      const [rows] = (await this.users.query(
-        `UPDATE users SET
-           "failedPinAttempts" = CASE WHEN "failedPinAttempts" + 1 >= $2 THEN 0 ELSE "failedPinAttempts" + 1 END,
-           "pinLockedUntil" = CASE WHEN "failedPinAttempts" + 1 >= $2 THEN $3::timestamptz ELSE NULL END
-         WHERE id = $1 RETURNING "pinLockedUntil"`,
-        [user.id, MAX_PIN_ATTEMPTS, new Date(now.getTime() + PIN_LOCK_MS)],
-      )) as [{ pinLockedUntil: Date | null }[], number];
-      fail(rows[0]?.pinLockedUntil ? 'too_many_attempts' : wrong);
+      // 5-xato — blok (kassa qolgan vaqtni sanaydi); PIN'da — nechta urinish qolgani (kassa "1 ta urinish qoldi"
+      // deydi). Email / parolda `detail` yo'q — `wrong_login` qaysi email borligini bildirmasin
+      if (pinLockedUntil && pinLockedUntil > now) fail('too_many_attempts', lockLeft(pinLockedUntil, now));
+      fail(wrong, wrong === 'wrong_pin' ? String(MAX_PIN_ATTEMPTS - failedPinAttempts) : undefined);
     }
 
-    if (user.failedPinAttempts > 0 || user.pinLockedUntil) {
-      await this.users.update(user.id, { failedPinAttempts: 0, pinLockedUntil: null });
-    }
+    await this.users.update(user.id, { failedPinAttempts: 0, pinLockedUntil: null });
     return user;
+  }
+
+  /**
+   * Blok tugashiga qolgan vaqt (`too_many_attempts` ning `detail` i) — bazadan. Shu orada blok tushgan bo'lsa (to'g'ri
+   * PIN yoki admin yangi PIN berdi) — `"1s"`: kassa 5 daqiqaga emas, bir soniyaga o'chadi.
+   */
+  private async lockLeftOf(userId: string, now: Date): Promise<string> {
+    const [row] = (await this.users.query(`SELECT "pinLockedUntil" FROM users WHERE id = $1`, [userId])) as {
+      pinLockedUntil: Date | null;
+    }[];
+    return row?.pinLockedUntil && row.pinLockedUntil > now ? lockLeft(row.pinLockedUntil, now) : '1s';
   }
 
   /** PIN yo'llari (kirish, blokdan chiqish, PIN almashtirish) — admin va kuryerga emas. */

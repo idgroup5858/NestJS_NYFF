@@ -9,9 +9,10 @@ import { newId } from '../common/ids';
 import { assertUnused } from '../common/in-use';
 import { Revocations } from '../common/revocations';
 import { Setting } from '../database/setting.entity';
+import { isValidEmployeeNo } from '../domain/faceid';
 import { Order } from '../orders/order.entity';
 import { SaveUserDto } from './user.dto';
-import { User } from './user.entity';
+import { fullName, User } from './user.entity';
 
 /** Kuryer va hozirgi holati (`GET /users/couriers`). */
 export interface CourierStatus {
@@ -109,8 +110,11 @@ export class UsersService {
       const kindChanged = usesPassword(current.role) !== password;
       if ((secret || kindChanged) && !secretValid) fail(secretError);
       if (email && (await this.emailTaken(email, current.id))) fail('email_taken');
-      const patch: Partial<User> = { name, surname, role: input.role, branchIds, email, active: input.active };
-      if (secret) patch.pinHash = await hashPin(secret);
+      const employeeNos = await this.employeeNos(input, branchIds, current);
+      const patch: Partial<User> = { name, surname, role: input.role, branchIds, employeeNos, email, active: input.active };
+      // yangi PIN / parol — blok va xato urinishlar hisobi ham tozalanadi (PIN'ni unutgan kassir darhol kirsin; avval
+      // admin yangi PIN bersa ham 5 daqiqalik blok tugashini kutardi)
+      if (secret) Object.assign(patch, { pinHash: await hashPin(secret), failedPinAttempts: 0, pinLockedUntil: null });
       await this.uniqueEmail(() => this.users.update(current.id, patch));
       // bloklandi yoki roli o'zgardi — barcha socket ulanishlari uziladi; filiallaridan biri olib tashlandi — faqat
       // o'sha filialdagi ulanishlar (qolgan filialdagi kassa ishlayveradi; yangi filial qo'shilsa — hech narsa)
@@ -121,10 +125,22 @@ export class UsersService {
 
     if (!secretValid) fail(secretError);
     if (email && (await this.emailTaken(email))) fail('email_taken');
+    const employeeNos = await this.employeeNos(input, branchIds, null);
     const id = newId('usr');
     const pinHash = await hashPin(secret);
     await this.uniqueEmail(() =>
-      this.users.insert({ id, name, surname, role: input.role, branchIds, email, pinHash, active: input.active, createdAt: now }),
+      this.users.insert({
+        id,
+        name,
+        surname,
+        role: input.role,
+        branchIds,
+        employeeNos,
+        email,
+        pinHash,
+        active: input.active,
+        createdAt: now,
+      }),
     );
     return (await this.users.findOneBy({ id }))!;
   }
@@ -164,6 +180,33 @@ export class UsersService {
       await em.delete(User, { id });
     });
     this.revocations.user(id);
+  }
+
+  /**
+   * Kassirning tabel raqamlari (FaceID): faqat kassirda va uning filiallari uchun (filialdan olib tashlansa — raqami
+   * ham ketadi); berilmasa — avvalgisi. Raqam butun son (`invalid_employee_no`), bir filialda bitta kassirda
+   * (`employee_no_taken`, `detail` — kimda).
+   */
+  private async employeeNos(
+    input: SaveUserDto & { id?: string },
+    branchIds: string[],
+    current: User | null,
+  ): Promise<Record<string, number>> {
+    if (input.role !== 'cashier') return {};
+    const raw: Record<string, unknown> = input.employeeNos ?? current?.employeeNos ?? {};
+    const result: Record<string, number> = {};
+    for (const branchId of branchIds) {
+      const value = raw[branchId];
+      if (value === undefined || value === null || value === '') continue;
+      if (!isValidEmployeeNo(value)) fail('invalid_employee_no', branchId);
+      const [holder] = (await this.users.query(
+        `SELECT name, surname FROM users WHERE id <> $1 AND role = 'cashier' AND "employeeNos"->>$2 = $3 LIMIT 1`,
+        [input.id ?? '', branchId, String(value)],
+      )) as { name: string; surname: string }[];
+      if (holder) fail('employee_no_taken', fullName(holder));
+      result[branchId] = value;
+    }
+    return result;
   }
 
   private cleanEmail(raw: string): string {
