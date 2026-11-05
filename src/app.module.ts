@@ -30,6 +30,7 @@ import { TelegramModule } from './telegram/telegram.module';
 import { ScreensModule } from './screens/screens.module';
 import { UsersModule } from './users/users.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
+import { NbuCallbackModule } from './nbu-callback/nbu-callback.module';
 
 @Controller('health')
 class HealthController {
@@ -126,6 +127,7 @@ const jobs = process.env.JOBS === 'off' ? [] : [ScheduleModule.forRoot()];
     ...imagesModule(),
     ...uiModule(),
     ...siteModule(),
+    NbuCallbackModule,
   ],
   controllers: [HealthController],
 })
