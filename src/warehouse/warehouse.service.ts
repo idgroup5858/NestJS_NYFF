@@ -11,6 +11,7 @@ import type { PurchaseItem, TransferItem } from '../common/types';
 import { nextCounter } from '../database/counters';
 import { convertPrice, toBase, unitSize } from '../domain/units';
 import { Ingredient } from './ingredient.entity';
+import { PurchaseEvents } from './purchase-events';
 import { Purchase } from './purchase.entity';
 import { StockItem } from './stock-item.entity';
 import { StockMovement } from './stock-movement.entity';
@@ -36,6 +37,7 @@ export class WarehouseService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly stock: StockService,
+    private readonly purchaseEvents: PurchaseEvents,
   ) {}
 
   // ───────────────────────── Omborlar, mahsulotlar, qoldiq ─────────────────────────
@@ -49,7 +51,8 @@ export class WarehouseService {
   }
 
   /**
-   * Ombor mahsuloti. Narxni ([lastPrice]) faqat admin kiritadi — ta'minotchi yuborsa `forbidden`. Qadoq hajmi
+   * Ombor mahsuloti. Narxni ([lastPrice]) bu yerda faqat admin kiritadi — ta'minotchi yuborsa `forbidden` (ta'minotchi
+   * narxni kirimda yozadi — oxirgi narx shunga yangilanadi). Qadoq hajmi
    * ([packSize]) o'zgarib, narx yuborilmagan bo'lsa (ta'minotchi tahriri) — eski narx yangi birlikka qayta hisoblanadi
    * (28 000 / kg → 600 g lik qadoq — 16 800 / dona); admin yuborgan narx — yangi birlikda.
    */
@@ -212,37 +215,54 @@ export class WarehouseService {
   }
 
   /**
-   * Ta'minotchi kirimni kiritadi: hali omborga qo'shilmaydi. Narx oldingi tasdiqlangan kirimdan avtomatik yoziladi,
-   * admin uni tasdiqlashda o'zgartirishi mumkin.
+   * Kirim (ta'minotchi yoki admin; 2026-11-08 dan admin tasdiqlamaydi): mahsulotlar darhol omborga qo'shiladi, kirim
+   * `approved` bo'lib saqlanadi. Narxni (1 birlik / 1 dona) kirituvchi o'zi yozadi — har mahsulotning "oxirgi narxi" shunga
+   * yangilanadi; yozilmasa — oxirgi narx, u ham yo'q bo'lsa `invalid_price`. Saqlangach — Telegram'ga "Yangi kirim".
    */
   async createPurchase(input: CreatePurchaseDto, createdBy: string, now = new Date()): Promise<Purchase> {
-    return this.dataSource.transaction(async (em) => {
+    const purchase = await this.dataSource.transaction(async (em) => {
       if (input.items.length === 0) fail('empty_order');
       await this.getWarehouse(em, input.warehouseId);
-      const ingredients = await this.ingredientMap(em, input.items.map((line) => line.ingredientId));
+      // narx va qadoq hajmi bir vaqtda o'zgarib qolmasin — qatorlar qulflanadi
+      const ingredients = await this.ingredientMap(em, input.items.map((line) => line.ingredientId), true);
+      const ingredientOf = (id: string) => ingredients.get(id) ?? fail('not_found', `ingredient ${id}`);
       const items: PurchaseItem[] = input.items.map((line) => {
-        const ingredient = ingredients.get(line.ingredientId) ?? fail('not_found', `ingredient ${line.ingredientId}`);
+        const ingredient = ingredientOf(line.ingredientId);
         if (!(line.qty > 0)) fail('invalid_qty', ingredient.id);
-        return { ingredientId: ingredient.id, qty: line.qty, price: ingredient.lastPrice, packSize: ingredient.packSize };
+        const price = line.price ?? ingredient.lastPrice;
+        // so'm — butun son (`lastPrice` bigint)
+        if (typeof price !== 'number' || !Number.isInteger(price) || price < 0) fail('invalid_price', ingredient.id);
+        return { ingredientId: ingredient.id, qty: line.qty, price, packSize: ingredient.packSize };
       });
-      const purchase: Purchase = {
+      // qatordagi qadoq — mahsulotning hozirgi qadog'i: narx shu birlikda
+      for (const item of items) await em.update(Ingredient, item.ingredientId, { lastPrice: item.price });
+
+      const created: Purchase = {
         id: newId('pur'),
         number: await nextCounter(em, 'purchase'),
         warehouseId: input.warehouseId,
         items,
         note: input.note?.trim() ?? '',
-        status: 'pending',
+        status: 'approved',
         createdBy,
         createdAt: now,
         decidedBy: null,
         decidedAt: null,
       };
-      await em.insert(Purchase, purchase);
-      return purchase;
+      await em.insert(Purchase, created);
+      const deltas = items.map((item) => ({
+        ingredientId: item.ingredientId,
+        qty: toBase(item.qty, ingredientOf(item.ingredientId).unit, item.packSize),
+      }));
+      await this.stock.applyDeltas(em, created.warehouseId, deltas, 'purchase', created.id, now);
+      return created;
     });
+    this.purchaseEvents.created(purchase);
+    return purchase;
   }
 
   /**
+   * Faqat **eski** kirim (2026-11-08 gacha yozilgan, tasdiq kutayotgan) — yangilari darhol omborga qo'shiladi.
    * Admin narxlarni kiritib tasdiqlaydi: mahsulotlar omborga qo'shiladi, har bir mahsulotning "oxirgi narxi" yangilanadi.
    * [prices] — mahsulot id → 1 birlik (qatorda qadoq bo'lsa — 1 dona) narxi; berilmaganlari kirimdagi narxida qoladi.
    * Miqdor qatordagi qadoq hajmi bilan hisoblanadi; mahsulotning qadoq hajmi kirimdan keyin o'zgargan bo'lsa, "oxirgi
@@ -281,6 +301,7 @@ export class WarehouseService {
     });
   }
 
+  /** Faqat eski (tasdiq kutayotgan) kirim — omborga hech narsa qo'shilmaydi. */
   async rejectPurchase(id: string, adminId: string, now = new Date()): Promise<Purchase> {
     return this.dataSource.transaction(async (em) => {
       const purchase = await this.lockPurchase(em, id);

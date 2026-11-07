@@ -254,12 +254,14 @@ export function seedHistory(base: DemoBase, now: Date, rand: Random): DemoHistor
   return { orders, shifts, counters };
 }
 
-/** Kirim (tasdiqlangan va kutayotgan) va ko'chirishlar — ombor tarixi bo'sh turmasin. */
+/** Kirimlar (narxi bilan, darhol omborga) va ko'chirishlar — ombor tarixi bo'sh turmasin. */
 export async function seedStockDocuments(warehouse: WarehouseService, now: Date): Promise<void> {
   const daysAgo = (days: number, hours: number) => at(new Date(now.getTime() - days * 86_400_000), hours, 0);
-  const lines = (rows: [string, number][]) => rows.map(([ingredientId, qty]) => ({ ingredientId, qty }));
+  // narx berilmasa — mahsulotning oxirgi narxi
+  const lines = (rows: [string, number, number?][]) =>
+    rows.map(([ingredientId, qty, price]) => ({ ingredientId, qty, ...(price !== undefined && { price }) }));
 
-  const first = await warehouse.createPurchase(
+  await warehouse.createPurchase(
     {
       warehouseId: WAREHOUSE_CENTRAL,
       items: lines([
@@ -273,14 +275,13 @@ export async function seedStockDocuments(warehouse: WarehouseService, now: Date)
     'usr_supplier',
     daysAgo(13, 10),
   );
-  await warehouse.approvePurchase(first.id, {}, 'usr_admin', daysAgo(13, 15));
 
-  const second = await warehouse.createPurchase(
+  await warehouse.createPurchase(
     {
       warehouseId: WAREHOUSE_CENTRAL,
       items: lines([
-        ['beef-meat', 50],
-        ['tomato', 60],
+        ['beef-meat', 50, 128000],
+        ['tomato', 60, 13000],
         ['cucumber', 50],
         ['cup-paper', 1000],
       ]),
@@ -288,12 +289,6 @@ export async function seedStockDocuments(warehouse: WarehouseService, now: Date)
     },
     'usr_supplier',
     daysAgo(6, 9),
-  );
-  await warehouse.approvePurchase(
-    second.id,
-    { 'beef-meat': 128000, tomato: 13000 },
-    'usr_admin',
-    daysAgo(6, 12),
   );
 
   await warehouse.createTransfer(
@@ -333,7 +328,7 @@ export async function seedStockDocuments(warehouse: WarehouseService, now: Date)
     daysAgo(2, 18),
   );
 
-  // admin tasdiqlashini kutayotgan kirim — narxlar oldingi kirimdan yozilgan
+  // bugungi kirim — narxlar oxirgi narxdan
   await warehouse.createPurchase(
     {
       warehouseId: WAREHOUSE_CENTRAL,

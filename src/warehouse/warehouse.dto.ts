@@ -28,8 +28,8 @@ export class UpdateIngredientDto {
 
   /**
    * 1 birlik (qadoq bo'lsa — 1 dona, aks holda kg / l / dona) narxi, so'm (butun ≥ 0 — servisda `invalid_price`). Faqat
-   * admin; berilmasa — o'zgarmaydi (qadoq hajmi o'zgarsa — yangi birlikka qayta hisoblanadi), `null` — narxsiz. Keyingi
-   * kirimga avtomatik yoziladi, kirim tasdiqlanganda yangilanadi.
+   * admin; berilmasa — o'zgarmaydi (qadoq hajmi o'zgarsa — yangi birlikka qayta hisoblanadi), `null` — narxsiz. Kirim
+   * formasida oldindan yoziladi, har kirimda ta'minotchi kiritgan narxga yangilanadi.
    */
   @IsOptional()
   @IsNumber()
@@ -90,6 +90,16 @@ export class DocumentLineDto {
   qty: number;
 }
 
+export class PurchaseLineDto extends DocumentLineDto {
+  /**
+   * 1 birlik (qadoq bo'lsa — 1 dona, aks holda kg / l / dona) narxi, so'm — ta'minotchi kiritadi (butun ≥ 0, servisda
+   * `invalid_price`). Mahsulotning "oxirgi narxi" shunga yangilanadi. Berilmasa — oxirgi narx; u ham yo'q — `invalid_price`.
+   */
+  @IsOptional()
+  @IsNumber()
+  price?: number;
+}
+
 export class CreatePurchaseDto {
   @IsString()
   @MaxLength(40)
@@ -97,8 +107,8 @@ export class CreatePurchaseDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => DocumentLineDto)
-  items: DocumentLineDto[];
+  @Type(() => PurchaseLineDto)
+  items: PurchaseLineDto[];
 
   @IsOptional()
   @IsString()
@@ -106,6 +116,7 @@ export class CreatePurchaseDto {
   note?: string;
 }
 
+/** Faqat eski (2026-11-08 gacha yozilgan, tasdiq kutayotgan) kirim uchun. */
 export class ApprovePurchaseDto {
   /** mahsulot id → 1 birlik (qatorda qadoq bo'lsa — 1 dona) narxi; berilmaganlari kirimdagi (oldingi) narxida qoladi */
   @IsOptional()

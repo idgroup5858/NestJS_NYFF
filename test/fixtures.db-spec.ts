@@ -86,7 +86,9 @@ describe("sinov to'plami", () => {
       (o) => o.createdAt >= todayStart && o.status !== 'cancelled',
     );
     expect(today.length).toBeGreaterThanOrEqual(10);
-    expect(await em.countBy(Purchase, { status: 'pending' })).toBe(1);
+    // kirim darhol qabul qilinadi — tasdiq kutayotgani yo'q
+    expect(await em.countBy(Purchase, { status: 'approved' })).toBe(3);
+    expect(await em.countBy(Purchase, { status: 'pending' })).toBe(0);
     expect(await em.count(Transfer)).toBe(3);
     expect(await em.count(Expense)).toBeGreaterThanOrEqual(20);
     expect((await app.get(WarehouseService).lowStock('wh_chilonzor')).length).toBeGreaterThanOrEqual(3);

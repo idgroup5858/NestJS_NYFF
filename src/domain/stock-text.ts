@@ -9,7 +9,7 @@ export const BASE_LABEL: Record<StockUnit, string> = { kg: 'g', l: 'ml', pcs: 'd
 export const packName = (unit: StockUnit) => (unit === 'pcs' ? 'qadoq' : 'dona');
 
 /** 1234.5 → "1 234,5" (kasr — 3 xonagacha). */
-function num(value: number): string {
+export function num(value: number): string {
   const [int, frac] = String(Number(value.toFixed(3))).split('.');
   return `${int.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')}${frac ? `,${frac}` : ''}`;
 }

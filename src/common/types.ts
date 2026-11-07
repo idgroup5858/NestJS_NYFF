@@ -25,7 +25,7 @@ export interface PurchaseItem {
   ingredientId: string;
   /** ombor birligida (kg / l / dona); [packSize] bo'lsa — donada (qadoqda) */
   qty: number;
-  /** 1 birlik ([packSize] bo'lsa — 1 dona) narxi — admin kiritadi; tasdiqlanmaguncha `null` bo'lishi mumkin */
+  /** 1 birlik ([packSize] bo'lsa — 1 dona) narxi — kirituvchi yozadi; eski (tasdiq kutayotgan) kirimda `null` bo'lishi mumkin */
   price: number | null;
   /** hujjat yozilgan paytdagi qadoq hajmi (asosiy birlikda) — mahsulotniki keyin o'zgarsa ham shu bilan hisoblanadi */
   packSize: number | null;

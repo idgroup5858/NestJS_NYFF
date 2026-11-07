@@ -66,15 +66,14 @@ describe('ombor mahsuloti qadog\'i (1 dona = 600 g)', () => {
     const saved = await saveKetchup({ packSize: 600 }, 'supplier');
     expect(saved).toMatchObject({ unit: 'kg', packSize: 600, lastPrice: 16800 });
 
+    // ta'minotchi kirimda 1 dona narxini yozadi — darhol omborga, oxirgi narx shunga
     const central0 = await stockQty(CENTRAL, 'ketchup');
     const purchase = await warehouse.createPurchase(
-      { warehouseId: CENTRAL, items: [{ ingredientId: 'ketchup', qty: 10 }] },
+      { warehouseId: CENTRAL, items: [{ ingredientId: 'ketchup', qty: 10, price: 17000 }] },
       'usr_supplier',
       now,
     );
-    expect(purchase.items).toEqual([{ ingredientId: 'ketchup', qty: 10, price: 16800, packSize: 600 }]);
-    const approved = await warehouse.approvePurchase(purchase.id, { ketchup: 17000 }, 'usr_admin', now);
-    expect(approved.items[0]).toEqual({ ingredientId: 'ketchup', qty: 10, price: 17000, packSize: 600 });
+    expect(purchase.items).toEqual([{ ingredientId: 'ketchup', qty: 10, price: 17000, packSize: 600 }]);
     expect(await stockQty(CENTRAL, 'ketchup')).toBe(central0 + 6000);
     expect((await ketchup()).lastPrice).toBe(17000);
 
@@ -106,13 +105,21 @@ describe('ombor mahsuloti qadog\'i (1 dona = 600 g)', () => {
     );
   });
 
-  it("qadoq hajmi o'zgarsa: kutayotgan kirim o'z hajmi bilan, narx — yangi birlikka", async () => {
+  it("qadoq hajmi o'zgarsa: eski kutayotgan kirim o'z hajmi bilan, narx — yangi birlikka", async () => {
     await saveKetchup({ packSize: 600, lastPrice: 18000 }, 'admin');
-    const pending = await warehouse.createPurchase(
-      { warehouseId: CENTRAL, items: [{ ingredientId: 'ketchup', qty: 5 }] },
-      'usr_supplier',
-      now,
-    );
+    // 2026-11-08 gacha yozilgan, tasdiq kutayotgan kirim: 600 g lik 5 dona
+    await ds.manager.insert(Purchase, {
+      id: 'pur_legacy',
+      number: 900,
+      warehouseId: CENTRAL,
+      items: [{ ingredientId: 'ketchup', qty: 5, price: 18000, packSize: 600 }],
+      note: '',
+      status: 'pending',
+      createdBy: 'usr_supplier',
+      createdAt: now,
+      decidedBy: null,
+      decidedAt: null,
+    });
 
     // endi 500 g lik shisha: narx yuborilmadi — 18 000 / 600 g → 15 000 / 500 g
     expect(await saveKetchup({ packSize: 500 }, 'admin')).toMatchObject({ packSize: 500, lastPrice: 15000 });
@@ -121,7 +128,7 @@ describe('ombor mahsuloti qadog\'i (1 dona = 600 g)', () => {
 
     // kirim 600 g lik 5 dona edi: qoldiqqa 3000 g; 1 dona (600 g) narxi 18 600 → oxirgi narx 500 g uchun 15 500
     const central0 = await stockQty(CENTRAL, 'ketchup');
-    await warehouse.approvePurchase(pending.id, { ketchup: 18600 }, 'usr_admin', now);
+    await warehouse.approvePurchase('pur_legacy', { ketchup: 18600 }, 'usr_admin', now);
     expect(await stockQty(CENTRAL, 'ketchup')).toBe(central0 + 3000);
     expect((await ketchup()).lastPrice).toBe(15500);
 
@@ -168,12 +175,12 @@ describe('ombor mahsuloti qadog\'i (1 dona = 600 g)', () => {
   it('AI: qoldiq donada va "9 dona + 550 g"; kirim — qatordagi hajm bilan', async () => {
     await saveKetchup({ packSize: 600 }, 'admin');
     await ds.manager.update(StockItem, { warehouseId: WC, ingredientId: 'ketchup' }, { qty: 5950, minQty: 1200 });
-    const purchase = await warehouse.createPurchase(
+    // narx yozilmadi — oxirgi narx (28 000 / kg → 16 800 / dona)
+    await warehouse.createPurchase(
       { warehouseId: CENTRAL, items: [{ ingredientId: 'ketchup', qty: 10 }] },
       'usr_supplier',
       now,
     );
-    await warehouse.approvePurchase(purchase.id, {}, 'usr_admin', now);
 
     const tools = app.get(AiTools);
     const stock = (await tools.run('stock', { warehouseId: WC, search: 'ketchup' })) as { output: { items: unknown[] } };
@@ -201,12 +208,11 @@ describe('ombor mahsuloti qadog\'i (1 dona = 600 g)', () => {
 
   it("migratsiya: ustun qo'shiladi, eski kirim / ko'chirish qatorlariga packSize: null", async () => {
     // qadoq paydo bo'lishidan oldingi hujjatlar
-    const purchase = await warehouse.createPurchase(
+    await warehouse.createPurchase(
       { warehouseId: CENTRAL, items: [{ ingredientId: 'ketchup', qty: 2.5 }, { ingredientId: 'napkin', qty: 100 }] },
       'usr_supplier',
       now,
     );
-    await warehouse.approvePurchase(purchase.id, {}, 'usr_admin', now);
     await warehouse.createTransfer(
       { fromWarehouseId: CENTRAL, toWarehouseId: WC, items: [{ ingredientId: 'ketchup', qty: 1 }] },
       'usr_supplier',

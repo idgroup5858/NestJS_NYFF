@@ -15,7 +15,7 @@ import {
 } from './warehouse.dto';
 import { WarehouseService } from './warehouse.service';
 
-/** Ombor bo'limi — ta'minotchi va admin (admin ikkala guruhni doim ko'radi). Kirimni tasdiqlash — faqat admin. */
+/** Ombor bo'limi — ta'minotchi va admin (admin ikkala guruhni doim ko'radi). Eski kirimni tasdiqlash — faqat admin. */
 @Roles('admin', 'supplier')
 @Controller()
 export class WarehouseController {
@@ -31,7 +31,7 @@ export class WarehouseController {
     return this.warehouse.ingredients();
   }
 
-  /** `lastPrice` (1 birlik narxi) — faqat admin; ta'minotchi narxsiz qo'shadi / tahrirlaydi. */
+  /** `lastPrice` (1 birlik narxi) — faqat admin; ta'minotchi narxsiz qo'shadi / tahrirlaydi (narxni kirimda yozadi). */
   @Post('ingredients')
   createIngredient(@Body() dto: CreateIngredientDto, @CurrentUser() user: AuthUser) {
     return this.warehouse.saveIngredient(dto, user.role);
@@ -83,11 +83,13 @@ export class WarehouseController {
     return this.warehouse.purchase(id);
   }
 
+  /** Kirim narxi bilan darhol omborga qo'shiladi (tasdiqlash yo'q), Telegram'ga "Yangi kirim" ketadi. */
   @Post('purchases')
   createPurchase(@Body() dto: CreatePurchaseDto, @CurrentUser() user: AuthUser) {
     return this.warehouse.createPurchase(dto, user.id);
   }
 
+  /** Tasdiqlash / rad etish — faqat eski (2026-11-08 gacha yozilgan, tasdiq kutayotgan) kirimlar uchun. */
   @Roles('admin')
   @Post('purchases/:id/approve')
   @HttpCode(200)

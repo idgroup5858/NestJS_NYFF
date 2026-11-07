@@ -72,22 +72,32 @@ describe('HTTP shartnomasi', () => {
     await http().delete(`/api/expenses/${created.body.id}`).set(as('usr_admin')).expect(204);
   });
 
-  it("kirim: kasr narx — invalid_price (500 emas); tasdiqlash / rad etish — 200", async () => {
+  it("kirim: narxi bilan darhol qabul qilinadi; kasr / matn narx — 400 (500 emas); tasdiq — kerak emas", async () => {
+    const bad = await http()
+      .post('/api/purchases')
+      .set(as('usr_supplier'))
+      .send({ warehouseId: 'wh_central', items: [{ ingredientId: 'tomato', qty: 2.5, price: 1.5 }] })
+      .expect(400);
+    expect(bad.body.code).toBe('invalid_price');
+    const text = await http()
+      .post('/api/purchases')
+      .set(as('usr_supplier'))
+      .send({ warehouseId: 'wh_central', items: [{ ingredientId: 'tomato', qty: 2.5, price: '15000' }] })
+      .expect(400);
+    expect(text.body.code).toBe('invalid_input');
+
     const purchase = await http()
       .post('/api/purchases')
       .set(as('usr_supplier'))
-      .send({ warehouseId: 'wh_central', items: [{ ingredientId: 'tomato', qty: 2.5 }] })
+      .send({ warehouseId: 'wh_central', items: [{ ingredientId: 'tomato', qty: 2.5, price: 15_000 }] })
       .expect(201);
-    const bad = await http()
-      .post(`/api/purchases/${purchase.body.id}/approve`)
-      .set(as('usr_admin'))
-      .send({ prices: { tomato: 1.5 } })
-      .expect(400);
-    expect(bad.body.code).toBe('invalid_price');
-    const approved = await http().post(`/api/purchases/${purchase.body.id}/approve`).set(as('usr_admin')).send({}).expect(200);
-    expect(approved.body.status).toBe('approved');
-    // ta'minotchi tasdiqlay olmaydi
+    expect(purchase.body).toMatchObject({ status: 'approved', items: [{ ingredientId: 'tomato', qty: 2.5, price: 15_000 }] });
+    const pending = await http().get('/api/purchases?status=pending').set(as('usr_admin')).expect(200);
+    expect(pending.body.total).toBe(0);
+    // eski kirimni tasdiqlash — faqat admin; yangi kirim allaqachon qabul qilingan
     await http().post(`/api/purchases/${purchase.body.id}/reject`).set(as('usr_supplier')).expect(403);
+    const again = await http().post(`/api/purchases/${purchase.body.id}/approve`).set(as('usr_admin')).send({}).expect(409);
+    expect(again.body.code).toBe('already_decided');
   });
 
   it("ombor mahsuloti narxi: admin qo'shishda va tahrirda kiritadi; ta'minotchi — yo'q; keyingi kirimga yoziladi", async () => {

@@ -299,7 +299,8 @@ export class AiTools {
           'cashiers on shift, active orders (waiting or being prepared), work hours and the mobile-app ordering ' +
           'state (open = accepts online orders; no_kassa = shift open but no cashier screen connected; no_shift = ' +
           'no open shift; off_hours = outside work hours; paused = stopped by admin; inactive = branch disabled). ' +
-          'Also couriers on duty, low-stock item count and purchases awaiting approval.',
+          'Also couriers on duty, low-stock item count and old purchases still awaiting approval (new purchases ' +
+          'are added to stock immediately — admin approval is no longer needed).',
         parameters: { type: Type.OBJECT, properties: {} },
       },
       run: async () => {
@@ -430,9 +431,10 @@ export class AiTools {
       declaration: {
         name: 'purchases',
         description:
-          'Ingredient purchases (stock receipts entered by the supplier) created in a period: money spent on ' +
-          'approved purchases, purchases awaiting approval, spending per ingredient and the latest purchase ' +
-          'documents. Use it for "how much was spent on products / ingredients".',
+          'Ingredient purchases (stock receipts entered by the supplier with their prices; added to stock ' +
+          'immediately, no admin approval) created in a period: money spent (approved = received purchases), old ' +
+          'purchases still awaiting approval, spending per ingredient and the latest purchase documents. Use it for ' +
+          '"how much was spent on products / ingredients".',
         parameters: {
           type: Type.OBJECT,
           properties: {

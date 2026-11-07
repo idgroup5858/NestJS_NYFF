@@ -94,7 +94,7 @@ ruxsati kerak (`android:usesCleartextTraffic="true"` yoki `network_security_conf
   filial — so'rovdagi `branchId` (majburiy; shu filialning TV / kiosk kodi bilan).
 - **HTTP statuslar** — bitta qoida: yangi yozuv yaratish (`POST /orders`, `/kiosk/orders`, `/mobile/orders`,
   `/purchases`, `/transfers`, `/branches`, `/categories`, `/products`, `/ingredients`, `/users`, `/expenses`) —
-  `201`; amal (`login`, `admin-login`, `courier-login`, `unlock`, `confirm` / `ready` / `reopen` / `cancel`, smenani ochish / yopish, kirimni
+  `201`; amal (`login`, `admin-login`, `courier-login`, `unlock`, `confirm` / `ready` / `reopen` / `cancel`, smenani ochish / yopish, eski kirimni
   tasdiqlash / rad etish) va `GET` / `PATCH` / `PUT` — `200`; tanasiz natija — `204`: `PUT /auth/pin`, `PUT /auth/password`,
   `POST /categories/:id/move`, `POST /products/:id/move`, barcha `DELETE` (`/branches`, `/categories`, `/products`,
   `/ingredients`, `/users`, `/expenses`).
@@ -135,9 +135,9 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `product_unavailable` | 400 | | Bu taom hozir sotuvda yo'q | taom faol emas / shu filialda vaqtincha sotilmaydi (`detail`: productId) |
 | `dine_in_only` | 400 | | Bu taom faqat zalda beriladi — olib ketish va dostavkaga yo'q | `dineInOnly` taom olib ketish / dostavka buyurtmasida (`detail`: productId) |
 | `invalid_qty` | 400 | | Miqdor noto'g'ri | buyurtmada qty butun ≥ 1 emas; hujjatda qty ≤ 0; retseptda / chegarada butun emas |
-| `invalid_price` | 400 | | Narx kiritilmagan | taom narxi butun > 0 emas; kirimni tasdiqlashda narx yo'q / manfiy |
+| `invalid_price` | 400 | | Narx kiritilmagan | taom narxi butun > 0 emas; kirim qatorida narx manfiy / kasr yoki narx ham, `lastPrice` ham yo'q (`detail`: ingredientId); eski kirimni tasdiqlashda narx yo'q / manfiy |
 | `invalid_status` | 409 | | Holat allaqachon o'zgargan | buyurtma holati o'tishga mos emas; mobil `dine_in` (`detail`: `mobile dine_in`) |
-| `already_decided` | 409 | | Bu kirim allaqachon ko'rib chiqilgan | kirim tasdiqlangan / rad etilgan |
+| `already_decided` | 409 | | Bu kirim allaqachon ko'rib chiqilgan | kirim qabul qilingan / tasdiqlangan / rad etilgan (yangi kirim — doim qabul qilingan) |
 | `same_warehouse` | 400 | | Bir xil omborga ko'chirib bo'lmaydi | |
 | `shift_not_open` | 409 | | Smena ochilmagan | kassirning shu filialda ochiq smenasi yo'q; smena allaqachon yopilgan |
 | `shift_open_elsewhere` | 409 | ✔ | Boshqa filialda ochiq smenangiz bor — avval o'sha yerda topshiring yoki adminga ayting | kassir bir nechta filialda ishlaydi va boshqa filialda smenasi ochiq qolgan: `POST /auth/login`, `POST /shifts/current` (`detail`: **o'sha filial nomi** — ekranda ko'rsatiladi, `"Chilonzor"`). Kassirda bir vaqtda bitta ochiq smena ([7.5](#75-smenalar-shifts)) |
@@ -212,7 +212,7 @@ Guard qoidalari (`src/auth/auth.guard.ts`):
 | `admin` | yo'q | hammasi, bundan tashqari: kassa buyurtmasi (`POST /orders`), qabul qilish (`/confirm`), "Tayyor" / "Qaytarish", `/shifts/current*`. Filial ro'yxatlarida `?branchId=` majburiy |
 | `cashier` (kassir) | bitta yoki bir nechta | joriy filialida (kirishda tanlangan, tokenda): buyurtma yaratish, kiosk / mobil buyurtmani qabul qilish, bekor qilish, ishdagi buyurtmalar; o'z smenasi (bir vaqtda bitta) |
 | `kitchen` (oshpaz yordamchisi) | bitta yoki bir nechta | joriy filialida: ishdagi buyurtmalar, "Tayyor", "Qaytarish" |
-| `supplier` (ta'minotchi) | yo'q | ombor bo'limi: mahsulotlar, qoldiq, chegara, harakatlar, kirim kiritish, ko'chirish (tasdiqlash / rad etish — yo'q) |
+| `supplier` (ta'minotchi) | yo'q | ombor bo'limi: mahsulotlar, qoldiq, chegara, harakatlar, kirim kiritish (narxi bilan, darhol omborga), ko'chirish (eski kirimni tasdiqlash / rad etish — yo'q) |
 | `courier` (kuryer) | yo'q | faqat `/courier/*` ([12](#12-kuryer-ilovasi-android)): istalgan filialning mobil dostavkasini oladi — bir vaqtda bitta filialdan |
 
 Kirgan har qanday xodim: `GET /auth/me`; PIN bilan kiradiganlar — `POST /auth/unlock`, `PUT /auth/pin`; admin —
@@ -709,7 +709,7 @@ interface Ingredient {
   id: string; name: LocalizedText; group: IngredientGroup
   unit: StockUnit                  // yaratilgandan keyin o'zgarmaydi
   packSize: number | null          // qadoq hajmi asosiy birlikda (600 — 1 dona = 600 g); null — qadoqsiz. O'zgartirsa bo'ladi
-  lastPrice: number | null         // oxirgi tasdiqlangan kirimdagi 1 kg / l / dona narxi (qadoqli — 1 dona narxi)
+  lastPrice: number | null         // oxirgi kirimdagi 1 kg / l / dona narxi (qadoqli — 1 dona narxi)
   active: boolean
 }
 interface StockItem { warehouseId: string; ingredientId: string; qty: number; minQty: number }   // asosiy birlikda; qty manfiy bo'lishi mumkin
@@ -726,6 +726,8 @@ interface Purchase {
   items: { ingredientId: string; qty: number; price: number | null; packSize: number | null }[]
   // ombor birligida (packSize bo'lsa — donada); narx — 1 birlik (1 dona); packSize — yozilgan paytdagi qadoq hajmi
   note: string; status: 'pending' | 'approved' | 'rejected'
+  // 2026-11-08 dan yangi kirim darhol `approved` (omborga qo'shilgan, decidedBy / decidedAt — null);
+  // `pending` / `rejected` — undan oldin yozilgan eski kirimlar
   createdBy: string; createdAt: string; decidedBy: string | null; decidedAt: string | null
 }
 interface Transfer {
@@ -890,7 +892,9 @@ uni kutmaydi.
 
 ### 7.6 Ombor
 
-Hammasi — `admin` va `supplier`; kirimni tasdiqlash / rad etish — faqat `admin`.
+Hammasi — `admin` va `supplier`; eski kirimni tasdiqlash / rad etish — faqat `admin`. 2026-11-08 dan kirim **tasdiqsiz**:
+narxi bilan darhol omborga qo'shiladi va ulangan admin Telegram chatlariga "📦 Yangi kirim" xabari ketadi (mahsulot,
+miqdor, 1 birlik narxi, qator summasi, kirim summasi, ombor, kim kiritdi).
 
 | Metod va yo'l | So'rov | Javob | Xatolar |
 |---|---|---|---|
@@ -905,23 +909,23 @@ Hammasi — `admin` va `supplier`; kirimni tasdiqlash / rad etish — faqat `adm
 | `GET /movements` | query: `warehouseId?`, `ingredientId?`, `kind?`, `refId?`, `page?`, `limit?` (standart 100) | `Page<StockMovement & { refNumber: number \| null; refWarehouseId: string \| null }>` (yangisi birinchi) — `refNumber`: buyurtma / kirim / ko'chirish raqami; `refWarehouseId`: ko'chirishda ikkinchi ombor (kirimda — qayerdan, chiqimda — qayerga) | |
 | `GET /purchases` | query: `status?`, `warehouseId?`, `page?`, `limit?` | `Page<Purchase>` | |
 | `GET /purchases/:id` | | `Purchase` | `not_found` |
-| `POST /purchases` | `{ warehouseId, items: { ingredientId, qty }[] (ombor birligida, qadoqli — donada, > 0), note?: string ≤1000 }` | `201 Purchase` (`pending`; narx — `lastPrice` dan, `packSize` — mahsulotning hozirgisi) | `empty_order`, `not_found`, `invalid_qty` |
-| `POST /purchases/:id/approve` | admin: `{ prices?: { [ingredientId]: number } }` — 1 birlik (qatorda qadoq bo'lsa — 1 dona) narxi (so'm, butun ≥ 0); berilmagani kirimdagi narxida qoladi | `200 Purchase` (`approved`) — qoldiqqa qatordagi `packSize` bilan qo'shiladi, `lastPrice` yangilanadi | `not_found`, `already_decided`, `invalid_price` |
-| `POST /purchases/:id/reject` | admin | `200 Purchase` (`rejected`) | `not_found`, `already_decided` |
+| `POST /purchases` | `{ warehouseId, items: { ingredientId, qty, price? }[], note?: string ≤1000 }` — `qty` ombor birligida (qadoqli — donada), > 0; `price` — 1 birlik (qadoqli — 1 dona) narxi, so'm, butun ≥ 0 (berilmasa — `lastPrice`) | `201 Purchase` (`approved`) — darhol qoldiqqa qo'shiladi, har mahsulotning `lastPrice` i shu narxga yangilanadi, `packSize` — mahsulotning hozirgisi; Telegram'ga "Yangi kirim" | `empty_order`, `not_found`, `invalid_qty`, `invalid_price` (manfiy / kasr, yoki narx yo'q va `lastPrice` ham yo'q), `invalid_input` (`price` son emas) |
+| `POST /purchases/:id/approve` | faqat eski `pending` kirim; admin: `{ prices?: { [ingredientId]: number } }` — 1 birlik (qatorda qadoq bo'lsa — 1 dona) narxi (so'm, butun ≥ 0); berilmagani kirimdagi narxida qoladi | `200 Purchase` (`approved`) — qoldiqqa qatordagi `packSize` bilan qo'shiladi, `lastPrice` yangilanadi | `not_found`, `already_decided` (yangi kirim — doim), `invalid_price` |
+| `POST /purchases/:id/reject` | faqat eski `pending` kirim; admin | `200 Purchase` (`rejected`) | `not_found`, `already_decided` |
 | `GET /transfers` | query: `warehouseId?` (chiqqan yoki kirgan), `page?`, `limit?` | `Page<Transfer>` | |
 | `POST /transfers` | `{ fromWarehouseId, toWarehouseId, items: { ingredientId, qty }[] (ombor birligida, qadoqli — donada, > 0), note?: string ≤1000 }` | `201 Transfer` — bitta tranzaksiyada chiqim + kirim | `same_warehouse`, `empty_order`, `not_found`, `invalid_qty`, `insufficient_stock` |
 
 `lastPrice` — 1 birlik (kg / l / dona; qadoqli — 1 dona) narxi, so'm, butun ≥ 0; **faqat admin** yuboradi (ta'minotchi —
-`403 forbidden`, u narxsiz qo'shadi / tahrirlaydi). Yuborilmasa — o'zgarmaydi, `null` — narxsiz. Keyingi kirimga
-avtomatik yoziladi va kirim tasdiqlanganda yangilanadi (qator boshqa qadoq hajmi bilan yozilgan bo'lsa — mahsulotning
-hozirgi birligiga o'giriladi).
+`403 forbidden`, u narxsiz qo'shadi / tahrirlaydi; narxni kirimda yozadi). Yuborilmasa — o'zgarmaydi, `null` — narxsiz.
+Kirim formasida oldindan yoziladi va har kirimda kiritilgan narxga yangilanadi; eski kirim tasdiqlanganda ham (qator
+boshqa qadoq hajmi bilan yozilgan bo'lsa — mahsulotning hozirgi birligiga o'giriladi).
 
 `packSize` — qadoq hajmi **asosiy birlikda** (g / ml / dona), butun 1…1 000 000 (aks holda `invalid_qty`, `detail`:
 `packSize`): ketchup `unit: 'kg'`, `packSize: 600` — 1 dona = 600 g; salfetka `unit: 'pcs'`, `packSize: 100` — 1 qadoq
 = 100 dona. Yuborilmasa — o'zgarmaydi (yangisida — qadoqsiz), `null` — qadoqsiz; ta'minotchi ham o'zgartiradi. Qadoq
 hajmi o'zgarib `lastPrice` **yuborilmasa** — narx yangi birlikka proporsional qayta hisoblanadi (28 000 / kg → 600 g
 lik dona — 16 800; 600 g → 500 g — 18 000 → 15 000); admin yuborgan `lastPrice` — yangi birlikda, o'zgarishsiz.
-Qoldiq, retsept, chegara, harakatlar — asosiy birlikda (o'zgarmaydi); kutayotgan kirim — o'zining `packSize` i bilan.
+Qoldiq, retsept, chegara, harakatlar — asosiy birlikda (o'zgarmaydi); eski kutayotgan kirim — o'zining `packSize` i bilan.
 
 `createdBy`, `decidedBy` — tokendan. Ko'chirish qoldiqdan oshmaydi (bir mahsulot ikki qatorda bo'lsa — jami); sotuv
 esa qoldiqni manfiyga tushirishi mumkin. Filial omborida qoldiq chegaradan pastga tushsa — Telegram botga darhol
@@ -997,7 +1001,7 @@ interface SalesReport extends Tally {      // orders / revenue — to'langan (pr
 
 `overview` (admin bosh sahifasi): `liveOrders` — faol filiallar bo'yicha `pending` + `preparing` buyurtmalar soni
 (buyurtmasiz filial — `0`); `lowStock` — `minQty > 0` va `qty < minQty` bo'lgan qoldiq yozuvlari soni (barcha
-omborlar); `pendingPurchases` — tasdiq kutayotgan kirimlar soni.
+omborlar); `pendingPurchases` — tasdiq kutayotgan **eski** kirimlar soni (yangi kirim tasdiq kutmaydi — odatda `0`).
 
 ### 7.10 Holat
 

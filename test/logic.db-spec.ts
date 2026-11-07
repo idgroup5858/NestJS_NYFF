@@ -22,6 +22,7 @@ import type { Shift } from '../src/shifts/shift.entity';
 import { ShiftsService } from '../src/shifts/shifts.service';
 import { UsersService } from '../src/users/users.service';
 import { Ingredient } from '../src/warehouse/ingredient.entity';
+import { Purchase } from '../src/warehouse/purchase.entity';
 import { StockItem } from '../src/warehouse/stock-item.entity';
 import { WarehouseService } from '../src/warehouse/warehouse.service';
 import { actor, createTestApp, expectCode } from './test-app';
@@ -306,30 +307,70 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       await expectCode('shift_not_open', () => shifts.close(shift.id, now));
     });
 
-    it("kirim: tasdiqlanmaguncha omborga qo'shilmaydi; tasdiqda narx va qoldiq yangilanadi", async () => {
+    it("kirim: tasdiqsiz darhol omborga; ta'minotchi narxi oxirgi narxga yoziladi; narxsiz — oxirgi narx", async () => {
       const tomato0 = await stockQty(CENTRAL, 'tomato');
       const purchase = await warehouse.createPurchase(
         {
           warehouseId: CENTRAL,
           items: [
-            { ingredientId: 'tomato', qty: 12.5 },
-            { ingredientId: 'napkin', qty: 1000 },
+            { ingredientId: 'tomato', qty: 12.5, price: 15000 },
+            { ingredientId: 'napkin', qty: 1000 }, // narx yozilmadi — oxirgi narx (50)
           ],
         },
         'usr_supplier',
         now,
       );
-      expect(purchase.items[0].price).toBe(14000); // oldingi narx avtomatik
-      expect(await stockQty(CENTRAL, 'tomato')).toBe(tomato0);
-
-      const approved = await warehouse.approvePurchase(purchase.id, { tomato: 15000 }, 'usr_admin', now);
+      expect(purchase).toMatchObject({ status: 'approved', decidedBy: null, decidedAt: null });
+      expect(purchase.items.map((item) => item.price)).toEqual([15000, 50]);
       expect(await stockQty(CENTRAL, 'tomato')).toBe(tomato0 + 12500);
       expect((await em.findOneByOrFail(Ingredient, { id: 'tomato' })).lastPrice).toBe(15000);
+      expect(await em.findOneByOrFail(Purchase, { id: purchase.id })).toMatchObject({ status: 'approved' });
       // frontend `purchaseTotal`
-      expect(approved.items.reduce((sum, item) => sum + item.qty * (item.price ?? 0), 0)).toBe(
+      expect(purchase.items.reduce((sum, item) => sum + item.qty * (item.price ?? 0), 0)).toBe(
         12.5 * 15000 + 1000 * 50,
       );
+      // yangi kirim tasdiq kutmaydi
       await expectCode('already_decided', () => warehouse.approvePurchase(purchase.id, {}, 'usr_admin', now));
+      await expectCode('already_decided', () => warehouse.rejectPurchase(purchase.id, 'usr_admin', now));
+
+      // noto'g'ri narx — hech narsa saqlanmaydi
+      for (const price of [-1, 1.5]) {
+        await expectCode('invalid_price', () =>
+          warehouse.createPurchase(
+            { warehouseId: CENTRAL, items: [{ ingredientId: 'tomato', qty: 1, price }] },
+            'usr_supplier',
+            now,
+          ),
+        );
+      }
+      expect(await stockQty(CENTRAL, 'tomato')).toBe(tomato0 + 12500);
+      // narx yozilmagan va oxirgi narx ham yo'q
+      await em.update(Ingredient, 'tomato', { lastPrice: null });
+      await expectCode('invalid_price', () =>
+        warehouse.createPurchase({ warehouseId: CENTRAL, items: [{ ingredientId: 'tomato', qty: 1 }] }, 'usr_supplier', now),
+      );
+      await em.update(Ingredient, 'tomato', { lastPrice: 15000 });
+    });
+
+    it('eski (tasdiq kutayotgan) kirim: admin tasdiqlaganda omborga qo\'shiladi', async () => {
+      const tomato0 = await stockQty(CENTRAL, 'tomato');
+      await em.insert(Purchase, {
+        id: 'pur_legacy',
+        number: 900,
+        warehouseId: CENTRAL,
+        items: [{ ingredientId: 'tomato', qty: 2, price: null, packSize: null }],
+        note: '',
+        status: 'pending',
+        createdBy: 'usr_supplier',
+        createdAt: now,
+        decidedBy: null,
+        decidedAt: null,
+      });
+      await expectCode('invalid_price', () => warehouse.approvePurchase('pur_legacy', {}, 'usr_admin', now));
+      const approved = await warehouse.approvePurchase('pur_legacy', { tomato: 16000 }, 'usr_admin', now);
+      expect(approved).toMatchObject({ status: 'approved', decidedBy: 'usr_admin' });
+      expect(await stockQty(CENTRAL, 'tomato')).toBe(tomato0 + 2000);
+      expect((await em.findOneByOrFail(Ingredient, { id: 'tomato' })).lastPrice).toBe(16000);
     });
 
     it("ko'chirish: biridan chiqim, ikkinchisiga kirim; bir xil ombor va qoldiqdan ko'p — xato", async () => {

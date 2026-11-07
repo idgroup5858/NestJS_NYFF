@@ -15,8 +15,11 @@ import { FaceIdService } from '../faceid/faceid.service';
 import { ShiftEvents, type ShiftClosed } from '../shifts/shift-events';
 import { fullName, User } from '../users/user.entity';
 import { LowStockEvents, type LowStockCrossing } from '../warehouse/low-stock-events';
+import { PurchaseEvents } from '../warehouse/purchase-events';
+import type { Purchase } from '../warehouse/purchase.entity';
 import { faceIdCallback, faceIdOutcomeLine, faceIdRequestText, parseFaceIdCallback } from './faceid-text';
 import { loadCrossedLowStock, lowStockAlertText } from './low-stock';
+import { loadPurchaseNotice, purchaseNoticeText } from './purchase-text';
 import { loadShiftReport, shiftReportText } from './shift-report';
 import { TelegramChat } from './telegram-chat.entity';
 import {
@@ -101,7 +104,8 @@ const sleep = (ms: number, signal: AbortSignal) =>
  * qiladi — server lokal). Start link (`t.me/<bot>?start=<kod>`) bosilgan chat shu adminga bog'lanadi va AI'dan
  * foydalanadi; boshqa chatlarga rad matni. Har xabarda xodim bazadan olinadi — bloklansa / admin bo'lmasa darhol rad.
  * Smena yopilganda ulangan admin chatlariga hisobot ketadi (filial omborida kam qolganlar bilan), filial omborida
- * mahsulot chegaradan tushsa — darhol ogohlantirish. `TELEGRAM=off` — polling o'chiq (testlar).
+ * mahsulot chegaradan tushsa — darhol ogohlantirish, yangi kirim kiritilsa — "Yangi kirim" (nima, qancha, narxi).
+ * `TELEGRAM=off` — polling o'chiq (testlar).
  */
 @Injectable()
 export class TelegramService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -120,9 +124,11 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
     private readonly faceId: FaceIdService,
     shiftEvents: ShiftEvents,
     lowStock: LowStockEvents,
+    purchaseEvents: PurchaseEvents,
   ) {
     shiftEvents.onClosed((event) => void this.sendShiftReport(event));
     lowStock.onLow((crossings) => void this.sendLowStock(crossings));
+    purchaseEvents.onCreated((purchase) => void this.sendPurchase(purchase));
   }
 
   async onApplicationBootstrap(): Promise<void> {
@@ -243,6 +249,23 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
       }
     } catch (error) {
       this.logger.error(`Kam qoldi xabari: ${(error as Error).message}`);
+    }
+  }
+
+  // ───────────────────────── yangi kirim ─────────────────────────
+
+  /**
+   * Kirim saqlandi (ta'minotchi yoki admin, omborga qo'shilgach) — ulangan admin chatlariga: nima, qancha, 1 birlik
+   * narxi, qator summasi va kirim summasi. Kirim botni kutmaydi; bot ulanmagan / Telegram javob bermasa — faqat log.
+   */
+  private async sendPurchase(purchase: Purchase): Promise<void> {
+    try {
+      const targets = await this.adminTargets();
+      if (!targets) return;
+      const text = purchaseNoticeText(await loadPurchaseNotice(this.dataSource.manager, purchase));
+      for (const chatId of targets.chatIds) await this.send(targets.token, chatId, text);
+    } catch (error) {
+      this.logger.error(`Kirim xabari ${purchase.id}: ${(error as Error).message}`);
     }
   }
 

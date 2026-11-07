@@ -51,6 +51,10 @@ export type IngredientGroup = (typeof INGREDIENT_GROUPS)[number];
 /** Taom tarkibida (kioskda) ko'rsatilmaydigan guruhlar — mijozga "tarkibi: quti, yog', ziravor" deb chiqmasin. */
 export const NON_COMPOSITION_GROUPS: readonly IngredientGroup[] = ['grocery', 'packaging', 'cleaning', 'other'];
 
+/**
+ * Kirim holati. 2026-11-08 dan kirim darhol omborga qo'shiladi va `approved` bo'lib saqlanadi (admin tasdiqlamaydi);
+ * `pending` / `rejected` — undan oldin yozilgan kirimlar (eski kutayotganini admin bir marta tasdiqlaydi yoki rad etadi).
+ */
 export const PURCHASE_STATUSES = ['pending', 'approved', 'rejected'] as const;
 export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
 

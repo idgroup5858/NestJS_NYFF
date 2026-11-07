@@ -4,7 +4,10 @@ import { ID_LENGTH } from '../common/columns';
 import type { PurchaseStatus } from '../common/enums';
 import type { PurchaseItem } from '../common/types';
 
-/** Ta'minotchi kiritgan kirim. Admin narxlarni kiritib tasdiqlamaguncha omborga qo'shilmaydi. */
+/**
+ * Ta'minotchi (yoki admin) kiritgan kirim — narxi bilan, darhol omborga qo'shiladi (2026-11-08 dan). Undan oldingilari
+ * admin tasdiqlamaguncha omborga qo'shilmas edi (`pending`).
+ */
 @Entity('purchases')
 export class Purchase {
   @PrimaryColumn({ type: 'varchar', length: ID_LENGTH })
