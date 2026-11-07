@@ -30,26 +30,10 @@ export type WarehouseKind = (typeof WAREHOUSE_KINDS)[number];
 export const STOCK_UNITS = ['kg', 'l', 'pcs'] as const;
 export type StockUnit = (typeof STOCK_UNITS)[number];
 
-export const INGREDIENT_GROUPS = [
-  'bread',
-  'meat',
-  'seafood',
-  'dairy',
-  'vegetables',
-  'fruits',
-  'frozen',
-  'sauces',
-  'grocery',
-  'sweets',
-  'drinks',
-  'coffee',
-  'packaging',
-  'cleaning',
-  'other',
-] as const;
+export const INGREDIENT_GROUPS = ['bread', 'meat', 'vegetables', 'sauces', 'drinks', 'coffee', 'cleaning', 'other'] as const;
 export type IngredientGroup = (typeof INGREDIENT_GROUPS)[number];
 /** Taom tarkibida (kioskda) ko'rsatilmaydigan guruhlar — mijozga "tarkibi: quti, yog', ziravor" deb chiqmasin. */
-export const NON_COMPOSITION_GROUPS: readonly IngredientGroup[] = ['grocery', 'packaging', 'cleaning', 'other'];
+export const NON_COMPOSITION_GROUPS: readonly IngredientGroup[] = ['cleaning', 'other'];
 
 /**
  * Kirim holati. 2026-11-08 dan kirim darhol omborga qo'shiladi va `approved` bo'lib saqlanadi (admin tasdiqlamaydi);

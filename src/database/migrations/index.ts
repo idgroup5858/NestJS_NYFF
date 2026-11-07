@@ -14,6 +14,7 @@ import { StaffBranches1793740000000 } from './1793740000000-StaffBranches';
 import { ProductDineInOnly1793750000000 } from './1793750000000-ProductDineInOnly';
 import { FaceId1793778202290 } from './1793778202290-FaceId';
 import { IngredientPackSize1793790000000 } from './1793790000000-IngredientPackSize';
+import { FewerIngredientGroups1793800000000 } from './1793800000000-FewerIngredientGroups';
 
 /** Barcha migratsiyalar tartib bilan. Yangisi `npm run migration:generate -- src/database/migrations/<Nom>` dan keyin shu yerga. */
 export const MIGRATIONS: Function[] = [
@@ -33,4 +34,5 @@ export const MIGRATIONS: Function[] = [
   ProductDineInOnly1793750000000,
   FaceId1793778202290,
   IngredientPackSize1793790000000,
+  FewerIngredientGroups1793800000000,
 ];

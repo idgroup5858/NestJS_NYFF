@@ -379,7 +379,7 @@ Menyu — tanlangan filialniki.
 
 - Faqat faol kategoriyalar va shu filialda sotuvdagi faol taomlar (filialda vaqtincha sotuvdan olinganlari chiqmaydi);
   sotuvdagi taomi yo'q kategoriya chiqmaydi. Tartib — `sortOrder` bo'yicha (javobda tartiblangan).
-- `composition` — tarkib (retseptdagi mahsulot nomlari; qadoq, yog', ziravor kabi guruhlarsiz). Grammlar berilmaydi.
+- `composition` — tarkib (retseptdagi mahsulot nomlari; `cleaning` va `other` guruhidagilarsiz — qadoq, yog', ziravor chiqmasin). Grammlar berilmaydi.
 - Narx barcha filiallarda bir xil, lekin taomlar ro'yxati filialga bog'liq (biror taom bitta filialda vaqtincha
   sotilmasligi mumkin) — filial o'zgarsa menyuni qayta oling.
 - Savatdagi jami — faqat ko'rsatish uchun; haqiqiy summa — javobdagi `order.total`.
@@ -703,8 +703,7 @@ type ShiftWithSummary = Shift & { summary: ShiftSummary }
 
 ```ts
 type StockUnit = 'kg' | 'l' | 'pcs'
-type IngredientGroup = 'bread' | 'meat' | 'seafood' | 'dairy' | 'vegetables' | 'fruits' | 'frozen' | 'sauces'
-  | 'grocery' | 'sweets' | 'drinks' | 'coffee' | 'packaging' | 'cleaning' | 'other'
+type IngredientGroup = 'bread' | 'meat' | 'vegetables' | 'sauces' | 'drinks' | 'coffee' | 'cleaning' | 'other'
 interface Ingredient {
   id: string; name: LocalizedText; group: IngredientGroup
   unit: StockUnit                  // yaratilgandan keyin o'zgarmaydi

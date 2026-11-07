@@ -140,10 +140,6 @@ const INGREDIENT_GROUPS: [IngredientGroup, IngredientRow[]][] = [
     ['sausage-big', t('Katta sosiska', 'Большая сосиска', 'Jumbo sausage'), 'pcs', 6000, 300, 60, 20],
     ['egg', t('Tuxum', 'Яйцо', 'Egg'), 'pcs', 1500, 360, 90, 30],
   ]],
-  ['dairy', [
-    ['cheddar', t('Pishloq (chedder)', 'Сыр чеддер', 'Cheddar cheese'), 'kg', 140000, 30, 6, 2],
-    ['mozzarella', t('Mozzarella', 'Моцарелла', 'Mozzarella'), 'kg', 120000, 25, 5, 2],
-  ]],
   ['vegetables', [
     ['tomato', t('Pomidor', 'Помидоры', 'Tomatoes'), 'kg', 14000, 120, 25, 8],
     ['cucumber', t('Bodring', 'Огурцы', 'Cucumbers'), 'kg', 12000, 100, 20, 6],
@@ -155,16 +151,6 @@ const INGREDIENT_GROUPS: [IngredientGroup, IngredientRow[]][] = [
     ['kimchi', t('Kimchi', 'Кимчи', 'Kimchi'), 'kg', 60000, 20, 4, 1.5],
     ['jalapeno', t('Jalapeno qalampiri', 'Перец халапеньо', 'Jalapeño peppers'), 'kg', 70000, 10, 2, 0.8],
   ]],
-  ['frozen', [
-    ['potato-fries', t('Kartoshka fri (muzlatilgan)', 'Картофель фри (замороженный)', 'French fries (frozen)'),
-      'kg', 32000, 200, 40, 12],
-    ['potato-wedges', t('Dehqoncha kartoshka (muzlatilgan)', 'Картофель по-деревенски (замороженный)',
-      'Potato wedges (frozen)'), 'kg', 36000, 120, 25, 8],
-    ['onion-rings-frozen', t('Piyoz halqalari (muzlatilgan)', 'Луковые кольца (замороженные)', 'Onion rings (frozen)'),
-      'kg', 55000, 60, 12, 4],
-    ['nuggets', t('Tovuq naggetsi (muzlatilgan)', 'Куриные наггетсы (замороженные)', 'Chicken nuggets (frozen)'),
-      'pcs', 1200, 1500, 300, 90],
-  ]],
   ['sauces', [
     ['ketchup', t('Ketchup', 'Кетчуп', 'Ketchup'), 'kg', 28000, 60, 12, 4],
     ['mayo', t('Mayonez', 'Майонез', 'Mayonnaise'), 'kg', 30000, 60, 12, 4],
@@ -175,11 +161,6 @@ const INGREDIENT_GROUPS: [IngredientGroup, IngredientRow[]][] = [
     ['bbq-sauce', t('BBQ sousi', 'Соус барбекю', 'BBQ sauce'), 'kg', 50000, 20, 4, 1.5],
     ['burger-sauce', t('Burger sousi', 'Бургер-соус', 'Burger sauce'), 'kg', 48000, 30, 6, 2],
   ]],
-  ['grocery', [
-    ['frying-oil', t("Fritur yog'i", 'Фритюрное масло', 'Frying oil'), 'l', 22000, 200, 40, 12],
-    ['spices', t('Ziravorlar', 'Специи', 'Spices'), 'kg', 80000, 10, 2, 0.5],
-    ['sugar', t('Shakar', 'Сахар', 'Sugar'), 'kg', 13000, 50, 10, 3],
-  ]],
   ['drinks', [
     ['cola-05', t('Coca-Cola 0,5 l', 'Coca-Cola 0,5 л', 'Coca-Cola 0.5 L'), 'pcs', 6000, 960, 192, 48],
     ['fanta-05', t('Fanta 0,5 l', 'Fanta 0,5 л', 'Fanta 0.5 L'), 'pcs', 6000, 720, 144, 48],
@@ -189,7 +170,20 @@ const INGREDIENT_GROUPS: [IngredientGroup, IngredientRow[]][] = [
   ['coffee', [
     ['tea-bag', t('Choy (paketcha)', 'Чай (пакетик)', 'Tea bag'), 'pcs', 300, 2000, 400, 100],
   ]],
-  ['packaging', [
+  ['other', [
+    ['cheddar', t('Pishloq (chedder)', 'Сыр чеддер', 'Cheddar cheese'), 'kg', 140000, 30, 6, 2],
+    ['mozzarella', t('Mozzarella', 'Моцарелла', 'Mozzarella'), 'kg', 120000, 25, 5, 2],
+    ['potato-fries', t('Kartoshka fri (muzlatilgan)', 'Картофель фри (замороженный)', 'French fries (frozen)'),
+      'kg', 32000, 200, 40, 12],
+    ['potato-wedges', t('Dehqoncha kartoshka (muzlatilgan)', 'Картофель по-деревенски (замороженный)',
+      'Potato wedges (frozen)'), 'kg', 36000, 120, 25, 8],
+    ['onion-rings-frozen', t('Piyoz halqalari (muzlatilgan)', 'Луковые кольца (замороженные)', 'Onion rings (frozen)'),
+      'kg', 55000, 60, 12, 4],
+    ['nuggets', t('Tovuq naggetsi (muzlatilgan)', 'Куриные наггетсы (замороженные)', 'Chicken nuggets (frozen)'),
+      'pcs', 1200, 1500, 300, 90],
+    ['frying-oil', t("Fritur yog'i", 'Фритюрное масло', 'Frying oil'), 'l', 22000, 200, 40, 12],
+    ['spices', t('Ziravorlar', 'Специи', 'Spices'), 'kg', 80000, 10, 2, 0.5],
+    ['sugar', t('Shakar', 'Сахар', 'Sugar'), 'kg', 13000, 50, 10, 3],
     ['box-burger', t('Burger qutisi', 'Коробка для бургера', 'Burger box'), 'pcs', 1200, 3000, 600, 150],
     ['wrap-paper', t("O'rash qog'ozi", 'Упаковочная бумага', 'Wrapping paper'), 'pcs', 300, 5000, 1000, 250],
     ['box-fries', t('Fri qutisi', 'Коробка для фри', 'Fries box'), 'pcs', 800, 3000, 600, 150],

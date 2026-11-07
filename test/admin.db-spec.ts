@@ -234,7 +234,7 @@ describe('admin: yangi baza, kirish, profil, o\'chirish', () => {
       const fresh = await http()
         .post('/api/ingredients')
         .set(bearer(token))
-        .send({ name: { uz: 'Kunjut', ru: '', en: '' }, group: 'grocery', unit: 'kg', active: true })
+        .send({ name: { uz: 'Kunjut', ru: '', en: '' }, group: 'other', unit: 'kg', active: true })
         .expect(201);
       await http().put(`/api/stock/wh_chilonzor/${fresh.body.id}/min-qty`).set(bearer(token)).send({ minQty: 100 }).expect(200);
       await del(`ingredients/${fresh.body.id}`).expect(204);
