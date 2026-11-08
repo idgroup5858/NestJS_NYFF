@@ -15,7 +15,8 @@ import type { IngredientGroup, MovementKind, PurchaseStatus, StockUnit } from '.
 import { LocalizedTextDto } from '../common/localized.dto';
 import { PageQuery } from '../common/pagination';
 
-export class UpdateIngredientDto {
+/** Qo'shish va tahrirlashda umumiy maydonlar (birlik — har birida o'zicha). */
+class IngredientFieldsDto {
   @ValidateNested()
   @Type(() => LocalizedTextDto)
   name: LocalizedTextDto;
@@ -44,8 +45,19 @@ export class UpdateIngredientDto {
   packSize?: number | null;
 }
 
-export class CreateIngredientDto extends UpdateIngredientDto {
-  /** faqat yangi mahsulotda — keyin o'zgartirilmaydi (qoldiq va retseptlar shu birlikda hisoblangan) */
+export class UpdateIngredientDto extends IngredientFieldsDto {
+  /**
+   * Berilmasa yoki o'sha birlik — o'zgarmaydi. Boshqa birlik — faqat admin (`forbidden`). Qoldiq, chegara, retseptlar,
+   * qadoq hajmi va hujjatlardagi sonlar o'zgarmaydi — endi yangi birlikda o'qiladi (kg / l ↔ dona: 5950 g → 5950 dona;
+   * kg ↔ l — sonlar to'g'ri qoladi). kg / l ↔ dona: narx yuborilmasa bo'shatiladi, mahsulot tasdiq kutayotgan eski
+   * kirimda bo'lsa — `pending_purchase`.
+   */
+  @IsOptional()
+  @IsIn(STOCK_UNITS)
+  unit?: StockUnit;
+}
+
+export class CreateIngredientDto extends IngredientFieldsDto {
   @IsIn(STOCK_UNITS)
   unit: StockUnit;
 }

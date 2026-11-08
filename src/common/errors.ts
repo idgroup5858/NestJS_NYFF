@@ -40,6 +40,7 @@ export type ErrorCode =
   | 'branch_closed'
   | 'location_required'
   | 'shift_open_elsewhere'
+  | 'pending_purchase'
   // ── kuryer ──
   | 'off_duty'
   | 'already_taken'
@@ -83,6 +84,7 @@ const STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   already_decided: HttpStatus.CONFLICT,
   shift_not_open: HttpStatus.CONFLICT,
   shift_open_elsewhere: HttpStatus.CONFLICT,
+  pending_purchase: HttpStatus.CONFLICT,
   insufficient_stock: HttpStatus.CONFLICT,
   branch_closed: HttpStatus.CONFLICT,
   off_duty: HttpStatus.CONFLICT,
@@ -140,6 +142,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   branch_closed: 'Filial hozir buyurtma qabul qilmayapti',
   location_required: 'Yetkazib berish joyini xaritada belgilang (GPS)',
   shift_open_elsewhere: "Boshqa filialda ochiq smenangiz bor — avval o'sha yerda topshiring yoki adminga ayting",
+  pending_purchase: "Bu mahsulot tasdiq kutayotgan eski kirimda bor — avval «Kirimlar» da tasdiqlang yoki rad eting",
   off_duty: 'Avval «Ishdaman» ni yoqing',
   already_taken: 'Bu buyurtmani boshqa kuryer oldi',
   other_branch: "Qo'lingizda boshqa filial buyurtmalari bor",

@@ -7,9 +7,9 @@ import { fail } from '../common/errors';
 import { newId } from '../common/ids';
 import { assertUnused } from '../common/in-use';
 import { pageParams, type Page } from '../common/pagination';
-import type { PurchaseItem, TransferItem } from '../common/types';
+import type { LocalizedText, PurchaseItem, RecipeLine, TransferItem } from '../common/types';
 import { nextCounter } from '../database/counters';
-import { convertPrice, toBase, unitSize } from '../domain/units';
+import { convertPrice, sameScale, toBase, unitSize } from '../domain/units';
 import { Ingredient } from './ingredient.entity';
 import { PurchaseEvents } from './purchase-events';
 import { Purchase } from './purchase.entity';
@@ -29,8 +29,24 @@ import {
 
 export type MovementWithRef = StockMovement & { refNumber: number | null; refWarehouseId: string | null };
 
+/** Ombor mahsuloti qayerlarda ishlatilgan — birlikni o'zgartirishdan oldingi ogohlantirish uchun. */
+export interface IngredientUsage {
+  /** retseptida shu mahsulot bor taomlar; [qty] — 1 porsiyaga, asosiy birlikda (g / ml / dona) */
+  products: { id: string; name: LocalizedText; qty: number }[];
+  /** qoldig'i yoki ogohlantirish chegarasi bor omborlar (asosiy birlikda) */
+  stock: { warehouseId: string; qty: number; minQty: number }[];
+  purchases: number;
+  /** tasdiq kutayotgan eski kirimlar (2026-11-08 gacha yozilgan) */
+  pendingPurchases: number;
+  transfers: number;
+}
+
 /** Qadoq hajmining yuqori chegarasi (asosiy birlikda): 1 dona = 1 t / 1000 l / 1 mln dona. */
 const MAX_PACK_SIZE = 1_000_000;
+
+/** SQL sharti: `jsonb` ro'yxatda (retsept, hujjat qatorlari) shu mahsulot bor — `$1` — mahsulot id'si. */
+const containsIngredient = (column: string) =>
+  `${column} @> jsonb_build_array(jsonb_build_object('ingredientId', $1::text))`;
 
 @Injectable()
 export class WarehouseService {
@@ -55,6 +71,12 @@ export class WarehouseService {
    * narxni kirimda yozadi — oxirgi narx shunga yangilanadi). Qadoq hajmi
    * ([packSize]) o'zgarib, narx yuborilmagan bo'lsa (ta'minotchi tahriri) — eski narx yangi birlikka qayta hisoblanadi
    * (28 000 / kg → 600 g lik qadoq — 16 800 / dona); admin yuborgan narx — yangi birlikda.
+   *
+   * Birlik ([unit]) tahrirda — faqat admin (2026-11-08). Qoldiq, chegara, retseptlar, qadoq hajmi va hujjatlardagi
+   * sonlar o'zgarmaydi (foydalanuvchi tanladi) — web avval ogohlantirib, qayerlarni qayta tekshirishni ko'rsatadi
+   * ([ingredientUsage]). kg / l ↔ dona: narx yuborilmasa bo'shatiladi (28 000 / kg dan "28 / dona" — ma'nosiz); tasdiq
+   * kutayotgan eski kirimda bo'lsa — `pending_purchase` (tasdiqlanganda miqdor yangi birlikda hisoblanib, omborga
+   * noto'g'ri son qo'shilardi: 12,5 kg → 13 dona). kg ↔ l — ikkalasi ×1000, sonlar to'g'ri qoladi: faqat birlik almashadi.
    */
   async saveIngredient(
     input: (CreateIngredientDto | UpdateIngredientDto) & { id?: string },
@@ -75,26 +97,37 @@ export class WarehouseService {
     if (id) {
       return this.dataSource.transaction(async (em) => {
         const current = await this.getIngredient(em, id, true);
+        const unit = input.unit ?? current.unit;
+        const reunit = unit !== current.unit;
+        const rescale = !sameScale(current.unit, unit);
+        if (reunit && actorRole !== 'admin') fail('forbidden', 'unit');
+        if (rescale) {
+          const pending: unknown[] = await em.query(
+            `SELECT 1 FROM purchases WHERE status = 'pending' AND ${containsIngredient('items')} LIMIT 1`,
+            [id],
+          );
+          if (pending.length > 0) fail('pending_purchase');
+        }
         const repack = packSize !== undefined && packSize !== current.packSize;
-        const repriced =
-          repack && lastPrice === undefined && current.lastPrice !== null
-            ? convertPrice(
-                current.lastPrice,
-                unitSize(current.unit, current.packSize),
-                unitSize(current.unit, packSize),
-              )
-            : lastPrice;
+        let repriced = lastPrice;
+        if (lastPrice === undefined && current.lastPrice !== null) {
+          if (rescale) repriced = null;
+          else if (repack) {
+            repriced = convertPrice(current.lastPrice, unitSize(current.unit, current.packSize), unitSize(unit, packSize));
+          }
+        }
         await em.update(Ingredient, id, {
           name,
           group: input.group,
           active: input.active,
+          ...(reunit && { unit }),
           ...(repack && { packSize }),
           ...(repriced !== undefined && { lastPrice: repriced }),
         });
         return this.getIngredient(em, id);
       });
     }
-    const unit = (input as CreateIngredientDto).unit ?? fail('invalid_input', 'unit');
+    const unit = input.unit ?? fail('invalid_input', 'unit');
     const ingredient: Ingredient = {
       id: newId('ing'),
       name,
@@ -115,17 +148,54 @@ export class WarehouseService {
   async removeIngredient(id: string): Promise<void> {
     await this.dataSource.transaction(async (em) => {
       await this.getIngredient(em, id);
-      const contains = (column: string) =>
-        `${column} @> jsonb_build_array(jsonb_build_object('ingredientId', $1::text))`;
       await assertUnused(em, id, {
-        recipes: `SELECT 1 FROM products WHERE ${contains('recipe')} LIMIT 1`,
-        purchases: `SELECT 1 FROM purchases WHERE ${contains('items')} LIMIT 1`,
-        transfers: `SELECT 1 FROM transfers WHERE ${contains('items')} LIMIT 1`,
+        recipes: `SELECT 1 FROM products WHERE ${containsIngredient('recipe')} LIMIT 1`,
+        purchases: `SELECT 1 FROM purchases WHERE ${containsIngredient('items')} LIMIT 1`,
+        transfers: `SELECT 1 FROM transfers WHERE ${containsIngredient('items')} LIMIT 1`,
         movements: `SELECT 1 FROM stock_movements WHERE "ingredientId" = $1 LIMIT 1`,
       });
       await em.delete(StockItem, { ingredientId: id });
       await em.delete(Ingredient, { id });
     });
+  }
+
+  /**
+   * Birlikni o'zgartirishdan oldin (web ogohlantirish oynasi): sonlari eski birlikda turgan joylar — retseptida bor
+   * taomlar (1 porsiyaga, asosiy birlikda), qoldig'i yoki chegarasi bor omborlar, kirim va ko'chirishlar soni, tasdiq
+   * kutayotgan eski kirimlar (ular bo'lsa kg / l ↔ dona — `pending_purchase`).
+   */
+  async ingredientUsage(id: string): Promise<IngredientUsage> {
+    const em = this.dataSource.manager;
+    await this.getIngredient(em, id);
+    const [products, stock, [counts]] = await Promise.all([
+      em.query<{ id: string; name: LocalizedText; recipe: RecipeLine[] }[]>(
+        `SELECT id, name, recipe FROM products WHERE ${containsIngredient('recipe')} ORDER BY name->>'uz', id`,
+        [id],
+      ),
+      em.query<IngredientUsage['stock']>(
+        `SELECT "warehouseId", qty, "minQty" FROM stock
+         WHERE "ingredientId" = $1 AND (qty <> 0 OR "minQty" > 0) ORDER BY "warehouseId"`,
+        [id],
+      ),
+      em.query<Record<'purchases' | 'pendingPurchases' | 'transfers', string>[]>(
+        `SELECT (SELECT COUNT(*) FROM purchases WHERE ${containsIngredient('items')}) AS purchases,
+           (SELECT COUNT(*) FROM purchases WHERE status = 'pending' AND ${containsIngredient('items')})
+             AS "pendingPurchases",
+           (SELECT COUNT(*) FROM transfers WHERE ${containsIngredient('items')}) AS transfers`,
+        [id],
+      ),
+    ]);
+    return {
+      products: products.map((product) => ({
+        id: product.id,
+        name: product.name,
+        qty: product.recipe.reduce((sum, line) => (line.ingredientId === id ? sum + line.qty : sum), 0),
+      })),
+      stock,
+      purchases: Number(counts.purchases),
+      pendingPurchases: Number(counts.pendingPurchases),
+      transfers: Number(counts.transfers),
+    };
   }
 
   stockItems(warehouseId?: string) {

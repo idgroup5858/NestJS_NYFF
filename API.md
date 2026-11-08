@@ -141,6 +141,7 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `same_warehouse` | 400 | | Bir xil omborga ko'chirib bo'lmaydi | |
 | `shift_not_open` | 409 | | Smena ochilmagan | kassirning shu filialda ochiq smenasi yo'q; smena allaqachon yopilgan |
 | `shift_open_elsewhere` | 409 | ✔ | Boshqa filialda ochiq smenangiz bor — avval o'sha yerda topshiring yoki adminga ayting | kassir bir nechta filialda ishlaydi va boshqa filialda smenasi ochiq qolgan: `POST /auth/login`, `POST /shifts/current` (`detail`: **o'sha filial nomi** — ekranda ko'rsatiladi, `"Chilonzor"`). Kassirda bir vaqtda bitta ochiq smena ([7.5](#75-smenalar-shifts)) |
+| `pending_purchase` | 409 | ✔ | Bu mahsulot tasdiq kutayotgan eski kirimda bor — avval «Kirimlar» da tasdiqlang yoki rad eting | `PATCH /ingredients/:id`: birlik kg / l ↔ dona o'zgarmoqda, mahsulot eski `pending` kirimda bor — tasdiqlanganda miqdor yangi birlikda hisoblanib qoldiqqa noto'g'ri son qo'shilardi (2026-11-08) |
 | `name_required` | 400 | | Nomini kiriting | nom (o'zbekchasi) bo'sh |
 | `insufficient_stock` | 409 | | Omborda yetarli mahsulot yo'q | ko'chirish qoldiqdan ko'p (`detail`: ingredientId). Sotuv qoldiqni manfiyga tushirishi mumkin — xato bermaydi |
 | `branch_required` | 400 | | Filialni tanlang | admin `branchId` bermadi; kassir / oshpaz filialsiz (`branchIds: []`); bir nechta filialli xodim `POST /auth/login` da `branchId` bermadi; mobil olib ketishda `branchId` yo'q; `GET /tv/queue` da `branchId` yo'q |
@@ -706,7 +707,7 @@ type StockUnit = 'kg' | 'l' | 'pcs'
 type IngredientGroup = 'bread' | 'meat' | 'vegetables' | 'sauces' | 'drinks' | 'coffee' | 'cleaning' | 'other'
 interface Ingredient {
   id: string; name: LocalizedText; group: IngredientGroup
-  unit: StockUnit                  // yaratilgandan keyin o'zgarmaydi
+  unit: StockUnit                  // tahrirda faqat admin o'zgartiradi; qoldiq, retsept, hujjatlardagi sonlar o'zgarmaydi
   packSize: number | null          // qadoq hajmi asosiy birlikda (600 — 1 dona = 600 g); null — qadoqsiz. O'zgartirsa bo'ladi
   lastPrice: number | null         // oxirgi kirimdagi 1 kg / l / dona narxi (qadoqli — 1 dona narxi)
   active: boolean
@@ -900,7 +901,8 @@ miqdor, 1 birlik narxi, qator summasi, kirim summasi, ombor, kim kiritdi).
 | `GET /warehouses` | | `Warehouse[]` (markaziy birinchi) | |
 | `GET /ingredients` | | `Ingredient[]` (guruh, id bo'yicha) | |
 | `POST /ingredients` | `{ name: LocalizedText, group: IngredientGroup, unit: StockUnit, active: boolean, packSize?: number \| null, lastPrice?: number \| null }` | `201 Ingredient` | `name_required`, `invalid_price`, `invalid_qty` (`packSize`), `forbidden` (ta'minotchi narx yubordi) |
-| `PATCH /ingredients/:id` | `{ name, group, active, packSize?: number \| null, lastPrice?: number \| null }` (`unit` o'zgarmaydi — yuborilsa tashlanadi) | `Ingredient` | `not_found`, `name_required`, `invalid_price`, `invalid_qty` (`packSize`), `forbidden` |
+| `PATCH /ingredients/:id` | `{ name, group, active, unit?: StockUnit, packSize?: number \| null, lastPrice?: number \| null }` — `unit` berilmasa yoki o'sha birlik — o'zgarmaydi (pastda) | `Ingredient` | `not_found`, `name_required`, `invalid_price`, `invalid_qty` (`packSize`), `forbidden` (ta'minotchi narx yoki boshqa birlik yubordi), `pending_purchase`, `invalid_input` (`unit` ro'yxatda yo'q) |
+| `GET /ingredients/:id/usage` | faqat admin | `{ products: { id, name: LocalizedText, qty }[], stock: { warehouseId, qty, minQty }[], purchases, pendingPurchases, transfers }` — retseptida bor taomlar (`qty` — 1 porsiyaga, asosiy birlikda; nom bo'yicha), qoldig'i ≠ 0 yoki chegarasi bor omborlar (asosiy birlikda), kirim / eski kutayotgan kirim / ko'chirishlar soni | `not_found` |
 | `DELETE /ingredients/:id` | | `204` — qoldiq yozuvlari ham (harakatsiz — 0) | `not_found`, `in_use` — retseptda (`recipes`), kirimda (`purchases`), ko'chirishda (`transfers`), qoldiq harakatida (`movements`) |
 | `GET /stock` | query: `warehouseId?` | `StockItem[]` (yozuvi yo'q mahsulot — qoldiq 0) | |
 | `GET /stock/low` | query: `warehouseId?` | `StockItem[]` — `minQty > 0` va `qty < minQty` | |
@@ -925,6 +927,16 @@ boshqa qadoq hajmi bilan yozilgan bo'lsa — mahsulotning hozirgi birligiga o'gi
 hajmi o'zgarib `lastPrice` **yuborilmasa** — narx yangi birlikka proporsional qayta hisoblanadi (28 000 / kg → 600 g
 lik dona — 16 800; 600 g → 500 g — 18 000 → 15 000); admin yuborgan `lastPrice` — yangi birlikda, o'zgarishsiz.
 Qoldiq, retsept, chegara, harakatlar — asosiy birlikda (o'zgarmaydi); eski kutayotgan kirim — o'zining `packSize` i bilan.
+
+`unit` (2026-11-08) — tahrirda **faqat admin** o'zgartiradi (ta'minotchi boshqa birlik yuborsa `403 forbidden`; o'sha
+birlikni yuborishi mumkin). Mahsulot ishlatilgan bo'lsa ham o'zgaradi, lekin **hech qanday son o'zgarmaydi** — qoldiq,
+chegara, retseptlar, qadoq hajmi, kirim / ko'chirish qatorlari va harakatlar endi yangi birlikda o'qiladi: kg → dona
+bo'lsa 5950 g qoldiq — 5950 dona, retseptdagi 50 g — 50 dona, eski kirimdagi 12,5 kg — 12,5 dona. Shuning uchun mijoz
+avval `GET /ingredients/:id/usage` bilan qayerlarni qayta tekshirish kerakligini ko'rsatadi (web — ogohlantirish oynasi).
+**kg / l ↔ dona**: `lastPrice` yuborilmasa — `null` (28 000 / kg dan "28 / dona" ma'nosiz; admin yangi birlikda yozadi);
+mahsulot tasdiq kutayotgan eski kirimda bo'lsa — `409 pending_purchase` (avval tasdiqlash / rad etish kerak).
+**kg ↔ l** — ikkalasi ×1000: sonlar va narx to'g'ri qoladi, faqat birlik almashadi (qadoq hajmi bilan narx odatdagidek
+o'giriladi).
 
 `createdBy`, `decidedBy` — tokendan. Ko'chirish qoldiqdan oshmaydi (bir mahsulot ikki qatorda bo'lsa — jami); sotuv
 esa qoldiqni manfiyga tushirishi mumkin. Filial omborida qoldiq chegaradan pastga tushsa — Telegram botga darhol
@@ -1103,6 +1115,7 @@ API, Socket.IO, taom / kategoriya rasmlari — ildizdan (`/api`, `/socket.io`, `
 | `purchases.create` / `approve(id, prices, adminId)` / `reject(id, adminId)` | `POST /purchases` / `POST /purchases/:id/approve` `{ prices }` / `POST /purchases/:id/reject` |
 | `transfers.create` | `POST /transfers` |
 | `ingredients.save(input)` | `POST /ingredients` (yangi) / `PATCH /ingredients/:id` |
+| `ingredients.usage(id)` | `GET /ingredients/:id/usage` (birlikni o'zgartirishdan oldingi ogohlantirish) |
 | `ingredients.setMinQty(w, i, minQty)` | `PUT /stock/:w/:i/min-qty` |
 | `users.changeOwnPin(userId, old, new)` | `PUT /auth/pin` |
 | `users.save(input, actorId)` | `POST /users` / `PATCH /users/:id` |

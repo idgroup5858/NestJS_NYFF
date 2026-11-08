@@ -10,6 +10,14 @@ export function unitSize(unit: StockUnit, packSize: number | null = null): numbe
   return packSize ?? FACTOR[unit];
 }
 
+/**
+ * Ikki birlikning asosiy birligi bir xil o'lchamdami: kg ↔ l (g ↔ ml, ikkalasi ×1000) — ha, qoldiq, retsept va narx
+ * sonlari to'g'ri qoladi; kg / l ↔ dona — yo'q, o'sha sonlar boshqa narsani bildirib qoladi (5950 g → 5950 dona).
+ */
+export function sameScale(a: StockUnit, b: StockUnit): boolean {
+  return FACTOR[a] === FACTOR[b];
+}
+
 /** 12.5 kg → 12500 g; qadoq 600 g bo'lsa 10 dona → 6000 g. Asosiy birlik doim butun son. */
 export function toBase(qty: number, unit: StockUnit, packSize: number | null = null): number {
   return Math.round(qty * unitSize(unit, packSize));

@@ -18,7 +18,10 @@ export class Ingredient {
   @Column({ type: 'varchar', length: 20 })
   group: IngredientGroup;
 
-  /** faqat yangi mahsulotda beriladi — keyin o'zgarmaydi (qoldiq va retseptlar shu birlikda hisoblangan) */
+  /**
+   * Qoldiq, retsept, chegara, qadoq hajmi va hujjatlardagi sonlar shu birlikda o'qiladi. Tahrirda faqat admin
+   * o'zgartiradi — sonlar o'zgarmaydi, yangi birlikda o'qiladi (2026-11-08, `saveIngredient`).
+   */
   @Column({ type: 'varchar', length: 4 })
   unit: StockUnit;
 

@@ -1,4 +1,4 @@
-import { convertPrice, fromBase, splitPacks, toBase, unitSize } from './units';
+import { convertPrice, fromBase, sameScale, splitPacks, toBase, unitSize } from './units';
 
 describe('birliklar va qadoq', () => {
   it('qadoqsiz — kg / l / dona, qadoq bilan — 1 dona = qadoq hajmi', () => {
@@ -29,5 +29,14 @@ describe('birliklar va qadoq', () => {
     expect(splitPacks(0, 600)).toEqual({ packs: 0, rest: 0 });
     expect(splitPacks(-100, 600)).toEqual({ packs: 0, rest: -100 });
     expect(splitPacks(-700, 600)).toEqual({ packs: -1, rest: -100 });
+  });
+
+  it("birlik almashganda sonlar to'g'ri qoladimi: kg ↔ l — ha, kg / l ↔ dona — yo'q", () => {
+    expect(sameScale('kg', 'kg')).toBe(true);
+    expect(sameScale('kg', 'l')).toBe(true);
+    expect(sameScale('l', 'kg')).toBe(true);
+    expect(sameScale('pcs', 'pcs')).toBe(true);
+    expect(sameScale('kg', 'pcs')).toBe(false);
+    expect(sameScale('pcs', 'l')).toBe(false);
   });
 });

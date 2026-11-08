@@ -37,9 +37,17 @@ export class WarehouseController {
     return this.warehouse.saveIngredient(dto, user.role);
   }
 
+  /** `unit` ni o'zgartirish — faqat admin; sonlar o'zgarmaydi (ogohlantirish — `usage`). */
   @Patch('ingredients/:id')
   updateIngredient(@Param('id') id: string, @Body() dto: UpdateIngredientDto, @CurrentUser() user: AuthUser) {
     return this.warehouse.saveIngredient({ ...dto, id }, user.role);
+  }
+
+  /** Birlikni o'zgartirishdan oldin: retseptlari bor taomlar, qoldiq / chegara, hujjatlar soni (taomlar — faqat admin). */
+  @Roles('admin')
+  @Get('ingredients/:id/usage')
+  ingredientUsage(@Param('id') id: string) {
+    return this.warehouse.ingredientUsage(id);
   }
 
   /** Faqat hech qayerda ishlatilmagan mahsulot (retsept, kirim, ko'chirish, harakat) — aks holda `in_use`. */

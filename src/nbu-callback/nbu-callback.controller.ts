@@ -2,7 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs
 import { NbuAuthGuard } from './nbu-auth.guard';
 import { NbuCallbackService } from './nbu-callback.service';
 import { NbuCallbackDto } from './nbu-callback.dto';
-import { Public } from 'src/auth/decorators';
+import { Public } from '../auth/decorators';
 
 @Controller('callback')
 export class NbuCallbackController {
