@@ -69,7 +69,7 @@ export interface SalesReport extends Tally {
 export interface Overview {
   /** faol filiallar: kutilayotgan va tayyorlanayotgan buyurtmalar soni */
   liveOrders: { branchId: string; count: number }[];
-  /** chegarasi qo'yilgan va qoldig'i chegaradan kam ombor yozuvlari */
+  /** to'ldirish kerak ombor yozuvlari: qoldig'i chegaradan kam yoki minus (`GET /stock/low` bilan bir xil) */
   lowStock: number;
   /** tasdiq kutayotgan kirimlar */
   pendingPurchases: number;
@@ -223,7 +223,8 @@ export class ReportsService {
       ),
       em.query<{ lowStock: string; pendingPurchases: string; firstOrderDate: DateKey | null }[]>(
         `SELECT
-           (SELECT COUNT(*) FROM stock s WHERE s."minQty" > 0 AND s.qty < s."minQty") AS "lowStock",
+           -- GET /stock/low bilan bir xil: chegaradan kam yoki minus (chegarasiz ham)
+           (SELECT COUNT(*) FROM stock s WHERE (s."minQty" > 0 AND s.qty < s."minQty") OR s.qty < 0) AS "lowStock",
            (SELECT COUNT(*) FROM purchases p WHERE p.status = 'pending') AS "pendingPurchases",
            -- avval MIN (createdAt indeksidan), keyin mahalliy vaqtga: ifoda ichida MIN butun jadvalni o'qirdi
            (SELECT to_char(MIN(o."createdAt") AT TIME ZONE $1, 'YYYY-MM-DD') FROM orders o) AS "firstOrderDate"`,

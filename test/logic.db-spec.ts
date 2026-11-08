@@ -559,14 +559,23 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
         'supplier',
       );
       expect(basil.lastPrice).toBeNull();
+      const isLow = async () => (await warehouse.lowStock(WC)).some((s) => s.ingredientId === basil.id);
+      // chegarasiz 0 — to'ldirish ro'yxatida yo'q (ishlatilmayotgan bo'lishi mumkin), minus — bor
+      await warehouse.setTargetQty(WC, basil.id, 2000);
+      expect(await isLow()).toBe(false);
+      await em.update(StockItem, { warehouseId: WC, ingredientId: basil.id }, { qty: -100 });
+      expect(await isLow()).toBe(true);
+      await em.update(StockItem, { warehouseId: WC, ingredientId: basil.id }, { qty: 0 });
+
       await warehouse.setMinQty(WC, basil.id, 500);
       expect(await em.findOneBy(StockItem, { warehouseId: WC, ingredientId: basil.id })).toEqual({
         warehouseId: WC,
         ingredientId: basil.id,
         qty: 0,
         minQty: 500,
+        targetQty: 2000,
       });
-      expect((await warehouse.lowStock(WC)).some((s) => s.ingredientId === basil.id)).toBe(true);
+      expect(await isLow()).toBe(true);
     });
 
     it('chiqim va hisobot: bekor qilinganlar tushumga kirmaydi, chiqim tushumdan ayriladi', async () => {

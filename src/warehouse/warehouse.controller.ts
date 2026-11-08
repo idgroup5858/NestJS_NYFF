@@ -9,6 +9,7 @@ import {
   MovementsQuery,
   PurchasesQuery,
   SetMinQtyDto,
+  SetTargetQtyDto,
   StockQuery,
   TransfersQuery,
   UpdateIngredientDto,
@@ -74,6 +75,15 @@ export class WarehouseController {
     @Body() dto: SetMinQtyDto,
   ) {
     return this.warehouse.setMinQty(warehouseId, ingredientId, dto.minQty);
+  }
+
+  @Put('stock/:warehouseId/:ingredientId/target-qty')
+  setTargetQty(
+    @Param('warehouseId') warehouseId: string,
+    @Param('ingredientId') ingredientId: string,
+    @Body() dto: SetTargetQtyDto,
+  ) {
+    return this.warehouse.setTargetQty(warehouseId, ingredientId, dto.targetQty);
   }
 
   @Get('movements')

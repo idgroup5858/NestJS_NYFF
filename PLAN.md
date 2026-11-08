@@ -192,6 +192,15 @@
 > (`'../auth/decorators'` — jest ham, `node dist/main` ham topadi), `npm run test:db` yana o'z holicha ishlaydi.
 > Testlar: bazali 217 ta (21 fayl, yangisi `unit-change.db-spec.ts`), bazasiz 59 ta; `nest build`, web `tsc -b`,
 > `oxlint` toza. Brauzerda ko'rilmagan.
+> **17 — Norma va markazdan to'ldirish (2026-11-08):** foydalanuvchi: filialda qizg'in savdoda mahsulot tugab qolmasin.
+> "Zaxira ombor" (filial tugasa sotuv markazdan ayrilsin) rad etildi — tovar partiya bilan ko'chadi, hisob ikki marta
+> ayrilardi (`ReactJS_NYFF/docs/ROADMAP.md` 5). O'rniga: `stock.targetQty` — norma (migratsiya `StockTargetQty`,
+> `PUT /stock/:w/:i/target-qty`); web "To'ldirish" maqsadi: norma → chegara × 2 → 10 birlik, minus ham yopiladi, filialda —
+> markazda bori bilan cheklanadi; "Hammasini to'ldirish" — bitta ko'chirish / kirim hujjati. `GET /stock/low` va
+> `overview.lowStock` endi chegarasiz **minus** qoldiqni ham sanaydi (chegarasiz 0 — yo'q). Telegram "kam qoldi" va smena
+> hisobotida — "· markazda: 12 dona" / "markazda: yo'q" (xabar sharti o'zgarmadi — faqat chegara). API.md 6.5, 7.6, 7.9,
+> 9, 13. Testlar: bazali 217 ta (yangi tekshiruvlar mavjud fayllarda: norma endpoint'i, minus — `lowStock` da, "markazda"
+> matni), bazasiz 60 ta; `tsc`, web `tsc -b`, `oxlint` toza. Brauzerda ko'rilmagan.
 > **Keyingi qadam:** 10 (push, Click, hudud narxi summaga). Android: mijoz — `Kotlin_NYFF`, kuryer — `Kotlin_NYFF_Courier`.
 > Yangi ish faqat foydalanuvchi aniq **"boshla"** deganidan keyin boshlanadi. Savollarga javob berish — boshlashga ruxsat emas.
 > Har bosqich tugaganda shu fayldagi katakchalarni (`[x]`) va yuqoridagi holatni yangilang.

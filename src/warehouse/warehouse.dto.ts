@@ -68,6 +68,12 @@ export class SetMinQtyDto {
   minQty: number;
 }
 
+export class SetTargetQtyDto {
+  /** norma, asosiy birlikda (g / ml / dona), butun son; 0 — yozilmagan (chegara × 2, u ham yo'q — 10 birlik) */
+  @IsNumber()
+  targetQty: number;
+}
+
 export class StockQuery {
   @IsOptional()
   @IsString()

@@ -33,8 +33,8 @@ export type MovementWithRef = StockMovement & { refNumber: number | null; refWar
 export interface IngredientUsage {
   /** retseptida shu mahsulot bor taomlar; [qty] — 1 porsiyaga, asosiy birlikda (g / ml / dona) */
   products: { id: string; name: LocalizedText; qty: number }[];
-  /** qoldig'i yoki ogohlantirish chegarasi bor omborlar (asosiy birlikda) */
-  stock: { warehouseId: string; qty: number; minQty: number }[];
+  /** qoldig'i, ogohlantirish chegarasi yoki normasi bor omborlar (asosiy birlikda) */
+  stock: { warehouseId: string; qty: number; minQty: number; targetQty: number }[];
   purchases: number;
   /** tasdiq kutayotgan eski kirimlar (2026-11-08 gacha yozilgan) */
   pendingPurchases: number;
@@ -173,8 +173,8 @@ export class WarehouseService {
         [id],
       ),
       em.query<IngredientUsage['stock']>(
-        `SELECT "warehouseId", qty, "minQty" FROM stock
-         WHERE "ingredientId" = $1 AND (qty <> 0 OR "minQty" > 0) ORDER BY "warehouseId"`,
+        `SELECT "warehouseId", qty, "minQty", "targetQty" FROM stock
+         WHERE "ingredientId" = $1 AND (qty <> 0 OR "minQty" > 0 OR "targetQty" > 0) ORDER BY "warehouseId"`,
         [id],
       ),
       em.query<Record<'purchases' | 'pendingPurchases' | 'transfers', string>[]>(
@@ -202,27 +202,43 @@ export class WarehouseService {
     return this.dataSource.manager.find(StockItem, { where: warehouseId ? { warehouseId } : {} });
   }
 
-  /** Ogohlantirish: chegarasi qo'yilgan va qoldig'i chegaradan kam mahsulotlar. */
+  /**
+   * To'ldirish kerak bo'lganlar: chegarasi qo'yilgan va qoldig'i chegaradan kam, yoki qoldig'i **minus** (chegarasiz
+   * ham — qoldiq kiritilmasdan sotilgan). Chegarasiz 0 qoldiq — yo'q (ishlatilmayotgan mahsulot bo'lishi mumkin).
+   */
   lowStock(warehouseId?: string) {
     const qb = this.dataSource.manager
       .createQueryBuilder(StockItem, 's')
-      .where('s.minQty > 0')
-      .andWhere('s.qty < s.minQty');
+      .where(new Brackets((w) => w.where('s.minQty > 0 AND s.qty < s.minQty').orWhere('s.qty < 0')));
     if (warehouseId) qb.andWhere('s.warehouseId = :warehouseId', { warehouseId });
     return qb.getMany();
   }
 
   /** Ogohlantirish chegarasi (asosiy birlikda); 0 — kuzatilmaydi. Qoldiq yozuvi bo'lmasa — 0 qoldiq bilan ochiladi. */
-  async setMinQty(warehouseId: string, ingredientId: string, minQty: number): Promise<StockItem> {
+  setMinQty(warehouseId: string, ingredientId: string, minQty: number): Promise<StockItem> {
+    return this.setLimit(warehouseId, ingredientId, 'minQty', minQty);
+  }
+
+  /** Norma — "To'ldirish" shu darajagacha (asosiy birlikda); 0 — yozilmagan (chegara × 2 / 10 birlik). */
+  setTargetQty(warehouseId: string, ingredientId: string, targetQty: number): Promise<StockItem> {
+    return this.setLimit(warehouseId, ingredientId, 'targetQty', targetQty);
+  }
+
+  private async setLimit(
+    warehouseId: string,
+    ingredientId: string,
+    column: 'minQty' | 'targetQty',
+    value: number,
+  ): Promise<StockItem> {
     const em = this.dataSource.manager;
     await this.getWarehouse(em, warehouseId);
     await this.getIngredient(em, ingredientId);
-    if (!Number.isInteger(minQty) || minQty < 0) fail('invalid_qty', ingredientId);
+    if (!Number.isInteger(value) || value < 0) fail('invalid_qty', ingredientId);
     const rows: StockItem[] = await em.query(
-      `INSERT INTO stock ("warehouseId", "ingredientId", "qty", "minQty") VALUES ($1, $2, 0, $3)
-       ON CONFLICT ("warehouseId", "ingredientId") DO UPDATE SET "minQty" = EXCLUDED."minQty"
-       RETURNING "warehouseId", "ingredientId", "qty", "minQty"`,
-      [warehouseId, ingredientId, minQty],
+      `INSERT INTO stock ("warehouseId", "ingredientId", "qty", "${column}") VALUES ($1, $2, 0, $3)
+       ON CONFLICT ("warehouseId", "ingredientId") DO UPDATE SET "${column}" = EXCLUDED."${column}"
+       RETURNING "warehouseId", "ingredientId", "qty", "minQty", "targetQty"`,
+      [warehouseId, ingredientId, value],
     );
     return rows[0];
   }

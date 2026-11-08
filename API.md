@@ -712,7 +712,8 @@ interface Ingredient {
   lastPrice: number | null         // oxirgi kirimdagi 1 kg / l / dona narxi (qadoqli — 1 dona narxi)
   active: boolean
 }
-interface StockItem { warehouseId: string; ingredientId: string; qty: number; minQty: number }   // asosiy birlikda; qty manfiy bo'lishi mumkin
+interface StockItem { warehouseId: string; ingredientId: string; qty: number; minQty: number; targetQty: number }   // asosiy birlikda; qty manfiy bo'lishi mumkin
+// targetQty — norma (2026-11-08): web'dagi "To'ldirish" qoldiqni shu darajagacha yetkazadi; 0 — yozilmagan: minQty × 2, u ham 0 — 10 birlik (10 kg / 10 l / 10 dona / 10 qadoq)
 type MovementKind = 'purchase' | 'transfer_in' | 'transfer_out' | 'sale' | 'sale_cancel'
 interface StockMovement {
   id: string; warehouseId: string; ingredientId: string
@@ -902,11 +903,12 @@ miqdor, 1 birlik narxi, qator summasi, kirim summasi, ombor, kim kiritdi).
 | `GET /ingredients` | | `Ingredient[]` (guruh, id bo'yicha) | |
 | `POST /ingredients` | `{ name: LocalizedText, group: IngredientGroup, unit: StockUnit, active: boolean, packSize?: number \| null, lastPrice?: number \| null }` | `201 Ingredient` | `name_required`, `invalid_price`, `invalid_qty` (`packSize`), `forbidden` (ta'minotchi narx yubordi) |
 | `PATCH /ingredients/:id` | `{ name, group, active, unit?: StockUnit, packSize?: number \| null, lastPrice?: number \| null }` — `unit` berilmasa yoki o'sha birlik — o'zgarmaydi (pastda) | `Ingredient` | `not_found`, `name_required`, `invalid_price`, `invalid_qty` (`packSize`), `forbidden` (ta'minotchi narx yoki boshqa birlik yubordi), `pending_purchase`, `invalid_input` (`unit` ro'yxatda yo'q) |
-| `GET /ingredients/:id/usage` | faqat admin | `{ products: { id, name: LocalizedText, qty }[], stock: { warehouseId, qty, minQty }[], purchases, pendingPurchases, transfers }` — retseptida bor taomlar (`qty` — 1 porsiyaga, asosiy birlikda; nom bo'yicha), qoldig'i ≠ 0 yoki chegarasi bor omborlar (asosiy birlikda), kirim / eski kutayotgan kirim / ko'chirishlar soni | `not_found` |
+| `GET /ingredients/:id/usage` | faqat admin | `{ products: { id, name: LocalizedText, qty }[], stock: { warehouseId, qty, minQty, targetQty }[], purchases, pendingPurchases, transfers }` — retseptida bor taomlar (`qty` — 1 porsiyaga, asosiy birlikda; nom bo'yicha), qoldig'i ≠ 0, chegarasi yoki normasi bor omborlar (asosiy birlikda), kirim / eski kutayotgan kirim / ko'chirishlar soni | `not_found` |
 | `DELETE /ingredients/:id` | | `204` — qoldiq yozuvlari ham (harakatsiz — 0) | `not_found`, `in_use` — retseptda (`recipes`), kirimda (`purchases`), ko'chirishda (`transfers`), qoldiq harakatida (`movements`) |
 | `GET /stock` | query: `warehouseId?` | `StockItem[]` (yozuvi yo'q mahsulot — qoldiq 0) | |
-| `GET /stock/low` | query: `warehouseId?` | `StockItem[]` — `minQty > 0` va `qty < minQty` | |
+| `GET /stock/low` | query: `warehouseId?` | `StockItem[]` — to'ldirish kerak: `minQty > 0` va `qty < minQty`, **yoki** `qty < 0` (2026-11-08 dan chegarasiz ham — qoldiq kiritilmasdan sotilgan; chegarasiz `0` — yo'q) | |
 | `PUT /stock/:warehouseId/:ingredientId/min-qty` | `{ minQty: number }` — asosiy birlikda, butun ≥ 0 (0 — kuzatilmaydi) | `StockItem` | `not_found`, `invalid_qty` |
+| `PUT /stock/:warehouseId/:ingredientId/target-qty` | `{ targetQty: number }` — norma, asosiy birlikda, butun ≥ 0 (0 — yozilmagan); chegarani o'zgartirmaydi | `StockItem` | `not_found`, `invalid_qty` |
 | `GET /movements` | query: `warehouseId?`, `ingredientId?`, `kind?`, `refId?`, `page?`, `limit?` (standart 100) | `Page<StockMovement & { refNumber: number \| null; refWarehouseId: string \| null }>` (yangisi birinchi) — `refNumber`: buyurtma / kirim / ko'chirish raqami; `refWarehouseId`: ko'chirishda ikkinchi ombor (kirimda — qayerdan, chiqimda — qayerga) | |
 | `GET /purchases` | query: `status?`, `warehouseId?`, `page?`, `limit?` | `Page<Purchase>` | |
 | `GET /purchases/:id` | | `Purchase` | `not_found` |
@@ -1011,7 +1013,7 @@ interface SalesReport extends Tally {      // orders / revenue — to'langan (pr
 - `topProducts[].name` — taom birinchi uchragan buyurtmadagi nom; tushum teng bo'lsa — birinchi uchragani oldin.
 
 `overview` (admin bosh sahifasi): `liveOrders` — faol filiallar bo'yicha `pending` + `preparing` buyurtmalar soni
-(buyurtmasiz filial — `0`); `lowStock` — `minQty > 0` va `qty < minQty` bo'lgan qoldiq yozuvlari soni (barcha
+(buyurtmasiz filial — `0`); `lowStock` — `GET /stock/low` dagi yozuvlar soni (chegaradan kam yoki minus, barcha
 omborlar); `pendingPurchases` — tasdiq kutayotgan **eski** kirimlar soni (yangi kirim tasdiq kutmaydi — odatda `0`).
 
 ### 7.10 Holat
@@ -1117,6 +1119,7 @@ API, Socket.IO, taom / kategoriya rasmlari — ildizdan (`/api`, `/socket.io`, `
 | `ingredients.save(input)` | `POST /ingredients` (yangi) / `PATCH /ingredients/:id` |
 | `ingredients.usage(id)` | `GET /ingredients/:id/usage` (birlikni o'zgartirishdan oldingi ogohlantirish) |
 | `ingredients.setMinQty(w, i, minQty)` | `PUT /stock/:w/:i/min-qty` |
+| `ingredients.setTargetQty(w, i, targetQty)` | `PUT /stock/:w/:i/target-qty` |
 | `users.changeOwnPin(userId, old, new)` | `PUT /auth/pin` |
 | `users.save(input, actorId)` | `POST /users` / `PATCH /users/:id` |
 | `branches.save(input)` | `POST /branches` / `PATCH /branches/:id` |
@@ -1352,8 +1355,8 @@ hamma chatlarga (xodimi faol admin bo'lsa) oddiy matnli xabar yuboradi — AI'si
 bilan), to'langan buyurtmalar soni, tushum va to'lov turlari (kassadagi `ShiftWithSummary.summary` bilan bir xil), o'rtacha
 chek, bekor qilinganlar (soni va summasi), buyurtma turi (soni va summa) va manba bo'yicha, eng ko'p sotilgan 5 taom,
 oxirida (2026-11-04) — **"Omborda kam qolgan:"**: shu filial omborida hisobot paytida chegaradan (`minQty`) kam qolgan
-faol mahsulotlarning hammasi, nomi bo'yicha ("Ketchup — 2 dona + 550 g (chegara: 3 dona)"; qoldiq 0 yoki manfiy —
-"tugadi"). Nol qatorlar va bo'sh bo'limlar chiqmaydi. Bot ulanmagan yoki Telegram javob bermasa smena baribir yopiladi
+faol mahsulotlarning hammasi, nomi bo'yicha ("Ketchup — 2 dona + 550 g (chegara: 3 dona · markazda: 12 dona)"; qoldiq
+0 yoki manfiy — "tugadi"; markazda ham 0 yoki manfiy — "markazda: yo'q"). Nol qatorlar va bo'sh bo'limlar chiqmaydi. Bot ulanmagan yoki Telegram javob bermasa smena baribir yopiladi
 (xato logga).
 
 **Kam qoldi** (2026-11-04, `src/telegram/low-stock.ts`). **Filial** omborida mahsulot qoldig'i chegaradan pastga
@@ -1362,9 +1365,10 @@ hamma admin chatlariga oddiy matnli xabar — AI'siz, adabiy tilda:
 
 ```
 ⚠️ Luchvoy filialida kam qolgan mahsulotlar:
-  • Ketchup — 2 dona + 550 g (chegara: 3 dona)
+  • Ketchup — 2 dona + 550 g (chegara: 3 dona · markazda: 12 dona)
 ```
 
+"markazda" (2026-11-08) — markaziy ombordagi qoldig'i (to'ldirish uchun bormi); 0 yoki manfiy — "markazda: yo'q".
 Bir mahsulotga bir marta: keyingi sotuvlarda takrorlanmaydi; to'ldirilib chegaradan oshgach yana tushsa — yana xabar.
 Bir tranzaksiyada (bitta buyurtma / ko'chirish) tushganlar — bitta xabarda. Xabar **tranzaksiya tugagach** ketadi
 (`LowStockEvents` — TypeORM `afterTransactionCommit`; bekor bo'lgan tranzaksiyadan — yo'q), qoldiq shu paytda qayta

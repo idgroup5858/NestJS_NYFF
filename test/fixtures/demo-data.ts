@@ -344,6 +344,7 @@ function buildStock(): StockItem[] {
         ingredientId: id,
         qty: toBase(qty, unit),
         minQty: toBase(isCentral ? min * 4 : min, unit),
+        targetQty: 0,
       });
     }
   }

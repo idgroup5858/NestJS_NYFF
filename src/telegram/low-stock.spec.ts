@@ -47,4 +47,13 @@ describe('kam qoldi', () => {
       'Salfetka — 40 dona (chegara: 100 dona)',
     );
   });
+
+  it("markazdagi qoldiq — to'ldirish uchun bormi; markazda ham tugagan — \"yo'q\"", () => {
+    const line = { name: 'Ketchup', qty: 1750, minQty: 1800, unit: 'kg', packSize: 600 } as const;
+    expect(lowStockLine({ ...line, centralQty: 7200 })).toBe(
+      'Ketchup — 2 dona + 550 g (chegara: 3 dona · markazda: 12 dona)',
+    );
+    expect(lowStockLine({ ...line, centralQty: 0 })).toBe("Ketchup — 2 dona + 550 g (chegara: 3 dona · markazda: yo'q)");
+    expect(lowStockLine({ ...line, centralQty: -300 })).toBe("Ketchup — 2 dona + 550 g (chegara: 3 dona · markazda: yo'q)");
+  });
 });

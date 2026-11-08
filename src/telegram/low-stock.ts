@@ -11,6 +11,8 @@ export interface LowStockLine {
   minQty: number;
   unit: StockUnit;
   packSize: number | null;
+  /** markaziy ombordagi qoldig'i — to'ldirish uchun bormi (berilmasa — matnda yo'q) */
+  centralQty?: number;
 }
 
 /** Filial bo'yicha guruh: filialning hozirgi nomi va kam qolganlari (nomi bo'yicha). */
@@ -28,15 +30,18 @@ interface Row {
   packSize: number | null;
   qty: number;
   minQty: number;
+  centralQty: number;
 }
 
 /**
- * Faqat **filial** omborlari (markaziy — yo'q, foydalanuvchi qarori), faol mahsulotlar, hozir `qty < minQty`.
- * [where] — qo'shimcha shart (`$1`, `$2` — [params]).
+ * Faqat **filial** omborlari (markaziy — yo'q, foydalanuvchi qarori), faol mahsulotlar, hozir `qty < minQty`; har
+ * biriga markaziy ombordagi qoldig'i (yozuvi yo'q — 0). [where] — qo'shimcha shart (`$1`, `$2` — [params]).
  */
 async function query(em: EntityManager, where: string, params: unknown[]): Promise<BranchLowStock[]> {
   const rows = await em.query<Row[]>(
-    `SELECT w."branchId", b.name AS "branchName", i.name, i.unit, i."packSize", s.qty, s."minQty"
+    `SELECT w."branchId", b.name AS "branchName", i.name, i.unit, i."packSize", s.qty, s."minQty",
+       COALESCE((SELECT SUM(cs.qty) FROM stock cs JOIN warehouses c ON c.id = cs."warehouseId" AND c.kind = 'central'
+                 WHERE cs."ingredientId" = s."ingredientId"), 0)::int AS "centralQty"
      FROM stock s
      JOIN warehouses w ON w.id = s."warehouseId" AND w.kind = 'branch'
      JOIN branches b ON b.id = w."branchId"
@@ -54,6 +59,7 @@ async function query(em: EntityManager, where: string, params: unknown[]): Promi
       minQty: row.minQty,
       unit: row.unit,
       packSize: row.packSize,
+      centralQty: row.centralQty,
     });
     groups.set(row.branchId, group);
   }
@@ -76,17 +82,23 @@ export async function loadCrossedLowStock(em: EntityManager, crossings: LowStock
   ]);
 }
 
-/** "Ketchup — 2 dona + 300 g (chegara: 3 dona)"; qoldiq 0 yoki manfiy — "tugadi". */
+/**
+ * "Ketchup — 2 dona + 300 g (chegara: 3 dona · markazda: 12 dona)"; qoldiq 0 yoki manfiy — "tugadi", markazda ham
+ * yo'q — "markazda: yo'q".
+ */
 export function lowStockLine(line: LowStockLine): string {
-  const left = line.qty > 0 ? stockText(line.qty, line.unit, line.packSize) : 'tugadi';
-  return `${line.name} — ${left} (chegara: ${stockText(line.minQty, line.unit, line.packSize)})`;
+  const text = (qty: number) => stockText(qty, line.unit, line.packSize);
+  const left = line.qty > 0 ? text(line.qty) : 'tugadi';
+  const central =
+    line.centralQty === undefined ? '' : ` · markazda: ${line.centralQty > 0 ? text(line.centralQty) : "yo'q"}`;
+  return `${line.name} — ${left} (chegara: ${text(line.minQty)}${central})`;
 }
 
 /**
  * Darhol xabar (oddiy matn, adabiy — tizim xabari, AI yozmaydi):
  * ```
  * ⚠️ Luchvoy filialida kam qolgan mahsulotlar:
- *   • Ketchup — 2 dona + 300 g (chegara: 3 dona)
+ *   • Ketchup — 2 dona + 300 g (chegara: 3 dona · markazda: 12 dona)
  * ```
  */
 export function lowStockAlertText(group: BranchLowStock): string {

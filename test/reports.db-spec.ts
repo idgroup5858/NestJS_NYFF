@@ -358,14 +358,15 @@ async function insertFixtures(em: EntityManager): Promise<void> {
   await em.insert(Order, ORDERS);
   await em.insert(Expense, EXPENSES);
 
-  // ombor: 1 ta kam qolgan (5 < 10), 1 ta aynan chegarada (kam emas), 1 ta kuzatilmaydigan (minQty 0, manfiy qoldiq)
+  // ombor: 1 ta kam qolgan (5 < 10), 1 ta aynan chegarada (kam emas), 1 ta chegarasiz manfiy (to'ldirish kerak —
+  // 2026-11-08 dan hisobga kiradi), 1 ta chegarasiz 0 (kirmaydi)
   await em.insert(Warehouse, [
     { id: 'wh_central', name: 'Markaziy', kind: 'central', branchId: null },
     { id: 'wh_a', name: 'Yunusobod', kind: 'branch', branchId: A },
   ]);
   await em.insert(
     Ingredient,
-    ['ing_1', 'ing_2', 'ing_3'].map((id) => ({
+    ['ing_1', 'ing_2', 'ing_3', 'ing_4'].map((id) => ({
       id,
       name: text(id),
       group: 'meat' as const,
@@ -376,6 +377,7 @@ async function insertFixtures(em: EntityManager): Promise<void> {
     { warehouseId: 'wh_a', ingredientId: 'ing_1', qty: 5, minQty: 10 },
     { warehouseId: 'wh_a', ingredientId: 'ing_2', qty: 10, minQty: 10 },
     { warehouseId: 'wh_central', ingredientId: 'ing_3', qty: -3, minQty: 0 },
+    { warehouseId: 'wh_a', ingredientId: 'ing_4', qty: 0, minQty: 0 },
   ]);
   const purchase = (id: string, number: number, status: Purchase['status']) => ({
     id,
@@ -523,7 +525,7 @@ describe('hisobotlar (SQL ↔ frontend salesReport)', () => {
         { branchId: A, count: 2 },
         { branchId: B, count: 1 },
       ],
-      lowStock: 1,
+      lowStock: 2,
       pendingPurchases: 2,
       // eng oldingi buyurtma 2026-10-20T18:59Z — Toshkentda 20-oktabr 23:59
       firstOrderDate: '2026-10-20',
@@ -564,7 +566,7 @@ describe('hisobotlar (SQL ↔ frontend salesReport)', () => {
           { branchId: A, count: 2 },
           { branchId: B, count: 1 },
         ],
-        lowStock: 1,
+        lowStock: 2,
         pendingPurchases: 2,
         firstOrderDate: '2026-10-20',
       });

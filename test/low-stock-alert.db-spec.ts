@@ -64,8 +64,9 @@ describe('kam qoldi — Telegram', () => {
   /** kassada naqd to'langan buyurtma — darhol oshxonaga, retsept bo'yicha ayriladi */
   const sellHotdogs = (qty: number) =>
     orders.createByCashier(cashier, { type: 'dine_in', items: [{ productId: 'hotdog-classic', qty }], payment: 'cash' }, now);
-  const alertText = (left: string) =>
-    `⚠️ ${branchName} filialida kam qolgan mahsulotlar:\n  • Ketchup — ${left} (chegara: 3 dona)`;
+  /** [central] — markaziy ombordagi ketchup (har test boshida 10 dona) */
+  const alertText = (left: string, central = '10 dona') =>
+    `⚠️ ${branchName} filialida kam qolgan mahsulotlar:\n  • Ketchup — ${left} (chegara: 3 dona · markazda: ${central})`;
 
   beforeAll(async () => {
     app = await createTestApp((builder) => builder.overrideProvider(TelegramApi).useValue(telegram));
@@ -90,6 +91,7 @@ describe('kam qoldi — Telegram', () => {
       'admin',
     );
     await setStock(WC, 1850, 1800);
+    await ds.manager.update(StockItem, { warehouseId: CENTRAL, ingredientId: 'ketchup' }, { qty: 6000 });
     await app.get(ShiftsService).openOrResume(cashier.id, C, now);
     // bot ulangan: admin chati va (admin bo'lmagan) kassir chati
     await ds.manager.upsert(Setting, [{ key: 'telegram_bot_token', value: '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw' }], ['key']);
@@ -136,7 +138,7 @@ describe('kam qoldi — Telegram', () => {
     expect(alerts()).toEqual([]);
     await sellHotdogs(1); // 1800 → 1750
     await until(() => alerts().length > 0);
-    expect(alerts()).toEqual([alertText('2 dona + 550 g')]);
+    expect(alerts()).toEqual([alertText('2 dona + 550 g', '2 dona + 200 g')]);
 
     // filialdan filialga ko'chirish ham — chiqim bergan filial uchun
     await setStock(WC, 1900, 1800);
@@ -147,7 +149,15 @@ describe('kam qoldi — Telegram', () => {
       now,
     );
     await until(() => alerts().length > 0);
-    expect(alerts()).toEqual([alertText('2 dona + 100 g')]);
+    expect(alerts()).toEqual([alertText('2 dona + 100 g', '2 dona + 200 g')]);
+
+    // markazda ham tugagan — "yo'q"
+    await setStock(WC, 1850, 1800);
+    await ds.manager.update(StockItem, { warehouseId: CENTRAL, ingredientId: 'ketchup' }, { qty: 0 });
+    telegram.sent = [];
+    await sellHotdogs(2);
+    await until(() => alerts().length > 0);
+    expect(alerts()).toEqual([alertText('2 dona + 550 g', "yo'q")]);
   });
 
   it("tranzaksiya bekor bo'lsa (ROLLBACK) — xabar yo'q; bot ulanmagan bo'lsa — sotuv baribir o'tadi", async () => {
@@ -186,8 +196,12 @@ describe('kam qoldi — Telegram', () => {
     await until(() => telegram.texts(ADMIN_CHAT).some((text) => text.startsWith('Smena yopildi')));
     const report = telegram.texts(ADMIN_CHAT).find((text) => text.startsWith('Smena yopildi'))!;
     const section = report.split('\n\n').find((part) => part.startsWith('Omborda kam qolgan:'));
-    // demo: Chilonzor'da chedder (1,5 kg / 2 kg), kimchi (0,9 kg / 1,5 kg), kola (30 / 48) — oldindan kam
-    expect(section?.split('\n')).toEqual([
+    // demo: Chilonzor'da chedder (1,5 kg / 2 kg), kimchi (0,9 kg / 1,5 kg), kola (30 / 48) — oldindan kam;
+    // markazdagi qoldig'i ham yoziladi (demo sonlari — tekshirilmaydi, ketchup — 10 dona)
+    const lines = section?.split('\n') ?? [];
+    expect(lines.every((line, i) => i === 0 || line.includes(' · markazda: '))).toBe(true);
+    expect(lines).toContain('  • Ketchup — 2 dona + 550 g (chegara: 3 dona · markazda: 10 dona)');
+    expect(lines.map((line) => line.replace(/ · markazda: [^)]*/, ''))).toEqual([
       'Omborda kam qolgan:',
       '  • Coca-Cola 0,5 l — 30 dona (chegara: 48 dona)',
       '  • Ketchup — 2 dona + 550 g (chegara: 3 dona)',

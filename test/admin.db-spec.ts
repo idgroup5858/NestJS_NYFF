@@ -237,6 +237,20 @@ describe('admin: yangi baza, kirish, profil, o\'chirish', () => {
         .send({ name: { uz: 'Kunjut', ru: '', en: '' }, group: 'other', unit: 'kg', active: true })
         .expect(201);
       await http().put(`/api/stock/wh_chilonzor/${fresh.body.id}/min-qty`).set(bearer(token)).send({ minQty: 100 }).expect(200);
+      // norma — chegarani o'chirmaydi (va aksincha)
+      const limits = await http()
+        .put(`/api/stock/wh_chilonzor/${fresh.body.id}/target-qty`)
+        .set(bearer(token))
+        .send({ targetQty: 500 })
+        .expect(200);
+      expect(limits.body).toEqual({ warehouseId: 'wh_chilonzor', ingredientId: fresh.body.id, qty: 0, minQty: 100, targetQty: 500 });
+      await http().put(`/api/stock/wh_chilonzor/${fresh.body.id}/min-qty`).set(bearer(token)).send({ minQty: 200 }).expect(200);
+      expect(await db.manager.findOneByOrFail(StockItem, { warehouseId: 'wh_chilonzor', ingredientId: fresh.body.id })).toMatchObject({
+        minQty: 200,
+        targetQty: 500,
+      });
+      const bad = await http().put(`/api/stock/wh_chilonzor/${fresh.body.id}/target-qty`).set(bearer(token)).send({ targetQty: -1 }).expect(400);
+      expect(bad.body.code).toBe('invalid_qty');
       await del(`ingredients/${fresh.body.id}`).expect(204);
       expect(await db.manager.existsBy(Ingredient, { id: fresh.body.id })).toBe(false);
       expect(await db.manager.existsBy(StockItem, { ingredientId: fresh.body.id })).toBe(false);
