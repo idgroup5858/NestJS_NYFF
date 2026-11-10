@@ -16,6 +16,7 @@ import { FaceId1793778202290 } from './1793778202290-FaceId';
 import { IngredientPackSize1793790000000 } from './1793790000000-IngredientPackSize';
 import { FewerIngredientGroups1793800000000 } from './1793800000000-FewerIngredientGroups';
 import { StockTargetQty1793810000000 } from './1793810000000-StockTargetQty';
+import { StockAdjustments1793820000000 } from './1793820000000-StockAdjustments';
 
 /** Barcha migratsiyalar tartib bilan. Yangisi `npm run migration:generate -- src/database/migrations/<Nom>` dan keyin shu yerga. */
 export const MIGRATIONS: Function[] = [
@@ -37,4 +38,5 @@ export const MIGRATIONS: Function[] = [
   IngredientPackSize1793790000000,
   FewerIngredientGroups1793800000000,
   StockTargetQty1793810000000,
+  StockAdjustments1793820000000,
 ];

@@ -12,6 +12,7 @@ import { TelegramChat } from '../telegram/telegram-chat.entity';
 import { User } from '../users/user.entity';
 import { Ingredient } from '../warehouse/ingredient.entity';
 import { Purchase } from '../warehouse/purchase.entity';
+import { StockAdjustment } from '../warehouse/stock-adjustment.entity';
 import { StockItem } from '../warehouse/stock-item.entity';
 import { StockMovement } from '../warehouse/stock-movement.entity';
 import { Transfer } from '../warehouse/transfer.entity';
@@ -31,6 +32,7 @@ export const ENTITIES = [
   StockMovement,
   Purchase,
   Transfer,
+  StockAdjustment,
   Shift,
   Order,
   Expense,

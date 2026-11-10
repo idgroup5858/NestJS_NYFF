@@ -714,14 +714,16 @@ interface Ingredient {
 }
 interface StockItem { warehouseId: string; ingredientId: string; qty: number; minQty: number; targetQty: number }   // asosiy birlikda; qty manfiy bo'lishi mumkin
 // targetQty — norma (2026-11-08): web'dagi "To'ldirish" qoldiqni shu darajagacha yetkazadi; 0 — yozilmagan: minQty × 2, u ham 0 — 10 birlik (10 kg / 10 l / 10 dona / 10 qadoq)
-type MovementKind = 'purchase' | 'transfer_in' | 'transfer_out' | 'sale' | 'sale_cancel'
+type MovementKind = 'purchase' | 'transfer_in' | 'transfer_out' | 'sale' | 'sale_cancel' | 'adjust'
+// adjust (2026-11-10) — qoldiqni 0 ga tushirish ("Tuzatish"), qty — o'sha paytdagi qoldiqning teskarisi
 interface StockMovement {
   id: string; warehouseId: string; ingredientId: string
   qty: number                      // asosiy birlikda: + kirim, − chiqim
   kind: MovementKind
-  refId: string                    // buyurtma / kirim / ko'chirish id'si
+  refId: string                    // buyurtma / kirim / ko'chirish / tuzatish id'si
   createdAt: string
 }
+interface StockAdjustment { id: string; number: number; warehouseId: string; createdBy: string; createdAt: string }   // "Tuzatish №N"
 interface Purchase {
   id: string; number: number; warehouseId: string
   items: { ingredientId: string; qty: number; price: number | null; packSize: number | null }[]
@@ -893,7 +895,7 @@ uni kutmaydi.
 
 ### 7.6 Ombor
 
-Hammasi — `admin` va `supplier`; eski kirimni tasdiqlash / rad etish — faqat `admin`. 2026-11-08 dan kirim **tasdiqsiz**:
+Hammasi — `admin` va `supplier`; eski kirimni tasdiqlash / rad etish va qoldiqni 0 ga tushirish — faqat `admin`. 2026-11-08 dan kirim **tasdiqsiz**:
 narxi bilan darhol omborga qo'shiladi va ulangan admin Telegram chatlariga "📦 Yangi kirim" xabari ketadi (mahsulot,
 miqdor, 1 birlik narxi, qator summasi, kirim summasi, ombor, kim kiritdi).
 
@@ -909,7 +911,9 @@ miqdor, 1 birlik narxi, qator summasi, kirim summasi, ombor, kim kiritdi).
 | `GET /stock/low` | query: `warehouseId?` | `StockItem[]` — to'ldirish kerak: `minQty > 0` va `qty < minQty`, **yoki** `qty < 0` (2026-11-08 dan chegarasiz ham — qoldiq kiritilmasdan sotilgan; chegarasiz `0` — yo'q) | |
 | `PUT /stock/:warehouseId/:ingredientId/min-qty` | `{ minQty: number }` — asosiy birlikda, butun ≥ 0 (0 — kuzatilmaydi) | `StockItem` | `not_found`, `invalid_qty` |
 | `PUT /stock/:warehouseId/:ingredientId/target-qty` | `{ targetQty: number }` — norma, asosiy birlikda, butun ≥ 0 (0 — yozilmagan); chegarani o'zgartirmaydi | `StockItem` | `not_found`, `invalid_qty` |
-| `GET /movements` | query: `warehouseId?`, `ingredientId?`, `kind?`, `refId?`, `page?`, `limit?` (standart 100) | `Page<StockMovement & { refNumber: number \| null; refWarehouseId: string \| null }>` (yangisi birinchi) — `refNumber`: buyurtma / kirim / ko'chirish raqami; `refWarehouseId`: ko'chirishda ikkinchi ombor (kirimda — qayerdan, chiqimda — qayerga) | |
+| `POST /stock/:warehouseId/reset` | faqat admin; tanasiz | `200 { adjustment: StockAdjustment \| null; count: number }` — ombordagi 0 dan farqli **hamma** qoldiq (minus ham, plus ham, faolsiz mahsulot ham) 0 ga: har biriga `adjust` harakati, bitta "Tuzatish" hujjati; chegara / norma o'zgarmaydi, "kam qoldi" Telegram xabari ketmaydi. Hammasi allaqachon 0 — `{ adjustment: null, count: 0 }`, hech narsa yozilmaydi | `not_found`, `forbidden` |
+| `POST /stock/:warehouseId/:ingredientId/reset` | faqat admin; tanasiz | xuddi yuqoridagidek, bitta mahsulot (`count` — 0 yoki 1) | `not_found`, `forbidden` |
+| `GET /movements` | query: `warehouseId?`, `ingredientId?`, `kind?`, `refId?`, `page?`, `limit?` (standart 100) | `Page<StockMovement & { refNumber: number \| null; refWarehouseId: string \| null; refBy: string \| null }>` (yangisi birinchi) — `refNumber`: buyurtma / kirim / ko'chirish / tuzatish raqami; `refWarehouseId`: ko'chirishda ikkinchi ombor (kirimda — qayerdan, chiqimda — qayerga); `refBy` (2026-11-10): kirim / ko'chirish / tuzatishni yozgan xodim id'si, buyurtmada — `null` | |
 | `GET /purchases` | query: `status?`, `warehouseId?`, `page?`, `limit?` | `Page<Purchase>` | |
 | `GET /purchases/:id` | | `Purchase` | `not_found` |
 | `POST /purchases` | `{ warehouseId, items: { ingredientId, qty, price? }[], note?: string ≤1000 }` — `qty` ombor birligida (qadoqli — donada), > 0; `price` — 1 birlik (qadoqli — 1 dona) narxi, so'm, butun ≥ 0 (berilmasa — `lastPrice`) | `201 Purchase` (`approved`) — darhol qoldiqqa qo'shiladi, har mahsulotning `lastPrice` i shu narxga yangilanadi, `packSize` — mahsulotning hozirgisi; Telegram'ga "Yangi kirim" | `empty_order`, `not_found`, `invalid_qty`, `invalid_price` (manfiy / kasr, yoki narx yo'q va `lastPrice` ham yo'q), `invalid_input` (`price` son emas) |
@@ -1120,6 +1124,7 @@ API, Socket.IO, taom / kategoriya rasmlari — ildizdan (`/api`, `/socket.io`, `
 | `ingredients.usage(id)` | `GET /ingredients/:id/usage` (birlikni o'zgartirishdan oldingi ogohlantirish) |
 | `ingredients.setMinQty(w, i, minQty)` | `PUT /stock/:w/:i/min-qty` |
 | `ingredients.setTargetQty(w, i, targetQty)` | `PUT /stock/:w/:i/target-qty` |
+| `stock.reset(w)` / `stock.reset(w, i)` | `POST /stock/:w/reset` / `POST /stock/:w/:i/reset` (admin, qoldiqni 0 ga) |
 | `users.changeOwnPin(userId, old, new)` | `PUT /auth/pin` |
 | `users.save(input, actorId)` | `POST /users` / `PATCH /users/:id` |
 | `branches.save(input)` | `POST /branches` / `PATCH /branches/:id` |

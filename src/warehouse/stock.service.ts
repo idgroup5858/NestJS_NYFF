@@ -50,7 +50,8 @@ export class StockService {
    * to'xtamaydi). Bitta SQL bilan qo'shiladi (`qty = qty + delta`) — bir vaqtdagi buyurtmalar bir-birini o'chirmaydi.
    * Qoldig'i shu o'zgarish bilan chegaradan pastga tushgan mahsulotlar — `LowStockEvents` ga (tranzaksiya tugagach
    * Telegram'ga): qator qulflangan holda yangilanadi, shuning uchun bir vaqtdagi sotuvlardan faqat bittasi "tushirgan"
-   * bo'ladi — xabar bir marta.
+   * bo'ladi — xabar bir marta. Qoldiqni 0 ga tushirish (`adjust`) — xabarsiz: butun ombor 0 qilinganda o'nlab
+   * "kam qoldi" ketmasin.
    */
   async applyDeltas(
     em: EntityManager,
@@ -71,12 +72,14 @@ export class StockService {
        RETURNING "ingredientId", "qty", "minQty"`,
       [warehouseId, ids, qtys],
     );
-    this.lowStock.add(
-      em,
-      rows
-        .filter((row) => crossedBelowMin(row.qty - merged.get(row.ingredientId)!, row.qty, row.minQty))
-        .map((row) => ({ warehouseId, ingredientId: row.ingredientId })),
-    );
+    if (kind !== 'adjust') {
+      this.lowStock.add(
+        em,
+        rows
+          .filter((row) => crossedBelowMin(row.qty - merged.get(row.ingredientId)!, row.qty, row.minQty))
+          .map((row) => ({ warehouseId, ingredientId: row.ingredientId })),
+      );
+    }
     await em.insert(
       StockMovement,
       ids.map((ingredientId, index) => ({

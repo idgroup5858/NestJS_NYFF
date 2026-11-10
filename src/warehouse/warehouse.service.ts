@@ -13,6 +13,7 @@ import { convertPrice, sameScale, toBase, unitSize } from '../domain/units';
 import { Ingredient } from './ingredient.entity';
 import { PurchaseEvents } from './purchase-events';
 import { Purchase } from './purchase.entity';
+import { StockAdjustment } from './stock-adjustment.entity';
 import { StockItem } from './stock-item.entity';
 import { StockMovement } from './stock-movement.entity';
 import { StockService } from './stock.service';
@@ -27,7 +28,18 @@ import {
   UpdateIngredientDto,
 } from './warehouse.dto';
 
-export type MovementWithRef = StockMovement & { refNumber: number | null; refWarehouseId: string | null };
+export type MovementWithRef = StockMovement & {
+  refNumber: number | null;
+  refWarehouseId: string | null;
+  /** kirim / ko'chirish / tuzatishni kim yozgan (xodim id'si); buyurtmada — `null` */
+  refBy: string | null;
+};
+
+/** Qoldiqni 0 ga tushirish natijasi: hujjat (0 dan farqli qoldiq yo'q edi — `null`, hech narsa yozilmadi) va nechtasi. */
+export interface StockReset {
+  adjustment: StockAdjustment | null;
+  count: number;
+}
 
 /** Ombor mahsuloti qayerlarda ishlatilgan — birlikni o'zgartirishdan oldingi ogohlantirish uchun. */
 export interface IngredientUsage {
@@ -244,8 +256,47 @@ export class WarehouseService {
   }
 
   /**
-   * Harakatlar (yangisi birinchi) — sabab bo'lgan hujjat raqami bilan: buyurtma, kirim yoki ko'chirish raqami
-   * (`refNumber`); ko'chirishda — ikkinchi ombor (`refWarehouseId`: kirimda qayerdan, chiqimda qayerga).
+   * Qoldiqni 0 ga tushirish (2026-11-10, faqat admin) — hisob yuritilmagan davrdan keyin "toza boshlash": [ingredientId]
+   * berilsa — bitta mahsulot, aks holda ombordagi 0 dan farqli **hamma** qoldiq (minus ham, plus ham; faolsiz mahsulot
+   * ham). Har biriga teskari harakat (`adjust`) yoziladi — tarixda "Tuzatish №N", kim va qachon; chegara va norma
+   * o'zgarmaydi; "kam qoldi" xabari ketmaydi. Qatorlar qulflanadi: shu paytdagi sotuv kutib turadi va 0 dan ayriladi
+   * (yo'qolmaydi). Hammasi allaqachon 0 bo'lsa — hujjat yaratilmaydi.
+   */
+  async resetStock(
+    warehouseId: string,
+    ingredientId: string | undefined,
+    createdBy: string,
+    now = new Date(),
+  ): Promise<StockReset> {
+    return this.dataSource.transaction(async (em) => {
+      await this.getWarehouse(em, warehouseId);
+      if (ingredientId) await this.getIngredient(em, ingredientId);
+      const rows: { ingredientId: string; qty: number }[] = await em.query(
+        `SELECT "ingredientId", "qty" FROM stock
+         WHERE "warehouseId" = $1 AND "qty" <> 0 ${ingredientId ? 'AND "ingredientId" = $2' : ''}
+         ORDER BY "ingredientId" FOR UPDATE`,
+        ingredientId ? [warehouseId, ingredientId] : [warehouseId],
+      );
+      if (rows.length === 0) return { adjustment: null, count: 0 };
+
+      const adjustment: StockAdjustment = {
+        id: newId('adj'),
+        number: await nextCounter(em, 'adjustment'),
+        warehouseId,
+        createdBy,
+        createdAt: now,
+      };
+      await em.insert(StockAdjustment, adjustment);
+      const deltas = rows.map((row) => ({ ingredientId: row.ingredientId, qty: -row.qty }));
+      await this.stock.applyDeltas(em, warehouseId, deltas, 'adjust', adjustment.id, now);
+      return { adjustment, count: rows.length };
+    });
+  }
+
+  /**
+   * Harakatlar (yangisi birinchi) — sabab bo'lgan hujjat raqami bilan: buyurtma, kirim, ko'chirish yoki tuzatish raqami
+   * (`refNumber`) va kim yozgani (`refBy`, buyurtmada — `null`); ko'chirishda — ikkinchi ombor (`refWarehouseId`:
+   * kirimda qayerdan, chiqimda qayerga).
    */
   async movements(query: MovementsQuery): Promise<Page<MovementWithRef>> {
     const { page, limit, skip } = pageParams(query, 100);
@@ -266,13 +317,15 @@ export class WarehouseService {
     const [rows, [{ count }]] = await Promise.all([
       em.query<MovementWithRef[]>(
         `SELECT m.id, m."warehouseId", m."ingredientId", m.qty, m.kind, m."refId", m."createdAt",
-           COALESCE(o.number, p.number, t.number) AS "refNumber",
+           COALESCE(o.number, p.number, t.number, a.number) AS "refNumber",
            CASE m.kind WHEN 'transfer_in' THEN t."fromWarehouseId" WHEN 'transfer_out' THEN t."toWarehouseId" END
-             AS "refWarehouseId"
+             AS "refWarehouseId",
+           COALESCE(p."createdBy", t."createdBy", a."createdBy") AS "refBy"
          FROM stock_movements m
          LEFT JOIN orders o ON m.kind IN ('sale', 'sale_cancel') AND o.id = m."refId"
          LEFT JOIN purchases p ON m.kind = 'purchase' AND p.id = m."refId"
          LEFT JOIN transfers t ON m.kind IN ('transfer_in', 'transfer_out') AND t.id = m."refId"
+         LEFT JOIN stock_adjustments a ON m.kind = 'adjust' AND a.id = m."refId"
          ${filter}
          ORDER BY m."createdAt" DESC, m.id
          LIMIT ${limit} OFFSET ${skip}`,

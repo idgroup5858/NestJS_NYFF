@@ -42,7 +42,8 @@ export const NON_COMPOSITION_GROUPS: readonly IngredientGroup[] = ['cleaning', '
 export const PURCHASE_STATUSES = ['pending', 'approved', 'rejected'] as const;
 export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
 
-export const MOVEMENT_KINDS = ['purchase', 'transfer_in', 'transfer_out', 'sale', 'sale_cancel'] as const;
+/** `adjust` — qoldiqni 0 ga tushirish (admin, `StockAdjustment` hujjati; 2026-11-10) */
+export const MOVEMENT_KINDS = ['purchase', 'transfer_in', 'transfer_out', 'sale', 'sale_cancel', 'adjust'] as const;
 export type MovementKind = (typeof MOVEMENT_KINDS)[number];
 
 export const ORDER_TYPES = ['dine_in', 'takeaway', 'delivery'] as const;

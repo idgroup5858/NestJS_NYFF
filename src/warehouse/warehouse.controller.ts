@@ -86,6 +86,26 @@ export class WarehouseController {
     return this.warehouse.setTargetQty(warehouseId, ingredientId, dto.targetQty);
   }
 
+  /** Butun omborning qoldig'ini 0 ga tushirish (minus ham, plus ham) — faqat admin; "Tuzatish" hujjati yoziladi. */
+  @Roles('admin')
+  @Post('stock/:warehouseId/reset')
+  @HttpCode(200)
+  resetWarehouse(@Param('warehouseId') warehouseId: string, @CurrentUser() user: AuthUser) {
+    return this.warehouse.resetStock(warehouseId, undefined, user.id);
+  }
+
+  /** Bitta mahsulot qoldig'ini 0 ga tushirish — faqat admin. */
+  @Roles('admin')
+  @Post('stock/:warehouseId/:ingredientId/reset')
+  @HttpCode(200)
+  resetIngredient(
+    @Param('warehouseId') warehouseId: string,
+    @Param('ingredientId') ingredientId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.warehouse.resetStock(warehouseId, ingredientId, user.id);
+  }
+
   @Get('movements')
   movements(@Query() query: MovementsQuery) {
     return this.warehouse.movements(query);
