@@ -49,7 +49,8 @@ export interface SyncCounter {
 export interface SyncSnapshot {
   version: string;
   unchanged: false;
-  branch: { id: string; name: string };
+  /** `address` — offline kassa chekida chiqadi */
+  branch: { id: string; name: string; address: string };
   cashiers: SyncCashier[];
   menu: SyncMenu;
   images: SyncImage[];

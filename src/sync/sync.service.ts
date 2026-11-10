@@ -72,7 +72,7 @@ export class SyncService {
       .getMany();
     const menu: SyncMenu = await this.menu.publicMenu(branchId, true);
     const body = {
-      branch: { id: branch.id, name: branch.name },
+      branch: { id: branch.id, name: branch.name, address: branch.address },
       cashiers: cashiers.map(({ id, name, surname, pinHash }) => ({ id, name, surname, pinHash })),
       menu,
       images: this.images(menu),

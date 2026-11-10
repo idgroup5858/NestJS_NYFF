@@ -31,6 +31,7 @@ import { ScreensModule } from './screens/screens.module';
 import { UsersModule } from './users/users.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
 import { NbuCallbackModule } from './nbu-callback/nbu-callback.module';
+import { NbuTestModule } from './nbu-test/nbu-test.module';
 
 @Controller('health')
 class HealthController {
@@ -123,6 +124,8 @@ const jobs = process.env.JOBS === 'off' ? [] : [ScheduleModule.forRoot()];
     ScreensModule,
     FaceIdModule,
     FaceIdRequestsModule,
+    // Milliy Ecom (NBU) API sinovi — /shorva/nbu/test sahifasi uchun, mustaqil (baza va /api/callback ga tegmaydi)
+    NbuTestModule,
     // tartib muhim: rasmlar → xodimlar tizimi → ildizdagi sahifa (u qolgan hamma yo'lni oladi)
     ...imagesModule(),
     ...uiModule(),

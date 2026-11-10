@@ -103,7 +103,7 @@ describe('sync: filial offline kassasi', () => {
     it('filial kassirlari PIN xeshi bilan, kassa menyusi (sotilmaydigani — narxsiz), bugungi raqam', async () => {
       const { body } = await http().get('/api/sync/snapshot').set(withKey(keyY)).expect(200);
       expect(body.unchanged).toBe(false);
-      expect(body.branch).toEqual({ id: Y, name: expect.any(String) });
+      expect(body.branch).toEqual({ id: Y, name: expect.any(String), address: expect.any(String) });
       // faqat shu filialning faol kassirlari (oshpaz yordamchisi, admin, kuryer — yo'q)
       expect(body.cashiers.map((c: { id: string }) => c.id).sort()).toEqual(['usr_cashier_y1', 'usr_cashier_y2']);
       expect(body.cashiers[0].pinHash).toMatch(/^\$2[aby]\$/);
