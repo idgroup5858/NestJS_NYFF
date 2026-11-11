@@ -32,6 +32,8 @@ export interface MenuProduct {
   composition: LocalizedText[];
   /** `false` — oshxona chekiga chiqmaydi (tayyor ichimlik) */
   kitchen: boolean;
+  /** `true` — truck chekiga chiqadi (`kitchen` dan mustaqil) */
+  truck: boolean;
   /** `true` — faqat zalda beriladi (choynakdagi choy): olib ketish / dostavkaga yo'q, mobil ilova ko'rsatmaydi */
   dineInOnly: boolean;
 }
@@ -71,8 +73,8 @@ export class MenuService {
         const ingredient = ingredientOf.get(line.ingredientId);
         return ingredient && !NON_COMPOSITION_GROUPS.includes(ingredient.group) ? [ingredient.name] : [];
       });
-      const { id, categoryId, name, image, sortOrder, kitchen, dineInOnly } = product;
-      return [{ id, categoryId, name, image, sortOrder, price, composition, kitchen, dineInOnly }];
+      const { id, categoryId, name, image, sortOrder, kitchen, truck, dineInOnly } = product;
+      return [{ id, categoryId, name, image, sortOrder, price, composition, kitchen, truck, dineInOnly }];
     });
     const withProducts = new Set(menu.map((p) => p.categoryId));
     return { branchId, categories: all ? categories : categories.filter((c) => withProducts.has(c.id)), products: menu };
@@ -130,6 +132,7 @@ export class MenuService {
       await em.update(Product, input.id, {
         ...fields,
         ...(input.kitchen === undefined ? {} : { kitchen: input.kitchen }),
+        ...(input.truck === undefined ? {} : { truck: input.truck }),
         ...(input.dineInOnly === undefined ? {} : { dineInOnly: input.dineInOnly }),
       });
       return this.getProduct(em, input.id);
@@ -138,6 +141,7 @@ export class MenuService {
       id: newId('prd'),
       ...fields,
       kitchen: input.kitchen ?? true,
+      truck: input.truck ?? false,
       dineInOnly: input.dineInOnly ?? false,
       sortOrder: (await this.maxSortOrder(em, Product)) + 1,
     };

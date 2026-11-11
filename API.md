@@ -370,7 +370,7 @@ Menyu — tanlangan filialniki.
       "name": { "uz": "Klassik burger", "ru": "Классический бургер", "en": "Classic burger" },
       "image": "/images/products/burger-classic.jpg", "sortOrder": 1, "price": 32000,
       "composition": [ { "uz": "Burger noni", "ru": "Булочка для бургера", "en": "Burger bun" }, "…" ], "kitchen": true,
-      "dineInOnly": false }
+      "truck": false, "dineInOnly": false }
   ]
 }
 ```
@@ -658,6 +658,7 @@ interface Product {                // admin ro'yxati (retsept bilan)
   unavailableBranchIds: string[]   // taom vaqtincha sotilmaydigan filiallar; yangi filial — hamma taomni sotadi
   sortOrder: number; active: boolean
   kitchen: boolean                 // false — oshxona chekiga chiqmaydi (tayyor ichimlik: kola, suv; choy, qahva — true)
+  truck: boolean                   // true — truck chekiga chiqadi (kitchen dan mustaqil: ikkalasi true — ikkala chekda)
   dineInOnly: boolean              // true — faqat zalda beriladi (choynakdagi choy): olib ketish / dostavkaga yo'q
 }
 interface MenuProduct {            // GET /menu
@@ -665,6 +666,7 @@ interface MenuProduct {            // GET /menu
   price: number | null             // taom narxi; null — faqat `all=true` da: shu filialda vaqtincha sotilmaydi
   composition: LocalizedText[]
   kitchen: boolean                 // kassa uchun: false — oshxona chekiga chiqmaydi (mobil ilovaga kerak emas)
+  truck: boolean                   // kassa uchun: true — truck chekiga chiqadi (mobil ilovaga kerak emas)
   dineInOnly: boolean              // true — faqat zalda: mobil ilova ko'rsatmaydi, kiosk / kassa olib ketishda qo'shmaydi
 }
 ```
@@ -811,8 +813,8 @@ hudud o'chiriladi; 1–2 nuqta — `zone_too_small`; `fallbackBranchId` filialni
 | `DELETE /categories/:id` | admin | | `204` | `not_found`, `in_use` (`products` — ichida taom bor, faol bo'lmagani ham) |
 | `POST /categories/:id/move` | admin | `{ direction: -1 \| 1 }` (−1 — yuqoriga) | `204`; chetda bo'lsa o'zgarmaydi | `not_found` |
 | `GET /products` | admin | | `Product[]` | |
-| `POST /products` | admin | `{ categoryId, name: LocalizedText, image: string ≤255, recipe: { ingredientId, qty }[], price: number, unavailableBranchIds: string[], active: boolean, kitchen?: boolean, dineInOnly?: boolean }` (`kitchen` berilmasa — `true`, `dineInOnly` — `false`) | `201 Product` | `name_required`, `invalid_price` (narx butun > 0 emas), `not_found` (kategoriya / mahsulot / filial), `invalid_qty` (qty butun ≥ 1 emas), `recipe_required` |
-| `PATCH /products/:id` | admin | xuddi shunday (to'liq; `kitchen`, `dineInOnly` berilmasa — o'zgarmaydi) | `Product` | xuddi shunday |
+| `POST /products` | admin | `{ categoryId, name: LocalizedText, image: string ≤255, recipe: { ingredientId, qty }[], price: number, unavailableBranchIds: string[], active: boolean, kitchen?: boolean, truck?: boolean, dineInOnly?: boolean }` (`kitchen` berilmasa — `true`, `truck` va `dineInOnly` — `false`) | `201 Product` | `name_required`, `invalid_price` (narx butun > 0 emas), `not_found` (kategoriya / mahsulot / filial), `invalid_qty` (qty butun ≥ 1 emas), `recipe_required` |
+| `PATCH /products/:id` | admin | xuddi shunday (to'liq; `kitchen`, `truck`, `dineInOnly` berilmasa — o'zgarmaydi) | `Product` | xuddi shunday |
 | `DELETE /products/:id` | admin | | `204` (rasm fayli qoladi — galereyada boshqasi ham ishlatishi mumkin) | `not_found`, `in_use` (`orders` — biror buyurtmada bor, bekor qilingani ham) |
 | `POST /products/:id/move` | admin | `{ direction: -1 \| 1 }` — o'z kategoriyasi ichida | `204` | `not_found` |
 | `GET /images` | admin | | `ImageFile[]` — `IMAGES_DIR` (`uploads`) dagi `products` va `categories` papkalaridagi rasmlar (qo'lda tashlanganlari ham), eng yangisi birinchi | |
@@ -1490,13 +1492,14 @@ Har buyurtma alohida tranzaksiyada:
 ### 14.3 Web ilova
 
 - **Online kassa** (`/shorva/kassa`): "Sozlamalar" → "Internet uzilsa offline rejimga o'tish" (shu kompyuter uchun, manzil
-  standart `http://localhost:3100`). Jonli ulanish 5 soniyadan ko'p uzilsa — "Internet yo'q" oynasi, 10 soniyadan keyin
+  standart `http://localhost:3100`). Jonli ulanish 10 soniyadan ko'p uzilsa — "Internet yo'q" oynasi, 10 soniyadan keyin
   (yoki tugma bilan) offline kassaga o'tadi; manzilning `#` qismida: kassir, oxirgi raqam, ochiq cheklar, menyu, qaytish
   manzili. Kassa bloklangan bo'lsa — offline'da PIN so'raladi. Ochiq cheklar brauzerda saqlanadi (sahifa yangilansa ham
   qoladi), to'lovdagi buyurtmaga kassa o'zi `id` beradi (`POST /orders`).
 - **Offline kassa** (`/offline` — web ilovaning bir sahifasi, "NYFF Offline" uni o'z build'idan beradi): online
   kassadagidek menyu, savat, cheklar, to'lov va chek; tepada qizil "Offline" va holat qatori; "Buyurtmalar" — "Tayyor",
-  chek, bekor qilish; internet qaytib hammasi yuborilgach — "Online rejimga qaytish" (ochiq cheklar bilan) — online
+  chek, bekor qilish; internet qaytib hammasi yuborilgach — 5 soniyadan keyin o'zi (to'lov oynasi / buyurtmalar ochiq
+  bo'lsa — yopilgach; kirish oynasidan ham) yoki "Online rejimga qaytish" bilan darhol (ochiq cheklar bilan) — online
   kassadan o'tilgan bo'lsa o'sha sahifaga (`…/shorva/kassa`), aks holda `<markaz manzili><uiBase>kassa` (nusxadagi
   `uiBase`, 14.2). `/offline` so'rov va rasmlarni doim o'zi ochilgan serverdan oladi (`VITE_API_URL` e'tiborga olinmaydi).
 - **Admin** — "Filiallar" → "Offline kalit" (14.1).

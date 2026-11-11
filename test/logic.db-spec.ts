@@ -202,6 +202,21 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       }
     });
 
+    it("truck cheki belgisi: menyuda keladi, oshxona belgisidan mustaqil; tahrirda berilmasa — o'zgarmaydi", async () => {
+      await em.update(Product, 'fries', { truck: true });
+      try {
+        const kassaMenu = await menu.publicMenu(C, true);
+        expect(kassaMenu.products.find((p) => p.id === 'fries')).toMatchObject({ truck: true, kitchen: true });
+        expect(kassaMenu.products.find((p) => p.id === 'tea')?.truck).toBe(false);
+        const fries = await em.findOneByOrFail(Product, { id: 'fries' });
+        const { categoryId, name, image, recipe, price, unavailableBranchIds, active } = fries;
+        await menu.saveProduct({ id: 'fries', categoryId, name, image, recipe, price, unavailableBranchIds, active });
+        expect((await em.findOneByOrFail(Product, { id: 'fries' })).truck).toBe(true);
+      } finally {
+        await em.update(Product, 'fries', { truck: false });
+      }
+    });
+
     it('ertasi kuni raqam yana 1 dan', async () => {
       const tomorrow = new Date('2026-10-24T09:00:00');
       const order = await orders.createByKiosk(

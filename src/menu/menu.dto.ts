@@ -75,6 +75,11 @@ export class SaveProductDto {
   @IsBoolean()
   kitchen?: boolean;
 
+  /** `true` — truck chekiga chiqadi (`kitchen` dan mustaqil); berilmasa — `false` (yangi) yoki o'zgarmaydi (tahrirda) */
+  @IsOptional()
+  @IsBoolean()
+  truck?: boolean;
+
   /** `true` — faqat zalda beriladi (choynakdagi choy); berilmasa — `false` (yangi) yoki o'zgarmaydi (tahrirda) */
   @IsOptional()
   @IsBoolean()

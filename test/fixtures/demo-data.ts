@@ -403,6 +403,7 @@ export function buildBase(now: Date): DemoBase {
       active: true,
       // tayyor ichimliklarni kassir o'zi beradi — oshxona chekiga chiqmaydi (choy — oshxonada damlanadi, chiqadi)
       kitchen: !READY_DRINKS.has(id),
+      truck: false,
       dineInOnly: false,
     })),
     ingredients: INGREDIENT_GROUPS.flatMap(([group, rows]) =>

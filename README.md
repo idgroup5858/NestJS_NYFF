@@ -470,3 +470,61 @@
                 npm install
                 npm run build
                 pm2 restart newyork24
+
+Android
+                scp "C:\BACKEND APPS\Kotlin_NYFF\app\release\NYFF v2.apk" root@2.31.205.252:/root/Android/newyork24.apk
+
+
+
+                mkdir -p /var/www/newyork24/app
+                cp /root/Android/newyork24.apk /var/www/newyork24/app/
+                chown -R www-data:www-data /var/www/newyork24/app
+
+                nano /etc/apache2/sites-enabled/newyork24.uz.conf
+
+
+                <Directory /var/www/newyork24/app>
+                    AddType application/vnd.android.package-archive .apk
+                    <FilesMatch "\.apk$">
+                        Header set Cache-Control "no-cache"
+                    </FilesMatch>
+                </Directory>
+
+
+                apachectl configtest && systemctl reload apache2
+
+
+                curl -I https://newyork24.uz/app/newyork24.apk
+
+
+                # Domen ildizi — vaqtinchalik bosh sahifa (logo)
+                DocumentRoot /var/www/newyork24
+                <Directory /var/www/newyork24>
+                    Options -Indexes
+                    Require all granted
+                    FallbackResource /index.html
+                </Directory>
+
+                # Mijoz ilovasi (APK) — newyork24.uz/app/newyork24.apk
+                <Directory /var/www/newyork24/app>
+                    AddType application/vnd.android.package-archive .apk
+                    <FilesMatch "\.apk$">
+                        Header set Cache-Control "no-cache"
+                    </FilesMatch>
+                </Directory>
+
+                # Xodimlar tizimi — newyork24.uz/shorva ...
+
+
+
+
+                apachectl configtest && systemctl reload apache2
+                curl -I https://newyork24.uz/app/newyork24.apk
+
+
+                Keyingi versiyalarda faqat ikki buyruq kerak bo'ladi, Apache'ga boshqa tegilmaydi. versionCode ni oshirishni va APK'ni aynan shu kalit bilan imzolashni unutmang.
+
+
+                scp "C:\...\yangi.apk" root@2.31.205.252:/root/Android/newyork24.apk
+
+                cp /root/Android/newyork24.apk /var/www/newyork24/app/

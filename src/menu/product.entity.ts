@@ -49,6 +49,13 @@ export class Product {
   kitchen: boolean;
 
   /**
+   * `true` — truck chekiga chiqadi (truck printeri — kassa kompyuterida, "NYFF Offline"). `kitchen` dan mustaqil: ikkalasi
+   * yoqiq taom ikkala chekda chiqadi.
+   */
+  @Column({ default: false })
+  truck: boolean;
+
+  /**
    * `true` — faqat zalda beriladi (choynakdagi choy, idishdagi taom): olib ketish va dostavka buyurtmasiga qo'shilmaydi,
    * mobil ilovada ko'rsatilmaydi.
    */
