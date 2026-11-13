@@ -59,6 +59,7 @@ export class BranchesService {
         fallbackBranchId: null,
         onlineEnabled: true,
         faceIdRequired: false,
+        cashierMarksReady: false,
         hrSeenAt: null,
       };
       await em.insert(Branch, branch);
@@ -148,6 +149,17 @@ export class BranchesService {
     const em = this.dataSource.manager;
     await this.get(em, id);
     await em.update(Branch, id, { faceIdRequired: enabled });
+    return this.get(em, id);
+  }
+
+  /**
+   * Kassir ham "Tayyor" / "Qaytarish" bosadimi (2026-11-13) — oshpaz yordamchisi yo'q filial uchun. Server har bosishda
+   * tekshiradi (`OrdersService.assertCanMarkReady`): o'chirilsa kassirning keyingi bosishi `forbidden`.
+   */
+  async setCashierMarksReady(id: string, enabled: boolean): Promise<Branch> {
+    const em = this.dataSource.manager;
+    await this.get(em, id);
+    await em.update(Branch, id, { cashierMarksReady: enabled });
     return this.get(em, id);
   }
 

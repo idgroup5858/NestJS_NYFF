@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { AuthService } from '../src/auth/auth.service';
+import { BranchesService } from '../src/branches/branches.service';
 import { seedDemo } from './fixtures/demo';
 import { Product } from '../src/menu/product.entity';
 import { Order } from '../src/orders/order.entity';
@@ -185,7 +186,7 @@ describe("himoya: PIN bloki, huquqlar, bir vaqtdagi so'rovlar", () => {
       expect(confirmed).toMatchObject({ status: 'preparing', payment: 'card', cashierId: 'usr_cashier_c1' });
     });
 
-    it('"Tayyor" va "Qaytarish" — kassir ham, admin ham, boshqa filial oshpaz yordamchisi ham bosa olmaydi', async () => {
+    it('"Tayyor" va "Qaytarish" (standart, `cashierMarksReady` o\'chiq) — kassir ham, admin ham, boshqa filial oshpaz yordamchisi ham bosa olmaydi', async () => {
       const order = await orders.createByCashier(c1, { type: 'dine_in', items, payment: 'cash' }, now);
       for (const user of [c1, admin, kitchenY]) {
         await expectCode('forbidden', () => orders.markReady(order.id, user, now));
@@ -195,6 +196,34 @@ describe("himoya: PIN bloki, huquqlar, bir vaqtdagi so'rovlar", () => {
         await expectCode('forbidden', () => orders.reopen(order.id, user, now));
       }
       expect((await findOrder(order.id)).status).toBe('ready');
+    });
+
+    it('filialda `cashierMarksReady` yoqilgan: o\'z kassiri ham "Tayyor" / "Qaytarish" bosadi; oshpaz yordamchisi ham; boshqalar — yo\'q', async () => {
+      const setFlag = (enabled: boolean) => app.get(BranchesService).setCashierMarksReady(C, enabled);
+      const order = await orders.createByCashier(c1, { type: 'dine_in', items, payment: 'cash' }, now);
+      await setFlag(true);
+      try {
+        // boshqa filial kassiri / oshpaz yordamchisi, admin, ta'minotchi — baribir yo'q
+        for (const user of [y1, kitchenY, admin, supplier]) {
+          await expectCode('forbidden', () => orders.markReady(order.id, user, now));
+        }
+        expect(await orders.markReady(order.id, c1, now)).toMatchObject({ status: 'ready', readyAt: now });
+        for (const user of [y1, kitchenY, admin, supplier]) {
+          await expectCode('forbidden', () => orders.reopen(order.id, user, now));
+        }
+        expect(await orders.reopen(order.id, c1, now)).toMatchObject({ status: 'preparing', readyAt: null });
+        // oshpaz yordamchisining huquqi o'zgarmaydi
+        expect((await orders.markReady(order.id, kitchenC, later(1))).status).toBe('ready');
+        expect((await orders.reopen(order.id, kitchenC, later(1))).status).toBe('preparing');
+        // boshqa filialda (Yunusobod) yoqilmagan — u yerning kassiri hali ham bosa olmaydi
+        const yOrder = await orders.createByCashier(y1, { type: 'dine_in', items, payment: 'cash' }, now);
+        await expectCode('forbidden', () => orders.markReady(yOrder.id, y1, now));
+      } finally {
+        await setFlag(false);
+      }
+      // o'chirildi — kassir yana faqat kuzatadi
+      await expectCode('forbidden', () => orders.markReady(order.id, c1, later(2)));
+      expect((await findOrder(order.id)).status).toBe('preparing');
     });
   });
 

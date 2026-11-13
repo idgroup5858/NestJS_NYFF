@@ -291,19 +291,25 @@ export class OrdersService {
     return orderView(order);
   }
 
-  /** Oshpaz yordamchisi ovqatni oshxonadan olib chiqib "Tayyor" bosadi: preparing → ready (TV da «Tayyor» ustuni). */
+  /**
+   * Oshpaz yordamchisi ovqatni oshxonadan olib chiqib "Tayyor" bosadi: preparing → ready (TV da «Tayyor» ustuni).
+   * Filialda `cashierMarksReady` yoqilgan bo'lsa — kassir ham.
+   */
   markReady(orderId: string, user: AuthUser, now = new Date()): Promise<OrderView> {
     return this.change(orderId, async (em, order) => {
-      this.assertKitchenStaff(user, order);
+      await this.assertCanMarkReady(em, user, order);
       if (order.status !== 'preparing') fail('invalid_status', `${order.status} → ready`);
       return { status: 'ready', readyAt: now };
     });
   }
 
-  /** Adashib "tayyor" deyilganini qaytaradi: ready → preparing. Faqat oshpaz yordamchisi; kuryer yo'lga chiqqan bo'lsa — yo'q. */
+  /**
+   * Adashib "tayyor" deyilganini qaytaradi: ready → preparing. "Tayyor"ni kim bosa olsa, shu (oshpaz yordamchisi; filialda
+   * yoqilgan bo'lsa — kassir ham); kuryer yo'lga chiqqan bo'lsa — yo'q.
+   */
   reopen(orderId: string, user: AuthUser, now = new Date()): Promise<OrderView> {
     return this.change(orderId, async (em, order) => {
-      this.assertKitchenStaff(user, order);
+      await this.assertCanMarkReady(em, user, order);
       if (order.status !== 'ready') fail('invalid_status', `${order.status} → preparing`);
       if (order.departedAt) fail('invalid_status', 'courier departed');
       return { status: 'preparing', readyAt: null, preparingAt: order.preparingAt ?? now };
@@ -547,9 +553,17 @@ export class OrdersService {
     return orderView(order);
   }
 
-  /** "Tayyor" va "Qaytarish" — faqat buyurtma filialining oshpaz yordamchisi (kassir holatni faqat kuzatadi). */
-  private assertKitchenStaff(user: AuthUser, order: Order): void {
-    if (user.role !== 'kitchen' || user.branchId !== order.branchId) fail('forbidden', `${user.role} ${user.id}`);
+  /**
+   * "Tayyor" va "Qaytarish" — buyurtma filialining oshpaz yordamchisi. Kassir (o'sha filialniki) — faqat filialda
+   * `cashierMarksReady` yoqilgan bo'lsa (oshpaz yordamchisi yo'q filial); aks holda kassir holatni faqat kuzatadi.
+   */
+  private async assertCanMarkReady(em: EntityManager, user: AuthUser, order: Order): Promise<void> {
+    const denied = () => fail('forbidden', `${user.role} ${user.id}`);
+    if (user.branchId !== order.branchId) denied();
+    if (user.role === 'kitchen') return;
+    if (user.role !== 'cashier') denied();
+    const branch = await em.findOne(Branch, { where: { id: order.branchId }, select: { id: true, cashierMarksReady: true } });
+    if (!branch?.cashierMarksReady) denied();
   }
 
   private async lock(em: EntityManager, id: string): Promise<Order> {

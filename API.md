@@ -211,7 +211,7 @@ Guard qoidalari (`src/auth/auth.guard.ts`):
 | Rol | Filial | Nima qila oladi |
 |---|---|---|
 | `admin` | yo'q | hammasi, bundan tashqari: kassa buyurtmasi (`POST /orders`), qabul qilish (`/confirm`), "Tayyor" / "Qaytarish", `/shifts/current*`. Filial ro'yxatlarida `?branchId=` majburiy |
-| `cashier` (kassir) | bitta yoki bir nechta | joriy filialida (kirishda tanlangan, tokenda): buyurtma yaratish, kiosk / mobil buyurtmani qabul qilish, bekor qilish, ishdagi buyurtmalar; o'z smenasi (bir vaqtda bitta) |
+| `cashier` (kassir) | bitta yoki bir nechta | joriy filialida (kirishda tanlangan, tokenda): buyurtma yaratish, kiosk / mobil buyurtmani qabul qilish, bekor qilish, ishdagi buyurtmalar; o'z smenasi (bir vaqtda bitta); "Tayyor" / "Qaytarish" — faqat filialda `cashierMarksReady` yoqilgan bo'lsa (oshpaz yordamchisi yo'q filial, 2026-11-13) |
 | `kitchen` (oshpaz yordamchisi) | bitta yoki bir nechta | joriy filialida: ishdagi buyurtmalar, "Tayyor", "Qaytarish" |
 | `supplier` (ta'minotchi) | yo'q | ombor bo'limi: mahsulotlar, qoldiq, chegara, harakatlar, kirim kiritish (narxi bilan, darhol omborga), ko'chirish (eski kirimni tasdiqlash / rad etish — yo'q) |
 | `courier` (kuryer) | yo'q | faqat `/courier/*` ([12](#12-kuryer-ilovasi-android)): istalgan filialning mobil dostavkasini oladi — bir vaqtda bitta filialdan |
@@ -506,7 +506,8 @@ socket.connect()
 | `cancelled` | `branch_closed` | olib ketish: "Filial yopildi — boshqa filialni tanlang"; dostavka: "Filial yopildi" (tavsiya) |
 | `cancelled` | `no_branch` | "Hozir buyurtma qabul qilmayapmiz" (ROADMAP 2) |
 
-Oqim: `pending` → `preparing` (kassir qabul qildi) → `ready` (oshpaz yordamchisi "Tayyor" bosdi). Dostavkada `status`
+Oqim: `pending` → `preparing` (kassir qabul qildi) → `ready` (oshpaz yordamchisi "Tayyor" bosdi; filialda
+`cashierMarksReady` yoqilgan bo'lsa — kassir ham). Dostavkada `status`
 `ready` da qoladi, kuryer bosqichlari — vaqt maydonlarida: `departedAt` ("Kuryer yo'lda") → `deliveredAt` ("Yetkazildi")
 yoki `returnedAt` ("Yetkazib bo'lmadi"; kassir buyurtmani kuryerdan olsa — `departedAt` / `returnedAt` yana `null`,
 boshqa kuryer olib ketadi). Kamdan-kam: `ready` → `preparing` (adashib bosilgan "Tayyor" qaytarildi; kuryer yo'lga
@@ -554,6 +555,7 @@ interface Branch {
   onlineEnabled: boolean           // false — admin online qabulni to'xtatgan
   workHours: WorkHours | null      // online qabul vaqti; null — 24/7
   faceIdRequired: boolean          // FaceID tekshiruvi (2026-11-04, standart false) — 15-bo'lim
+  cashierMarksReady: boolean       // kassir ham "Tayyor" / "Qaytarish" bosadi (oshpaz yordamchisi yo'q filial; 2026-11-13, standart false)
   hrSeenAt: string | null          // filial HR tizimi oxirgi marta murojaat qilgan vaqt; null — hali ulanmagan
   onlineState: BranchOnlineState   // faqat GET /branches va GET /branches/:id javobida
 }
@@ -782,6 +784,7 @@ joyda: DTO xatosi — `invalid_input`, tokensiz — `unauthorized`, rol mos emas
 | `PUT /branches/:id/delivery` | admin | `{ location: LatLng \| null, zone: LatLng[], fee: number, fallbackBranchId: string \| null, onlineEnabled: boolean }` | `Branch` | `not_found`, `zone_too_small`, `invalid_location`, `invalid_amount` (fee butun ≥ 0 emas) |
 | `PUT /branches/:id/online` | admin | `{ enabled: boolean }` | `Branch` | `not_found` |
 | `PUT /branches/:id/faceid` | admin | `{ enabled: boolean }` — FaceID tekshiruvi (kartochkadan bir bosishda; terminal buzilsa o'chiriladi) | `Branch` | `not_found`, `invalid_input` |
+| `PUT /branches/:id/cashier-ready` | admin | `{ enabled: boolean }` — kassir ham "Tayyor" / "Qaytarish" bosadi (oshpaz yordamchisi yo'q filial); oshpaz yordamchisining huquqi o'zgarmaydi. Kassa yangi qiymatni filiallar ro'yxatini qayta olganda ko'radi (socket xabari yo'q), server esa har bosishda tekshiradi | `Branch` | `not_found`, `invalid_input` |
 | `GET /branches/:id/hr-key` | admin | | `{ key }` — filial HR tizimi ("NYFF HR") kaliti `br_….<maxfiy qism>`; hali yo'q bo'lsa yaratiladi (offline kalitdan alohida) ([15](#15-faceid-filial-hr-tizimi)) | `not_found` |
 | `POST /branches/:id/hr-key` | admin | | `200 { key }` — yangi kalit, eskisi bilan HR endi ulana olmaydi | `not_found` |
 | `DELETE /branches/:id` | admin | | `204` — ombori (qoldiq yozuvlari), offline va HR kalitlari, TV va kiosk kodlari, FaceID o'tishlari va so'rovlari ham; boshqa filiallarning zaxirasi bo'lsa — `null` ga, taomlarning `unavailableBranchIds` idan chiqariladi | `not_found`, `in_use` — buyurtma (`orders`, o'tkazilganlari ham), smena (`shifts`), chiqim (`expenses`), xodim (`users`), omborida kirim / ko'chirish / harakat (`purchases`, `transfers`, `movements`) bor — faolsizlantiring |
@@ -845,8 +848,8 @@ tashlanadi); buyurtma izohi `note?: string ≤500`. Narx, nom — bazadan (taom 
 | `GET /orders` | admin | query: `branchId?`, `status?`, `source?`, `type?`, `shiftId?`, `payment?` (aralash to'lovda o'sha qismi bori ham), `cashierId?`, `courierId?`, `number?`, `from?`, `to?` (ISO; `createdAt`: `from` kiradi, `to` kirmaydi), `page?`, `limit?` | `Page<Order> & { summary: { count, paid: { count, amount }, cancelled: { count, amount }, pending: { count, amount } } }` — yangisi birinchi; `summary` — filtrlangan **hamma** buyurtmalar bo'yicha (sahifadan qat'i nazar) | |
 | `GET /orders/:id` | cashier, kitchen, admin | | `Order` (filial xodimi — faqat o'z filialiniki) | `not_found`, `forbidden` |
 | `POST /orders/:id/confirm` | cashier | kiosk: `{ payment: PaymentMethod, split? }`; mobil: `{}` (to'lov — `online.payment`) | `200 Order` (`pending` → `preparing`) | `not_found`, `forbidden` (boshqa filial), `invalid_status`, `shift_not_open`, `invalid_amount` |
-| `POST /orders/:id/ready` | kitchen (o'z filiali) | | `200 Order` (`preparing` → `ready`) | `not_found`, `forbidden`, `invalid_status` |
-| `POST /orders/:id/reopen` | kitchen (o'z filiali) | | `200 Order` (`ready` → `preparing`) | `not_found`, `forbidden`, `invalid_status` |
+| `POST /orders/:id/ready` | kitchen (o'z filiali); cashier (o'z filiali, filialda `cashierMarksReady`) | | `200 Order` (`preparing` → `ready`) | `not_found`, `forbidden` (kassir — filialda o'chiq), `invalid_status` |
+| `POST /orders/:id/reopen` | kitchen (o'z filiali); cashier (o'z filiali, filialda `cashierMarksReady`) | | `200 Order` (`ready` → `preparing`) | `not_found`, `forbidden` (kassir — filialda o'chiq), `invalid_status` |
 | `POST /orders/:id/cancel` | cashier (o'z filiali), admin | | `200 Order` (`cancelled`, `cancelReason: null`) | `not_found`, `forbidden`, `invalid_status` (allaqachon bekor; kuryer yetkazgan) |
 | `POST /orders/:id/release-courier` | cashier (o'z filiali), admin | | `200 Order` — kuryer maydonlari tozalanadi (`courierId`, `departedAt`, `returnedAt`, … `null`), dostavka yana kuryerlarning "Yangi" ro'yxatida. "Yetkazib bo'lmadi" bilan qaytgan yoki kuryer olib qolib ketgan buyurtma uchun | `not_found`, `forbidden`, `invalid_status` (kuryeri yo'q, yetkazilgan yoki bekor) |
 | `POST /kiosk/orders` | kiosk kodi: `X-Kiosk-Code` ([4.4](#44-tv-va-kiosk)); IP: 30 / 60 s | `{ branchId: string ≤40, type: 'dine_in' \| 'takeaway', items, note?, payment?: 'card' \| 'click' \| null }` | `201 CustomerOrder` | `wrong_kiosk_code` (kod yo'q / noto'g'ri / yangilangan, filial noma'lum), `empty_order`, `invalid_qty`, `not_found` (kod to'g'ri, filial faol emas; taom), `product_unavailable`, `dine_in_only` (olib ketishda), `too_many_attempts` |

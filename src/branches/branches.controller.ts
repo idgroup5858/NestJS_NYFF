@@ -58,6 +58,13 @@ export class BranchesController {
   setFaceId(@Param('id') id: string, @Body() dto: SetOnlineDto) {
     return this.branches.setFaceId(id, dto.enabled);
   }
+
+  /** Oshpaz yordamchisi yo'q filial: kassir ham "Tayyor" / "Qaytarish" bosadi. */
+  @Roles('admin')
+  @Put(':id/cashier-ready')
+  setCashierMarksReady(@Param('id') id: string, @Body() dto: SetOnlineDto) {
+    return this.branches.setCashierMarksReady(id, dto.enabled);
+  }
 }
 
 @Controller('delivery')

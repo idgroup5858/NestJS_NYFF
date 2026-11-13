@@ -146,6 +146,40 @@ describe('HTTP shartnomasi', () => {
     expect(reset.body.workHours).toBeNull();
   });
 
+  it('filial "Kassir tayyor bosadi": tugma — faqat admin; yoqilganda kassir `/ready` va `/reopen` (200), o\'chiq — 403', async () => {
+    const C = 'br_chilonzor';
+    const setFlag = (enabled: boolean, user = 'usr_admin') =>
+      http().put(`/api/branches/${C}/cashier-ready`).set(as(user)).send({ enabled });
+    const branches = (await http().get('/api/branches').expect(200)).body as { cashierMarksReady: boolean }[];
+    expect(branches.every((b) => b.cashierMarksReady === false)).toBe(true);
+    await setFlag(true, 'usr_cashier_c1').expect(403);
+    await http().put('/api/branches/br_yoq/cashier-ready').set(as('usr_admin')).send({ enabled: true }).expect(404);
+    await http().put(`/api/branches/${C}/cashier-ready`).set(as('usr_admin')).send({ enabled: 'ha' }).expect(400);
+
+    const order = (
+      await http()
+        .post('/api/orders')
+        .set(as('usr_cashier_c1'))
+        .send({ type: 'dine_in', items: [{ productId: 'burger-classic', qty: 1 }], payment: 'cash' })
+        .expect(201)
+    ).body as { id: string };
+    expect((await http().post(`/api/orders/${order.id}/ready`).set(as('usr_cashier_c1')).expect(403)).body.code).toBe('forbidden');
+
+    expect((await setFlag(true).expect(200)).body).toMatchObject({ id: C, cashierMarksReady: true });
+    try {
+      const ready = await http().post(`/api/orders/${order.id}/ready`).set(as('usr_cashier_c1')).expect(200);
+      expect(ready.body).toMatchObject({ id: order.id, status: 'ready' });
+      const reopened = await http().post(`/api/orders/${order.id}/reopen`).set(as('usr_cashier_c1')).expect(200);
+      expect(reopened.body).toMatchObject({ id: order.id, status: 'preparing', readyAt: null });
+      // ta'minotchi va admin — rol bo'yicha yo'q
+      await http().post(`/api/orders/${order.id}/ready`).set(as('usr_supplier')).expect(403);
+      await http().post(`/api/orders/${order.id}/ready`).set(as('usr_admin')).expect(403);
+    } finally {
+      await setFlag(false).expect(200);
+    }
+    await http().post(`/api/orders/${order.id}/ready`).set(as('usr_cashier_c1')).expect(403);
+  });
+
   it("mobil: forma xatosi filial tanlashdan oldin; ochiq filial yo'q — branch_closed", async () => {
     // asosiy demo bazada smenalar yo'q — hamma filial yopiq
     await app.get(DataSource).query(`UPDATE shifts SET "closedAt" = now() WHERE "closedAt" IS NULL`);

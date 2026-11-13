@@ -57,6 +57,13 @@ export class Branch {
   @Column({ default: false })
   faceIdRequired: boolean;
 
+  /**
+   * Oshpaz yordamchisi yo'q filial (2026-11-13): kassir ham "Tayyor" / "Qaytarish" bosadi (kassadagi "Tayyorlanmoqda"
+   * bo'limida). Oshpaz yordamchisining huquqi o'zgarmaydi. Standart — o'chiq.
+   */
+  @Column({ default: false })
+  cashierMarksReady: boolean;
+
   /** filial HR tizimi markazga oxirgi marta murojaat qilgan vaqt (admin kartochkasida — HR ishlayaptimi) */
   @Column({ type: 'timestamptz', nullable: true })
   hrSeenAt: Date | null;

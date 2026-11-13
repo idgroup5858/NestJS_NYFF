@@ -379,6 +379,7 @@ export function buildBase(now: Date): DemoBase {
       ...DELIVERY[id],
       workHours: null,
       faceIdRequired: false,
+      cashierMarksReady: false,
       hrSeenAt: null,
     })),
     warehouses: WAREHOUSES.map((warehouse) => ({ ...warehouse })),

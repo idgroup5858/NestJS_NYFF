@@ -73,14 +73,15 @@ export class OrdersController {
     return this.orders.confirm(id, user, dto);
   }
 
-  @Roles('kitchen')
+  /** Oshpaz yordamchisi; kassir — faqat filialda `cashierMarksReady` yoqilgan bo'lsa (servis tekshiradi). */
+  @Roles('kitchen', 'cashier')
   @Post(':id/ready')
   @HttpCode(200)
   markReady(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.orders.markReady(id, user);
   }
 
-  @Roles('kitchen')
+  @Roles('kitchen', 'cashier')
   @Post(':id/reopen')
   @HttpCode(200)
   reopen(@Param('id') id: string, @CurrentUser() user: AuthUser) {
