@@ -42,7 +42,10 @@ export const NON_COMPOSITION_GROUPS: readonly IngredientGroup[] = ['cleaning', '
 export const PURCHASE_STATUSES = ['pending', 'approved', 'rejected'] as const;
 export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
 
-/** `adjust` — qoldiqni 0 ga tushirish (admin, `StockAdjustment` hujjati; 2026-11-10) */
+/**
+ * `adjust` — qoldiqni tuzatish, `StockAdjustment` hujjati: 0 ga tushirish (admin, 2026-11-10) yoki qo'lda yozish (admin
+ * va ta'minotchi, 2026-11-15)
+ */
 export const MOVEMENT_KINDS = ['purchase', 'transfer_in', 'transfer_out', 'sale', 'sale_cancel', 'adjust'] as const;
 export type MovementKind = (typeof MOVEMENT_KINDS)[number];
 

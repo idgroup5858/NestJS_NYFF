@@ -9,6 +9,7 @@ import {
   MovementsQuery,
   PurchasesQuery,
   SetMinQtyDto,
+  SetStockQtyDto,
   SetTargetQtyDto,
   StockQuery,
   TransfersQuery,
@@ -16,7 +17,10 @@ import {
 } from './warehouse.dto';
 import { WarehouseService } from './warehouse.service';
 
-/** Ombor bo'limi — ta'minotchi va admin (admin ikkala guruhni doim ko'radi). Eski kirimni tasdiqlash — faqat admin. */
+/**
+ * Ombor bo'limi — ta'minotchi va admin. Faqat admin: birlikni o'zgartirish, mahsulot qayerda ishlatilgani, qoldiqni 0 ga
+ * tushirish, eski kirimni tasdiqlash / rad etish.
+ */
 @Roles('admin', 'supplier')
 @Controller()
 export class WarehouseController {
@@ -32,7 +36,7 @@ export class WarehouseController {
     return this.warehouse.ingredients();
   }
 
-  /** `lastPrice` (1 birlik narxi) — faqat admin; ta'minotchi narxsiz qo'shadi / tahrirlaydi (narxni kirimda yozadi). */
+  /** `lastPrice` (1 birlik narxi) — admin ham, ta'minotchi ham (2026-11-15). */
   @Post('ingredients')
   createIngredient(@Body() dto: CreateIngredientDto, @CurrentUser() user: AuthUser) {
     return this.warehouse.saveIngredient(dto, user.role);
@@ -84,6 +88,17 @@ export class WarehouseController {
     @Body() dto: SetTargetQtyDto,
   ) {
     return this.warehouse.setTargetQty(warehouseId, ingredientId, dto.targetQty);
+  }
+
+  /** Qoldiqni qo'lda yozish (admin va ta'minotchi) — farqi "Tuzatish №N" bo'lib yoziladi. */
+  @Put('stock/:warehouseId/:ingredientId/qty')
+  setStockQty(
+    @Param('warehouseId') warehouseId: string,
+    @Param('ingredientId') ingredientId: string,
+    @Body() dto: SetStockQtyDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.warehouse.setStockQty(warehouseId, ingredientId, dto.qty, user.id);
   }
 
   /** Butun omborning qoldig'ini 0 ga tushirish (minus ham, plus ham) — faqat admin; "Tuzatish" hujjati yoziladi. */

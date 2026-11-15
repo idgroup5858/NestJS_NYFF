@@ -17,6 +17,8 @@ import { actor, createTestApp } from './test-app';
  * Qoldiqni 0 ga tushirish (2026-11-10): hisob yuritilmagan davrdan keyin "toza boshlash" — bitta mahsulot yoki butun
  * ombor (minus ham, plus ham), faqat admin. Har biriga teskari `adjust` harakati ("Tuzatish №N", kim yozgani bilan);
  * chegara / norma, boshqa omborlar o'zgarmaydi, "kam qoldi" xabari ketmaydi; sotuv keyin odatdagidek 0 dan ayiradi.
+ *
+ * Qoldiqni qo'lda yozish (2026-11-15, admin va ta'minotchi): farqi (yangi − hozirgi) — o'sha `adjust` / "Tuzatish №N".
  */
 
 const now = new Date('2026-11-10T12:00:00');
@@ -164,5 +166,95 @@ describe('qoldiqni 0 ga tushirish', () => {
     const second = await warehouse.resetStock(WC, 'ketchup', ADMIN, now);
     expect(second).toMatchObject({ count: 1, adjustment: { number: 2 } });
     expect(await qtyOf('ketchup')).toBe(0);
+  });
+
+  describe("qoldiqni qo'lda yozish", () => {
+    const login = async (userId: string, pin: string) => ({
+      Authorization: `Bearer ${(await http().post('/api/auth/login').send({ userId, pin }).expect(200)).body.token}`,
+    });
+    const put = (ingredientId: string, qty: unknown, warehouseId = WC) =>
+      http().put(`/api/stock/${warehouseId}/${ingredientId}/qty`).send({ qty });
+
+    it("ta'minotchi: minus → yozilgan son, farqi — \"Tuzatish №1\" (kim yozgani bilan); chegara / norma joyida; xabarsiz", async () => {
+      const supplier = await login('usr_supplier', '5555');
+      await setStock('ketchup', -1250, 1200, 3000);
+      const others = (await stockOf(WC)).filter((s) => s.ingredientId !== 'ketchup');
+
+      const saved = await put('ketchup', 3000).set(supplier).expect(200);
+      expect(saved.body).toMatchObject({
+        count: 1,
+        adjustment: { number: 1, warehouseId: WC, createdBy: 'usr_supplier' },
+      });
+      expect(
+        await ds.manager.findOneByOrFail(StockItem, { warehouseId: WC, ingredientId: 'ketchup' }),
+      ).toMatchObject({ qty: 3000, minQty: 1200, targetQty: 3000 });
+      expect((await stockOf(WC)).filter((s) => s.ingredientId !== 'ketchup')).toEqual(others);
+
+      // chegaradan pastga tushirish ham — "kam qoldi" xabarisiz
+      await put('ketchup', 500).set(supplier).expect(200);
+      expect(await qtyOf('ketchup')).toBe(500);
+      expect(crossings).toEqual([]);
+
+      const history = await http()
+        .get('/api/movements')
+        .query({ warehouseId: WC, ingredientId: 'ketchup' })
+        .set(supplier)
+        .expect(200);
+      expect(history.body.items.slice(0, 2)).toMatchObject([
+        { kind: 'adjust', qty: -2500, refNumber: 2, refBy: 'usr_supplier' },
+        { kind: 'adjust', qty: 4250, refNumber: 1, refBy: 'usr_supplier', refId: saved.body.adjustment.id },
+      ]);
+
+      // hozirgisi bilan bir xil — hech narsa yozilmaydi
+      expect((await put('ketchup', 500).set(supplier).expect(200)).body).toEqual({ adjustment: null, count: 0 });
+      expect(await ds.manager.count(StockAdjustment)).toBe(2);
+    });
+
+    it('qoldiq yozuvi yo\'q mahsulot — yangi yozuv (chegarasiz); admin ham yozadi', async () => {
+      const admin = {
+        Authorization: `Bearer ${(await http().post('/api/auth/admin-login').send(ADMIN_LOGIN).expect(200)).body.token}`,
+      };
+      await ds.manager.delete(StockItem, { warehouseId: WC, ingredientId: 'ketchup' });
+      const saved = await put('ketchup', 750).set(admin).expect(200);
+      expect(saved.body).toMatchObject({ count: 1, adjustment: { createdBy: ADMIN } });
+      expect(
+        await ds.manager.findOneByOrFail(StockItem, { warehouseId: WC, ingredientId: 'ketchup' }),
+      ).toMatchObject({ qty: 750, minQty: 0, targetQty: 0 });
+    });
+
+    it('xatolar: butun 0…1 mlrd emas — invalid_qty, yo\'q ombor / mahsulot — not_found, kassa xodimi — forbidden', async () => {
+      const supplier = await login('usr_supplier', '5555');
+      await setStock('ketchup', 1000);
+      for (const qty of [-1, 1.5, 1_000_000_001]) {
+        expect((await put('ketchup', qty).set(supplier).expect(400)).body.code).toBe('invalid_qty');
+      }
+      expect((await put('ketchup', '5').set(supplier).expect(400)).body.code).toBe('invalid_input');
+      expect((await put('nope', 5).set(supplier).expect(404)).body.code).toBe('not_found');
+      expect((await put('ketchup', 5, 'wh_nope').set(supplier).expect(404)).body.code).toBe('not_found');
+      const kitchen = await login('usr_kitchen_c1', '1111');
+      expect((await put('ketchup', 5).set(kitchen).expect(403)).body.code).toBe('forbidden');
+      expect(await qtyOf('ketchup')).toBe(1000);
+      expect(await ds.manager.count(StockAdjustment)).toBe(0);
+    });
+
+    it('keyingi sotuv yangi qoldiqdan ayriladi; raqamlash 0 ga tushirish bilan umumiy', async () => {
+      await app.get(ShiftsService).openOrResume(cashier.id, C, now);
+      await warehouse.resetStock(WC, 'ketchup', ADMIN, now);
+      expect(await warehouse.setStockQty(WC, 'ketchup', 2000, 'usr_supplier', now)).toMatchObject({
+        count: 1,
+        adjustment: { number: 2 },
+      });
+
+      const hotdog = await ds.manager.findOneByOrFail(Product, { id: 'hotdog-classic' });
+      const ketchupPerHotdog = hotdog.recipe.find((line) => line.ingredientId === 'ketchup')!.qty;
+      await app
+        .get(OrdersService)
+        .createByCashier(
+          cashier,
+          { type: 'dine_in', items: [{ productId: 'hotdog-classic', qty: 2 }], payment: 'cash' },
+          now,
+        );
+      expect(await qtyOf('ketchup')).toBe(2000 - 2 * ketchupPerHotdog);
+    });
   });
 });

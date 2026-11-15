@@ -2,8 +2,9 @@ import { Column, Entity, PrimaryColumn } from 'typeorm';
 import { ID_LENGTH } from '../common/columns';
 
 /**
- * Qoldiqni 0 ga tushirish (2026-11-10, faqat admin): bitta mahsulot yoki butun ombor. O'zgarishlarning o'zi —
- * `stock_movements` da (`kind = 'adjust'`, `refId` — shu hujjat), bu yerda — raqami, kim va qachon.
+ * "Tuzatish №N": qoldiqni 0 ga tushirish (2026-11-10, faqat admin; bitta mahsulot yoki butun ombor) yoki qo'lda yozish
+ * (2026-11-15, admin va ta'minotchi; bitta mahsulot). O'zgarishlarning o'zi — `stock_movements` da (`kind = 'adjust'`,
+ * `refId` — shu hujjat), bu yerda — raqami, kim va qachon.
  */
 @Entity('stock_adjustments')
 export class StockAdjustment {

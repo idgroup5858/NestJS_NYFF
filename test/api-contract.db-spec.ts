@@ -100,7 +100,7 @@ describe('HTTP shartnomasi', () => {
     expect(again.body.code).toBe('already_decided');
   });
 
-  it("ombor mahsuloti narxi: admin qo'shishda va tahrirda kiritadi; ta'minotchi — yo'q; keyingi kirimga yoziladi", async () => {
+  it("ombor mahsuloti narxi: admin ham, ta'minotchi ham qo'shishda va tahrirda kiritadi; keyingi kirimga yoziladi", async () => {
     const body = { name: { uz: 'Yalpiz', ru: '', en: '' }, group: 'vegetables', unit: 'kg', active: true };
     const created = await http().post('/api/ingredients').set(as('usr_admin')).send({ ...body, lastPrice: 40_000 }).expect(201);
     expect(created.body.lastPrice).toBe(40_000);
@@ -116,9 +116,14 @@ describe('HTTP shartnomasi', () => {
       .expect(200);
     expect(renamed.body).toMatchObject({ lastPrice: 42_000, name: { uz: 'Yalpiz (yangi)' } });
 
-    const supplier = await http().patch(`/api/ingredients/${id}`).set(as('usr_supplier')).send({ ...body, lastPrice: 1 }).expect(403);
-    expect(supplier.body.code).toBe('forbidden');
-    await http().post('/api/ingredients').set(as('usr_supplier')).send({ ...body, lastPrice: 1 }).expect(403);
+    // ta'minotchi ham narx yozadi (2026-11-15; avval `forbidden` edi)
+    const supplierCreated = await http().post('/api/ingredients').set(as('usr_supplier')).send({ ...body, lastPrice: 9_000 }).expect(201);
+    expect(supplierCreated.body.lastPrice).toBe(9_000);
+    const supplierFractional = await http().patch(`/api/ingredients/${id}`).set(as('usr_supplier')).send({ ...body, lastPrice: -1 }).expect(400);
+    expect(supplierFractional.body.code).toBe('invalid_price');
+    const supplierEdited = await http().patch(`/api/ingredients/${id}`).set(as('usr_supplier')).send({ ...body, lastPrice: 41_000 }).expect(200);
+    expect(supplierEdited.body.lastPrice).toBe(41_000);
+    await http().patch(`/api/ingredients/${id}`).set(as('usr_admin')).send({ ...body, lastPrice: 42_000 }).expect(200);
     const fractional = await http().patch(`/api/ingredients/${id}`).set(as('usr_admin')).send({ ...body, lastPrice: 1.5 }).expect(400);
     expect(fractional.body.code).toBe('invalid_price');
 

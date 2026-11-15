@@ -33,7 +33,10 @@ export class Ingredient {
   @Column('int', { nullable: true })
   packSize: number | null;
 
-  /** oxirgi tasdiqlangan kirimdagi 1 birlik (qadoq bo'lsa — 1 dona, aks holda kg / l / dona) narxi — keyingi kirimda avtomatik yoziladi */
+  /**
+   * 1 birlik (qadoq bo'lsa — 1 dona, aks holda kg / l / dona) narxi: oxirgi kirimdagi yoki mahsulot oynasida (admin,
+   * ta'minotchi) yozilgani — keyingi kirimda avtomatik yoziladi
+   */
   @Column('bigint', { nullable: true, transformer: bigintNumber })
   lastPrice: number | null;
 

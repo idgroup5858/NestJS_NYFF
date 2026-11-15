@@ -141,12 +141,16 @@ describe('ombor mahsuloti qadog\'i (1 dona = 600 g)', () => {
     });
   });
 
-  it("qadoq hajmi — butun 1…1 000 000; ta'minotchi narx yubora olmaydi; HTTP javobida packSize", async () => {
+  it("qadoq hajmi — butun 1…1 000 000; ta'minotchi yuborgan narx — yangi birlikda; HTTP javobida packSize", async () => {
     for (const packSize of [0, -600, 0.5, 1_000_001]) {
       await expectCode('invalid_qty', () => saveKetchup({ packSize }, 'admin'));
     }
-    await expectCode('forbidden', () => saveKetchup({ packSize: 600, lastPrice: 16800 }, 'supplier'));
     expect((await ketchup()).packSize).toBeNull();
+    // ta'minotchi narxni ham yuborsa (2026-11-15) — admindagidek o'zgarishsiz, qayta hisoblanmaydi
+    expect(await saveKetchup({ packSize: 600, lastPrice: 17500 }, 'supplier')).toMatchObject({
+      packSize: 600,
+      lastPrice: 17500,
+    });
 
     const token = (await http().post('/api/auth/admin-login').send(ADMIN_LOGIN).expect(200)).body.token as string;
     const auth = { Authorization: `Bearer ${token}` };
@@ -169,7 +173,7 @@ describe('ombor mahsuloti qadog\'i (1 dona = 600 g)', () => {
       .expect(400);
     expect(bad.body.code).toBe('invalid_input');
     const list = (await http().get('/api/ingredients').set(auth).expect(200)).body as Ingredient[];
-    expect(list.find((i) => i.id === 'ketchup')?.packSize).toBeNull();
+    expect(list.find((i) => i.id === 'ketchup')?.packSize).toBe(600);
   });
 
   it('AI: qoldiq donada va "9 dona + 550 g"; kirim — qatordagi hajm bilan', async () => {

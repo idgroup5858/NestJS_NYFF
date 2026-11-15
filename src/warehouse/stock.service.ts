@@ -50,8 +50,8 @@ export class StockService {
    * to'xtamaydi). Bitta SQL bilan qo'shiladi (`qty = qty + delta`) — bir vaqtdagi buyurtmalar bir-birini o'chirmaydi.
    * Qoldig'i shu o'zgarish bilan chegaradan pastga tushgan mahsulotlar — `LowStockEvents` ga (tranzaksiya tugagach
    * Telegram'ga): qator qulflangan holda yangilanadi, shuning uchun bir vaqtdagi sotuvlardan faqat bittasi "tushirgan"
-   * bo'ladi — xabar bir marta. Qoldiqni 0 ga tushirish (`adjust`) — xabarsiz: butun ombor 0 qilinganda o'nlab
-   * "kam qoldi" ketmasin.
+   * bo'ladi — xabar bir marta. Qoldiqni tuzatish (`adjust`: 0 ga tushirish, qo'lda yozish) — xabarsiz: butun ombor 0
+   * qilinganda o'nlab "kam qoldi" ketmasin, qo'lda yozilganini esa yozgan odam ko'rib turibdi.
    */
   async applyDeltas(
     em: EntityManager,

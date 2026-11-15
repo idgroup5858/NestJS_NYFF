@@ -28,9 +28,9 @@ class IngredientFieldsDto {
   active: boolean;
 
   /**
-   * 1 birlik (qadoq bo'lsa — 1 dona, aks holda kg / l / dona) narxi, so'm (butun ≥ 0 — servisda `invalid_price`). Faqat
-   * admin; berilmasa — o'zgarmaydi (qadoq hajmi o'zgarsa — yangi birlikka qayta hisoblanadi), `null` — narxsiz. Kirim
-   * formasida oldindan yoziladi, har kirimda ta'minotchi kiritgan narxga yangilanadi.
+   * 1 birlik (qadoq bo'lsa — 1 dona, aks holda kg / l / dona) narxi, so'm (butun ≥ 0 — servisda `invalid_price`). Admin
+   * va ta'minotchi; berilmasa — o'zgarmaydi (qadoq hajmi o'zgarsa — yangi birlikka qayta hisoblanadi), `null` — narxsiz.
+   * Kirim formasida oldindan yoziladi, har kirimda kirim narxiga yangilanadi.
    */
   @IsOptional()
   @IsNumber()
@@ -72,6 +72,12 @@ export class SetTargetQtyDto {
   /** norma, asosiy birlikda (g / ml / dona), butun son; 0 — yozilmagan (chegara × 2, u ham yo'q — 10 birlik) */
   @IsNumber()
   targetQty: number;
+}
+
+export class SetStockQtyDto {
+  /** yangi qoldiq, asosiy birlikda (g / ml / dona), butun 0…1 000 000 000 — servisda `invalid_qty` */
+  @IsNumber()
+  qty: number;
 }
 
 export class StockQuery {

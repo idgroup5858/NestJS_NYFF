@@ -16,7 +16,7 @@ import { Purchase } from './purchase.entity';
 import { StockAdjustment } from './stock-adjustment.entity';
 import { StockItem } from './stock-item.entity';
 import { StockMovement } from './stock-movement.entity';
-import { StockService } from './stock.service';
+import { StockService, type StockDelta } from './stock.service';
 import { Transfer } from './transfer.entity';
 import {
   CreateIngredientDto,
@@ -35,7 +35,10 @@ export type MovementWithRef = StockMovement & {
   refBy: string | null;
 };
 
-/** Qoldiqni 0 ga tushirish natijasi: hujjat (0 dan farqli qoldiq yo'q edi — `null`, hech narsa yozilmadi) va nechtasi. */
+/**
+ * Qoldiqni tuzatish (0 ga tushirish yoki qo'lda yozish) natijasi: hujjat (o'zgarish yo'q edi — `null`, hech narsa
+ * yozilmadi) va nechta mahsulot qoldig'i o'zgardi.
+ */
 export interface StockReset {
   adjustment: StockAdjustment | null;
   count: number;
@@ -55,6 +58,9 @@ export interface IngredientUsage {
 
 /** Qadoq hajmining yuqori chegarasi (asosiy birlikda): 1 dona = 1 t / 1000 l / 1 mln dona. */
 const MAX_PACK_SIZE = 1_000_000;
+
+/** Qo'lda yoziladigan qoldiqning yuqori chegarasi (asosiy birlikda): 1000 t / 1 mln l / 1 mlrd dona — `int` ustunga sig'adi. */
+const MAX_STOCK_QTY = 1_000_000_000;
 
 /** SQL sharti: `jsonb` ro'yxatda (retsept, hujjat qatorlari) shu mahsulot bor — `$1` — mahsulot id'si. */
 const containsIngredient = (column: string) =>
@@ -79,10 +85,9 @@ export class WarehouseService {
   }
 
   /**
-   * Ombor mahsuloti. Narxni ([lastPrice]) bu yerda faqat admin kiritadi — ta'minotchi yuborsa `forbidden` (ta'minotchi
-   * narxni kirimda yozadi — oxirgi narx shunga yangilanadi). Qadoq hajmi
-   * ([packSize]) o'zgarib, narx yuborilmagan bo'lsa (ta'minotchi tahriri) — eski narx yangi birlikka qayta hisoblanadi
-   * (28 000 / kg → 600 g lik qadoq — 16 800 / dona); admin yuborgan narx — yangi birlikda.
+   * Ombor mahsuloti. Narxni ([lastPrice]) admin ham, ta'minotchi ham kiritadi (2026-11-15; avval faqat admin); har
+   * kirimda u kirim narxiga yangilanadi. Qadoq hajmi ([packSize]) o'zgarib, narx yuborilmagan bo'lsa — eski narx yangi
+   * birlikka qayta hisoblanadi (28 000 / kg → 600 g lik qadoq — 16 800 / dona); yuborilgan narx — yangi birlikda.
    *
    * Birlik ([unit]) tahrirda — faqat admin (2026-11-08). Qoldiq, chegara, retseptlar, qadoq hajmi va hujjatlardagi
    * sonlar o'zgarmaydi (foydalanuvchi tanladi) — web avval ogohlantirib, qayerlarni qayta tekshirishni ko'rsatadi
@@ -97,10 +102,7 @@ export class WarehouseService {
     const name = { uz: input.name.uz.trim(), ru: input.name.ru.trim(), en: input.name.en.trim() };
     if (!name.uz) fail('name_required');
     const lastPrice = input.lastPrice;
-    if (lastPrice !== undefined) {
-      if (actorRole !== 'admin') fail('forbidden', 'lastPrice');
-      if (lastPrice !== null && (!Number.isInteger(lastPrice) || lastPrice < 0)) fail('invalid_price');
-    }
+    if (lastPrice != null && (!Number.isInteger(lastPrice) || lastPrice < 0)) fail('invalid_price');
     const packSize = input.packSize;
     if (packSize != null && (!Number.isInteger(packSize) || packSize < 1 || packSize > MAX_PACK_SIZE)) {
       fail('invalid_qty', 'packSize');
@@ -277,20 +279,55 @@ export class WarehouseService {
          ORDER BY "ingredientId" FOR UPDATE`,
         ingredientId ? [warehouseId, ingredientId] : [warehouseId],
       );
-      if (rows.length === 0) return { adjustment: null, count: 0 };
-
-      const adjustment: StockAdjustment = {
-        id: newId('adj'),
-        number: await nextCounter(em, 'adjustment'),
-        warehouseId,
-        createdBy,
-        createdAt: now,
-      };
-      await em.insert(StockAdjustment, adjustment);
       const deltas = rows.map((row) => ({ ingredientId: row.ingredientId, qty: -row.qty }));
-      await this.stock.applyDeltas(em, warehouseId, deltas, 'adjust', adjustment.id, now);
-      return { adjustment, count: rows.length };
+      return this.adjustStock(em, warehouseId, deltas, createdBy, now);
     });
+  }
+
+  /**
+   * Qoldiqni qo'lda yozish (2026-11-15, admin va ta'minotchi) — sanab chiqilgan haqiqiy qoldiq: xato kirim, yo'qolgan /
+   * buzilgan mahsulot. [qty] — yangi qoldiq, asosiy birlikda (g / ml / dona), butun 0…1 mlrd (`invalid_qty`).
+   * To'g'ridan-to'g'ri `qty = …` emas — farqi (yangi − hozirgi) `adjust` harakati va "Tuzatish №N" hujjati bo'lib
+   * yoziladi (0 ga tushirishdagidek: kim, qachon, qancha; "kam qoldi" xabari ketmaydi). Qator qulflanadi: shu paytdagi
+   * sotuv kutib turadi va yangi qoldiqdan ayriladi. Hozirgisi bilan bir xil — hujjatsiz (`count` 0).
+   */
+  async setStockQty(
+    warehouseId: string,
+    ingredientId: string,
+    qty: number,
+    createdBy: string,
+    now = new Date(),
+  ): Promise<StockReset> {
+    return this.dataSource.transaction(async (em) => {
+      await this.getWarehouse(em, warehouseId);
+      await this.getIngredient(em, ingredientId);
+      if (!Number.isInteger(qty) || qty < 0 || qty > MAX_STOCK_QTY) fail('invalid_qty', ingredientId);
+      const current = (await this.stock.lockQty(em, warehouseId, [ingredientId])).get(ingredientId) ?? 0;
+      return this.adjustStock(em, warehouseId, [{ ingredientId, qty: qty - current }], createdBy, now);
+    });
+  }
+
+  /** "Tuzatish №N" hujjati va har o'zgarishga `adjust` harakati; o'zgarish yo'q (hammasi 0) — hech narsa yozilmaydi. */
+  private async adjustStock(
+    em: EntityManager,
+    warehouseId: string,
+    deltas: StockDelta[],
+    createdBy: string,
+    now: Date,
+  ): Promise<StockReset> {
+    const changes = deltas.filter((delta) => delta.qty !== 0);
+    if (changes.length === 0) return { adjustment: null, count: 0 };
+
+    const adjustment: StockAdjustment = {
+      id: newId('adj'),
+      number: await nextCounter(em, 'adjustment'),
+      warehouseId,
+      createdBy,
+      createdAt: now,
+    };
+    await em.insert(StockAdjustment, adjustment);
+    await this.stock.applyDeltas(em, warehouseId, changes, 'adjust', adjustment.id, now);
+    return { adjustment, count: changes.length };
   }
 
   /**
