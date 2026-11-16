@@ -218,14 +218,15 @@ export class TelegramService implements OnApplicationBootstrap, OnApplicationShu
   // ───────────────────────── smena hisoboti ─────────────────────────
 
   /**
-   * Smena yopildi (kassir yoki admin) — hisobot ulangan hamma admin chatlariga. Smenani yopish bunga kutmaydi: bot
+   * Smena yopildi (kassir, admin yoki avtomatik — keyingi kassir kirganda) — hisobot ulangan hamma admin chatlariga.
+   * Smenani yopish (va kirish) bunga kutmaydi: bot
    * ulanmagan, Telegram javob bermasa ham smena yopilaveradi (xato logga).
    */
-  private async sendShiftReport({ shiftId, closedBy }: ShiftClosed): Promise<void> {
+  private async sendShiftReport({ shiftId, closedBy, auto }: ShiftClosed): Promise<void> {
     try {
       const targets = await this.adminTargets();
       if (!targets) return;
-      const text = shiftReportText(await loadShiftReport(this.dataSource.manager, shiftId, closedBy));
+      const text = shiftReportText(await loadShiftReport(this.dataSource.manager, shiftId, closedBy, auto));
       for (const chatId of targets.chatIds) await this.send(targets.token, chatId, text);
     } catch (error) {
       this.logger.error(`Smena hisoboti ${shiftId}: ${(error as Error).message}`);

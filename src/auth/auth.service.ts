@@ -54,6 +54,12 @@ function loginBranch(user: User, requested: string | undefined): string | null {
   return user.branchIds.length === 1 ? user.branchIds[0] : fail('branch_required');
 }
 
+/** Kirish ekranidagi xodim ([AuthService.staff]). */
+export type StaffMember = AuthUser & {
+  /** faqat filial bo'yicha so'ralganda, kassirda: shu filialdagi ochiq smenasi ochilgan vaqt yoki `null` */
+  openShiftAt?: Date | null;
+};
+
 export interface LoginResult {
   token: string;
   user: AuthUser;
@@ -92,19 +98,29 @@ export class AuthService implements OnModuleInit {
   /**
    * Kirish ekrani uchun: PIN bilan kiradigan faol xodimlar (ism va rol) — PIN va boshqa maydonlarsiz. Admin va kuryer
    * chiqmaydi: ular email va parol bilan kiradi ([passwordLogin]), ismlari ochiq ro'yxatda ko'rinmasin.
+   *
+   * Filial berilsa — kassirlarda `openShiftAt`: shu filialdagi ochiq smenasi qachon ochilgani (yo'q — `null`). Kassa
+   * kirish ekranida "smenani yopmagan" deb ogohlantiradi — boshqa kassir kirsa, u smena yopiladi ([login]).
    */
-  async staff(filter: { branchId?: string; role?: Role }): Promise<AuthUser[]> {
+  async staff(filter: { branchId?: string; role?: Role }): Promise<StaffMember[]> {
     if (filter.role && usesPassword(filter.role)) return [];
-    const users = await this.users.find({
-      where: {
-        active: true,
-        role: filter.role ?? In(PIN_ROLES),
-        // bir nechta filialda ishlaydigan xodim — har birining ro'yxatida
-        ...(filter.branchId && { branchIds: worksAt(filter.branchId) }),
-      },
-      order: { name: 'ASC', surname: 'ASC' },
+    const [users, open] = await Promise.all([
+      this.users.find({
+        where: {
+          active: true,
+          role: filter.role ?? In(PIN_ROLES),
+          // bir nechta filialda ishlaydigan xodim — har birining ro'yxatida
+          ...(filter.branchId && { branchIds: worksAt(filter.branchId) }),
+        },
+        order: { name: 'ASC', surname: 'ASC' },
+      }),
+      filter.branchId ? this.shifts.openInBranch(filter.branchId) : null,
+    ]);
+    return users.map((user) => {
+      const member: StaffMember = toAuthUser(user, filter.branchId ?? null);
+      if (open && user.role === 'cashier') member.openShiftAt = open.get(user.id) ?? null;
+      return member;
     });
-    return users.map((user) => toAuthUser(user, filter.branchId ?? null));
   }
 
   /**
@@ -114,13 +130,22 @@ export class AuthService implements OnModuleInit {
    * [branchId] — kassa turgan filial (kirish ekranida tanlangan); xodim shu filialda ishlashi shart (`forbidden`), u
    * tokenga yoziladi. Berilmasa — xodimning yagona filiali (bir nechta bo'lsa — `branch_required`). Kassirning boshqa
    * filialda ochiq smenasi bo'lsa — `shift_open_elsewhere` (`detail` — o'sha filial nomi): avval o'sha yerda topshiradi.
+   *
+   * Kassir kirdi (o'z smenasi ochildi yoki davom etdi) — shu filialda **boshqa** kassirlarning ochiq smenalari yopiladi
+   * (topshirmay ketgan; [ShiftsService.closeLeftOpen], 2026-11-17). Kirish rad etilsa (PIN, FaceID, boshqa filial) —
+   * hech narsa yopilmaydi. Blokdan chiqish ([unlock]) va `POST /shifts/current` — yopmaydi.
    */
   async login(userId: string, pin: string, branchId?: string, now = new Date()): Promise<LoginResult> {
     await this.assertPinRole(userId);
     const user = await this.checkPin(userId, pin, now);
     const branch = loginBranch(user, branchId);
-    const shift = user.role === 'cashier' && branch ? await this.shifts.openOrResume(user.id, branch, now) : null;
-    return { token: await this.sign(user.id, branch), user: toAuthUser(user, branch), shift };
+    const authUser = toAuthUser(user, branch);
+    let shift: Shift | null = null;
+    if (user.role === 'cashier' && branch) {
+      shift = await this.shifts.openOrResume(user.id, branch, now);
+      await this.shifts.closeLeftOpen(branch, authUser, now);
+    }
+    return { token: await this.sign(user.id, branch), user: authUser, shift };
   }
 
   /**

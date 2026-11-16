@@ -60,7 +60,7 @@
                     PAROLNI OZGARTIRISH
                     sudo -u postgres psql
                     ALTER USER postgres WITH PASSWORD 'root';
-                    CREATE DATABASE prses OWNER postgres;
+                    CREATE DATABASE nyff OWNER postgres;
                     sudo -u postgres psql -l
 
                     \q

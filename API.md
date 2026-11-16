@@ -224,10 +224,12 @@ majburiy); TV navbati — faqat filial TV kodi, kiosk buyurtmasi — faqat filia
 ### 4.3 Xodim kirishi
 
 1. `GET /api/branches` — filiallar (kirish ekranida filial tanlash).
-2. `GET /api/auth/staff?branchId=br_chilonzor&role=cashier` — shu filialda ishlaydigan faol xodimlar `AuthUser[]`
+2. `GET /api/auth/staff?branchId=br_chilonzor&role=cashier` — shu filialda ishlaydigan faol xodimlar `StaffMember[]`
    (PINsiz; bir nechta filialda ishlaydigan xodim — har birining ro'yxatida). Ta'minotchi (filialsiz) —
    `?role=supplier`, `branchId` siz. Admin va kuryerlar bu ro'yxatda **chiqmaydi** (`?role=admin`, `?role=courier` —
-   `[]`): ular email va parol bilan kiradi (pastda).
+   `[]`): ular email va parol bilan kiradi (pastda). `branchId` bilan so'ralganda kassirlarda `openShiftAt` — shu
+   filialdagi ochiq smenasi ochilgan vaqt (yo'q — `null`; 2026-11-17): kassa kirish ekrani "smena yopilmagan" deb
+   ogohlantiradi — kassir topshirmay ketgan, boshqa kassir kirsa u yopiladi (3-qadam).
 3. `POST /api/auth/login` `{ "userId": "usr_cashier_c1", "pin": "1234", "branchId": "br_chilonzor" }` →
    `{ token, user: AuthUser, shift: Shift | null }`. `branchId` — kassa turgan filial (1-qadamda tanlangan); u
    tokenga yoziladi va sessiyaning **joriy filiali** bo'ladi (`user.branchId`): buyurtma, smena, socket xonasi —
@@ -238,7 +240,13 @@ majburiy); TV navbati — faqat filial TV kodi, kiosk buyurtmasi — faqat filia
    to'g'ri — xato urinish sanalmaydi): avval o'sha filialda "Smenani topshirish" yoki admin yopadi
    (`POST /shifts/:id/close`). Filialda FaceID yoqilgan bo'lsa (2026-11-04) — kassir avval terminaldan «Kirish» bilan
    o'tadi, aks holda `409 faceid_checkin_required` (PIN to'g'ri bo'lgandan keyin; terminal ishlamasa — admindan Telegram
-   orqali ruxsat, [15](#15-faceid-filial-hr-tizimi)).
+   orqali ruxsat, [15](#15-faceid-filial-hr-tizimi)). **Topshirilmagan smena** (2026-11-17): kassir kirdi (o'z
+   smenasi ochildi yoki davom etdi) — shu filialda **boshqa** kassirlarning ochiq smenalari shu payt bilan yopiladi
+   (kassir brauzerni yopib ketgan), har biriga Telegram'ga "avtomatik yopildi" hisoboti ([13](#13-ai-yordamchi-va-telegram-bot)).
+   Kirish rad etilsa (PIN, FaceID, `shift_open_elsewhere`) — hech narsa yopilmaydi; oshpaz yordamchisi kirishi,
+   `POST /auth/unlock` va `POST /shifts/current` — yopmaydi. Bir filialda bir vaqtda ikki kassada ishlansa, kirgan
+   kassir ikkinchisining smenasini ham yopadi (uning kassasi keyingi sotuvda `POST /shifts/current` bilan yangisini
+   ochadi) — himoya hali yo'q ([11](#11-cheklovlar-va-noaniq-joylar)).
 4. Keyingi so'rovlarda `Authorization: Bearer <token>`. Token 24 soat amal qiladi; yangilash — `POST /auth/unlock`
    (kassa blokdan chiqishi; amaldagi token kerak, yangisi o'sha filial bilan). Token eskirsa (`401`) — qaytadan
    kirish. Admin xodimni tokendagi filialdan olib tashlasa — o'sha token `401` (boshqa filialdagi sessiyasi ishlayveradi).
@@ -687,6 +695,9 @@ interface AuthUser {
   id: string; name: string; surname: string; role: Role
   branchId: string | null; branchIds: string[]; email: string | null
 }
+// `GET /auth/staff` — `branchId` bilan so'ralganda kassirlarda openShiftAt: shu filialdagi ochiq smenasi ochilgan
+//   vaqt yoki null (2026-11-17); boshqa rollarda va `branchId` siz — maydon yo'q
+interface StaffMember extends AuthUser { openShiftAt?: string | null }
 // PIN / parol hech qachon qaytmaydi; 2026-11-04 dan `branchId` o'rniga `branchIds`
 // employeeNos — kassirning tabel raqamlari (FaceID): filial id → filial HR'idagi / terminaldagi raqam; boshqa rollarda {}
 interface User extends Omit<AuthUser, 'branchId'> {
@@ -762,7 +773,7 @@ joyda: DTO xatosi — `invalid_input`, tokensiz — `unauthorized`, rol mos emas
 
 | Metod va yo'l | Kim | So'rov | Javob | Xatolar |
 |---|---|---|---|---|
-| `GET /auth/staff` | ochiq | query: `branchId?`, `role?` | `AuthUser[]` (faollari, ism bo'yicha; kuryerlarsiz; `branchId` berilsa — shu filialda ishlaydiganlar) | |
+| `GET /auth/staff` | ochiq | query: `branchId?`, `role?` | `StaffMember[]` (faollari, ism bo'yicha; kuryerlarsiz; `branchId` berilsa — shu filialda ishlaydiganlar, kassirlarda `openShiftAt`) | |
 | `POST /auth/login` | ochiq | `{ userId: string ≤40, pin: string ≤8, branchId?: string ≤40 }` — kassir, oshpaz yordamchisi, ta'minotchi; `branchId` — kassa turgan filial ([4.3](#43-xodim-kirishi)) | `200 { token, user: AuthUser, shift: Shift \| null }` | `not_found`, `user_inactive`, `wrong_pin`, `too_many_attempts`, `forbidden` (admin / kuryer; xodim bu filialda ishlamaydi), `branch_required` (bir nechta filial, `branchId` yo'q), `shift_open_elsewhere`, `faceid_checkin_required` (FaceID filiali, [15](#15-faceid-filial-hr-tizimi)) |
 | `POST /auth/admin-login` | ochiq | `{ email: string ≤100, password: string ≤64 }` | `200 { token, user: AuthUser, shift: null }` | `wrong_login`, `user_inactive`, `too_many_attempts` |
 | `POST /auth/courier-login` | ochiq | `{ email: string ≤100, password: string ≤64 }` | `200 { token, user: AuthUser, shift: null }` | `wrong_login`, `user_inactive`, `too_many_attempts` |
@@ -893,7 +904,8 @@ Tafsilotlar:
 Kassirda bir vaqtda bittadan ortiq ochiq smena bo'lmaydi — bir nechta filialda ishlasa ham (2026-11-04; avval — har
 filialda bittadan): boshqa filialda ochiq qolgan bo'lsa `POST /auth/login` va `POST /shifts/current` —
 `409 shift_open_elsewhere` (`detail` — o'sha filial nomi), naqd pul hisobi aralashmasin. Unutilgan smenani kassir
-o'sha filialda topshiradi yoki admin yopadi (`POST /shifts/:id/close`). Smena yopilsa filial `no_shift` bo'lishi
+o'sha filialda topshiradi yoki admin yopadi (`POST /shifts/:id/close`); shu filialga boshqa kassir PIN bilan kirsa —
+avtomatik yopiladi (2026-11-17, [4.3](#43-xodim-kirishi)). Smena yopilsa filial `no_shift` bo'lishi
 mumkin (boshqa ochiq smena bo'lmasa) — mobil buyurtma olmaydi. Smena summasiga faqat shu smenaga yozilgan buyurtmalar
 kiradi (kioskda karta / Click bilan to'langanlar — kirmaydi, [11](#11-cheklovlar-va-noaniq-joylar)).
 Smena yopilgach (ikkala endpoint) Telegram botga hisobot ketadi — [13](#13-ai-yordamchi-va-telegram-bot); javob
@@ -1206,6 +1218,10 @@ Kodning hozirgi xatti-harakati (o'zgarsa — shu yer yangilanadi):
 - Ba'zi xato kodlari frontend bilan bir xil bo'lishi uchun shunday: mobil `dine_in` — `invalid_status` (409);
   zaxira filial filialning o'zi — `not_found`; chiqim sanasi — `invalid_amount`.
 - PIN almashtirilganda eski tokenlar 24 soat amal qilaveradi (xodim bloklansa — darhol bekor).
+- **Topshirilmagan smena** (2026-11-17) faqat shu filialga boshqa kassir PIN bilan kirganda yopiladi — o'zi (vaqt
+  bo'yicha) yopilmaydi. Server kassirning kassasi hozir ochiqligini tekshirmaydi: bir filialda bir vaqtda ikki kassada
+  ishlansa, kirgan kassir ikkinchisining smenasini ham yopadi (u keyingi sotuvda yangi smena bilan davom etadi, Telegram'ga
+  "avtomatik yopildi" hisoboti ketadi). Ikkinchi kassa paydo bo'lganda — himoya (ROADMAP).
 
 ---
 
@@ -1363,7 +1379,9 @@ talab qiladi). Faqat shaxsiy chatlar; guruh xabarlari e'tiborsiz.
 | ovozli xabar | 20 soniyadan uzun — "Og'aaa, shuncha narsani nedan bilaman man, oddiyroq savol so'rivaring…". Aks holda Gemini matnga o'giradi (sheva → adabiy; direktorga ko'rsatilmaydi), kutish iborasi, keyin javob **matn** bilan (shevada; ovozli javob yo'q). Tushunarsiz — qayta yuborishni so'raydi. Bitta ovozli savol ≈ 4 ta Gemini so'rovi |
 | boshqa matn | ulangan chat va xodim **faol admin** bo'lsa — darhol: salom (kunning birinchi savolida) va savolga qarab kutish xabari (`POST /ai/waiting` dagi ibora, chatda qoladi), keyin "yozmoqda…" va AI javobi; aks holda rad matni. Xodim bloklansa yoki roli o'zgarsa bot darhol javob bermay qo'yadi |
 
-**Smena hisoboti.** Smena yopilganda (kassir "Smenani topshirish" yoki admin `POST /shifts/:id/close`) bot ulangan
+**Smena hisoboti.** Smena yopilganda (kassir "Smenani topshirish", admin `POST /shifts/:id/close` yoki 2026-11-17 dan —
+avtomatik: kassir topshirmay ketgan, shu filialga boshqa kassir kirdi; sarlavha "Smena avtomatik yopildi — <filial>" va
+"⚠️ Kassir smenani topshirmagan — <kirgan kassir> kirganda yopildi. Naqd pulni tekshiring" qatori) bot ulangan
 hamma chatlarga (xodimi faol admin bo'lsa) oddiy matnli xabar yuboradi — AI'siz, adabiy tilda, AI xotirasiga yozilmaydi
 (`src/telegram/shift-report.ts`): filial, kassir, admin yopgan bo'lsa — uning ismi, ochilgan va yopilgan vaqt (davomiyligi
 bilan), to'langan buyurtmalar soni, tushum va to'lov turlari (kassadagi `ShiftWithSummary.summary` bilan bir xil), o'rtacha

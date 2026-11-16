@@ -8,6 +8,7 @@ const report = (patch: Partial<ShiftReport> = {}): ShiftReport => ({
   branchName: 'Chilonzor',
   cashierName: 'Dilnoza',
   closedByName: null,
+  autoClosedBy: null,
   openedAt: new Date(2026, 10, 2, 9, 5),
   closedAt: new Date(2026, 10, 2, 21, 20),
   summary: {
@@ -105,5 +106,16 @@ describe('smena hisoboti', () => {
         "Tushum: 0 so'm",
       ].join('\n'),
     );
+  });
+
+  it('keyingi kassir kirganda avtomatik yopilgan — sarlavhada va ogohlantirish qatorida', () => {
+    const text = shiftReportText(report({ autoClosedBy: 'Asad Ashirov', lowStock: [] }));
+    expect(text.split('\n').slice(0, 5)).toEqual([
+      'Smena avtomatik yopildi — Chilonzor',
+      'Kassir: Dilnoza',
+      '⚠️ Kassir smenani topshirmagan — Asad Ashirov kirganda yopildi. Naqd pulni tekshiring',
+      'Ochildi: 02.11.2026 09:05',
+      'Yopildi: 02.11.2026 21:20 (12 soat 15 daqiqa)',
+    ]);
   });
 });

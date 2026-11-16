@@ -24,8 +24,13 @@ const TOP_PRODUCTS = 5;
 export interface ShiftReport {
   branchName: string;
   cashierName: string;
-  /** smenani admin yopgan bo'lsa — uning ismi; kassir o'zi yopsa — `null` */
+  /** smenani admin yopgan bo'lsa — uning ismi; kassir o'zi yopsa yoki avtomatik yopilsa — `null` */
   closedByName: string | null;
+  /**
+   * kassir topshirmay ketgan — shu filialga kirgan keyingi kassirning ismi (smena o'sha payt avtomatik yopildi);
+   * boshqa holatda `null`
+   */
+  autoClosedBy: string | null;
   openedAt: Date;
   closedAt: Date;
   /** to'langanlar soni, tushum va to'lov turlari — kassadagi "Smenani topshirish" bilan bir xil */
@@ -55,6 +60,7 @@ export async function loadShiftReport(
   em: EntityManager,
   shiftId: string,
   closedBy: AuthUser | null,
+  auto = false,
 ): Promise<ShiftReport> {
   const shift = (await em.findOneBy(Shift, { id: shiftId })) ?? fail('not_found', `shift ${shiftId}`);
   const [branch, cashier, orders, summaries, lowStock] = await Promise.all([
@@ -90,7 +96,8 @@ export async function loadShiftReport(
   return {
     branchName: branch?.name ?? shift.branchId,
     cashierName: cashier ? fullName(cashier) : shift.cashierId,
-    closedByName: closedBy && closedBy.id !== shift.cashierId ? fullName(closedBy) : null,
+    closedByName: !auto && closedBy && closedBy.id !== shift.cashierId ? fullName(closedBy) : null,
+    autoClosedBy: auto && closedBy ? fullName(closedBy) : null,
     openedAt: shift.openedAt,
     closedAt: shift.closedAt ?? new Date(),
     summary: summaries.get(shiftId)!,
@@ -118,7 +125,15 @@ function duration(from: Date, to: Date): string {
  */
 export function shiftReportText(report: ShiftReport): string {
   const { summary } = report;
-  const lines = [`Smena yopildi — ${report.branchName}`, `Kassir: ${report.cashierName}`];
+  // avtomatik yopilgani birinchi qatordayoq ko'rinsin (Telegram bildirishnomasida faqat boshi chiqadi)
+  const lines = [
+    `${report.autoClosedBy ? 'Smena avtomatik yopildi' : 'Smena yopildi'} — ${report.branchName}`,
+    `Kassir: ${report.cashierName}`,
+  ];
+  if (report.autoClosedBy)
+    lines.push(
+      `⚠️ Kassir smenani topshirmagan — ${report.autoClosedBy} kirganda yopildi. Naqd pulni tekshiring`,
+    );
   if (report.closedByName) lines.push(`Smenani admin yopdi: ${report.closedByName}`);
   lines.push(
     `Ochildi: ${dateTime(report.openedAt)}`,

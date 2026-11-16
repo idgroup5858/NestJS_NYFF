@@ -63,6 +63,29 @@ export class ShiftsService {
     }
   }
 
+  /**
+   * Kassir topshirmay ketgan smenalar (2026-11-17): [by] shu filialga PIN bilan kirdi — filialdagi **boshqa**
+   * kassirlarning ochiq smenalari shu payt bilan yopiladi (kassir brauzerni «X» bilan yopib ketadi, keyingisi kirganda
+   * eslatilmasdi). Bitta atomik `UPDATE` — bir vaqtda admin yopsa ham ikki marta yopilmaydi; FaceID tekshirilmaydi
+   * (admin yopishidagidek). Har biriga Telegram hisoboti — «avtomatik yopildi» belgisi bilan. Yopilganlar soni.
+   */
+  async closeLeftOpen(branchId: string, by: AuthUser, now = new Date()): Promise<number> {
+    const [rows] = (await this.dataSource.query(
+      `UPDATE shifts SET "closedAt" = $3
+       WHERE "branchId" = $1 AND "cashierId" <> $2 AND "closedAt" IS NULL
+       RETURNING id`,
+      [branchId, by.id, now],
+    )) as [{ id: string }[], number];
+    for (const { id } of rows) this.events.closed({ shiftId: id, closedBy: by, auto: true });
+    return rows.length;
+  }
+
+  /** Filialdagi ochiq smenalar: kassir → ochilgan vaqt (kirish ekranidagi ogohlantirish uchun). */
+  async openInBranch(branchId: string): Promise<Map<string, Date>> {
+    const open = await this.dataSource.manager.findBy(Shift, { branchId, closedAt: IsNull() });
+    return new Map(open.map((shift) => [shift.cashierId, shift.openedAt]));
+  }
+
   /** Kassirning shu filialdagi ochiq smenasi (bo'lmasa `null`). */
   current(user: AuthUser): Promise<Shift | null> {
     if (!user.branchId) return Promise.resolve(null);

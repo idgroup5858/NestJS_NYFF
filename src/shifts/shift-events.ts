@@ -4,8 +4,13 @@ import type { AuthUser } from '../auth/auth.types';
 
 export interface ShiftClosed {
   shiftId: string;
-  /** yopgan xodim: kassir o'zi yoki admin (kassir yopmay ketgan smena); noma'lum — `null` */
+  /**
+   * yopgan xodim: kassir o'zi, admin (kassir yopmay ketgan smena) yoki [auto] da — shu filialga kirgan keyingi kassir;
+   * noma'lum — `null`
+   */
   closedBy: AuthUser | null;
+  /** kassir topshirmay ketgan — shu filialda boshqa kassir kirganda avtomatik yopildi (2026-11-17) */
+  auto?: boolean;
 }
 
 /**
