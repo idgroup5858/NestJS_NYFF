@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
-import { Public, Roles } from '../auth/decorators';
+import type { AuthUser } from '../auth/auth.types';
+import { CurrentUser, Public, Roles } from '../auth/decorators';
 import { RouteQuery, SaveBranchDto, SaveDeliveryDto, SetOnlineDto } from './branch.dto';
 import { BranchesService } from './branches.service';
 
@@ -66,11 +67,14 @@ export class BranchesController {
     return this.branches.setCashierMarksReady(id, dto.enabled);
   }
 
-  /** Markazga juda yaqin filial: sotuv markaziy ombordan ayriladi. */
+  /**
+   * Markazga juda yaqin filial: sotuv markaziy ombordan ayriladi. Yoqilganda filial ombori markazga qo'shiladi (minuslar
+   * 0 ga, plusdagilar markazga).
+   */
   @Roles('admin')
   @Put(':id/stock-from-central')
-  setStockFromCentral(@Param('id') id: string, @Body() dto: SetOnlineDto) {
-    return this.branches.setStockFromCentral(id, dto.enabled);
+  setStockFromCentral(@Param('id') id: string, @Body() dto: SetOnlineDto, @CurrentUser() user: AuthUser) {
+    return this.branches.setStockFromCentral(id, dto.enabled, user.id);
   }
 }
 

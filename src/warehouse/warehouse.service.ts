@@ -9,7 +9,7 @@ import { assertUnused } from '../common/in-use';
 import { pageParams, type Page } from '../common/pagination';
 import type { LocalizedText, PurchaseItem, RecipeLine, TransferItem } from '../common/types';
 import { nextCounter } from '../database/counters';
-import { convertPrice, sameScale, toBase, unitSize } from '../domain/units';
+import { convertPrice, fromBase, sameScale, toBase, unitSize } from '../domain/units';
 import { Ingredient } from './ingredient.entity';
 import { PurchaseEvents } from './purchase-events';
 import { Purchase } from './purchase.entity';
@@ -42,6 +42,17 @@ export type MovementWithRef = StockMovement & {
 export interface StockReset {
   adjustment: StockAdjustment | null;
   count: number;
+}
+
+/**
+ * Filial ombori markazga qo'shilgani (`mergeIntoCentral`): minuslar 0 ga — "Tuzatish №N" (`zeroed` ta mahsulot), plusdagilar
+ * markaziy omborga — "Ko'chirish №N" (`moved` ta); qaysi biri bo'lmasa — o'sha hujjat `null`.
+ */
+export interface StockMerge {
+  adjustment: StockAdjustment | null;
+  transfer: Transfer | null;
+  zeroed: number;
+  moved: number;
 }
 
 /** Ombor mahsuloti qayerlarda ishlatilgan — birlikni o'zgartirishdan oldingi ogohlantirish uchun. */
@@ -305,6 +316,65 @@ export class WarehouseService {
       const current = (await this.stock.lockQty(em, warehouseId, [ingredientId])).get(ingredientId) ?? 0;
       return this.adjustStock(em, warehouseId, [{ ingredientId, qty: qty - current }], createdBy, now);
     });
+  }
+
+  /**
+   * Filial ombori markazga qo'shiladi (2026-11-17, filialda "Sotuv markaziy ombordan" yoqilganda — markazga juda yaqin
+   * filial): **minus** qoldiqlar 0 ga — "Tuzatish №N" (`adjust`, markazga tegmaydi; foydalanuvchi qarori), **plus**
+   * qoldiqlar markaziy omborga — "Ko'chirish №N" (filial → markaz, qatorlar ombor birligida — qadoqlida donada, kasr
+   * bo'lishi mumkin). 0 dagilar, chegara va norma o'zgarmaydi; faolsiz mahsulot ham (0 ga tushirishdagidek). "Kam qoldi"
+   * xabari ketmaydi. Filial qatorlari qulflanadi. [em] — chaqiruvchining tranzaksiyasi (switch bilan birga saqlanadi).
+   */
+  async mergeIntoCentral(
+    em: EntityManager,
+    warehouseId: string,
+    note: string,
+    createdBy: string,
+    now: Date,
+  ): Promise<StockMerge> {
+    const central = (await em.findOneBy(Warehouse, { kind: 'central' })) ?? fail('not_found', 'central warehouse');
+    const rows: { ingredientId: string; qty: number }[] = await em.query(
+      `SELECT "ingredientId", "qty" FROM stock WHERE "warehouseId" = $1 AND "qty" <> 0 ORDER BY "ingredientId" FOR UPDATE`,
+      [warehouseId],
+    );
+    const minus = rows.filter((row) => row.qty < 0);
+    const plus = rows.filter((row) => row.qty > 0);
+
+    const { adjustment } = await this.adjustStock(
+      em,
+      warehouseId,
+      minus.map((row) => ({ ingredientId: row.ingredientId, qty: -row.qty })),
+      createdBy,
+      now,
+    );
+
+    let transfer: Transfer | null = null;
+    if (plus.length > 0) {
+      const ingredients = await this.ingredientMap(em, plus.map((row) => row.ingredientId));
+      transfer = {
+        id: newId('trf'),
+        number: await nextCounter(em, 'transfer'),
+        fromWarehouseId: warehouseId,
+        toWarehouseId: central.id,
+        items: plus.map((row): TransferItem => {
+          const ingredient = ingredients.get(row.ingredientId) ?? fail('not_found', `ingredient ${row.ingredientId}`);
+          return {
+            ingredientId: row.ingredientId,
+            qty: fromBase(row.qty, ingredient.unit, ingredient.packSize),
+            packSize: ingredient.packSize,
+          };
+        }),
+        note,
+        createdBy,
+        createdAt: now,
+      };
+      await em.insert(Transfer, transfer);
+      const into = plus.map((row) => ({ ingredientId: row.ingredientId, qty: row.qty }));
+      const out = into.map((delta) => ({ ...delta, qty: -delta.qty }));
+      await this.stock.applyDeltas(em, warehouseId, out, 'transfer_out', transfer.id, now, false);
+      await this.stock.applyDeltas(em, central.id, into, 'transfer_in', transfer.id, now, false);
+    }
+    return { adjustment, transfer, zeroed: minus.length, moved: plus.length };
   }
 
   /** "Tuzatish №N" hujjati va har o'zgarishga `adjust` harakati; o'zgarish yo'q (hammasi 0) — hech narsa yozilmaydi. */

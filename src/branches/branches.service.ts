@@ -16,6 +16,8 @@ import { isLatLng, roundLatLng } from '../domain/geo';
 import { isValidWorkHours } from '../domain/work-hours';
 import { PresenceService } from '../realtime/presence.service';
 import { SCREEN_KINDS, screenCodeSetting } from '../screens/screen-codes.service';
+import { StockService } from '../warehouse/stock.service';
+import { WarehouseService } from '../warehouse/warehouse.service';
 import { Branch } from './branch.entity';
 import { SaveDeliveryDto, SaveBranchDto } from './branch.dto';
 import { Warehouse } from './warehouse.entity';
@@ -27,6 +29,8 @@ export class BranchesService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly presence: PresenceService,
+    private readonly stock: StockService,
+    private readonly warehouse: WarehouseService,
   ) {}
 
   async findAll(now = new Date()): Promise<BranchWithState[]> {
@@ -165,15 +169,27 @@ export class BranchesService {
   }
 
   /**
-   * Filial sotuvi markaziy ombordan ayriladimi (2026-11-17) — markazga juda yaqin filial uchun. Faqat keyingi sotuvlarga
-   * ta'sir qiladi: qoldiq ko'chirilmaydi, filial ombori o'zgarmaydi; bekor qilingan buyurtma esa doim qaysi ombordan
-   * ayrilgan bo'lsa, o'shanga qaytadi (`StockService.returnOrder`).
+   * Filial sotuvi markaziy ombordan ayriladimi (2026-11-17) — markazga juda yaqin filial uchun. **Yoqilganda** (o'chiq →
+   * yoqiq) shu tranzaksiyada filial ombori markazga qo'shiladi (`WarehouseService.mergeIntoCentral`): minuslar 0 ga
+   * ("Tuzatish №N"), plusdagilar markaziy omborga ("Ko'chirish №N"). Allaqachon yoqiq bo'lsa yoki o'chirilganda — qoldiqqa
+   * tegilmaydi (o'chirilgach filial 0 dan boshlaydi). Filial qatori `FOR UPDATE` — ikki bosish ikki marta qo'shmaydi,
+   * shu paytdagi sotuv kutadi (`StockService.saleWarehouse`). Bekor qilingan buyurtma doim ayrilgan omborga qaytadi.
    */
-  async setStockFromCentral(id: string, enabled: boolean): Promise<Branch> {
-    const em = this.dataSource.manager;
-    await this.get(em, id);
-    await em.update(Branch, id, { stockFromCentral: enabled });
-    return this.get(em, id);
+  async setStockFromCentral(id: string, enabled: boolean, actorId: string, now = new Date()): Promise<Branch> {
+    await this.dataSource.transaction(async (em) => {
+      const [current]: Pick<Branch, 'name' | 'stockFromCentral'>[] = await em.query(
+        `SELECT name, "stockFromCentral" FROM branches WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      if (!current) fail('not_found', `branch ${id}`);
+      if (current.stockFromCentral === enabled) return;
+      if (enabled) {
+        const warehouse = await this.stock.branchWarehouse(em, id);
+        await this.warehouse.mergeIntoCentral(em, warehouse.id, `${current.name}: sotuv markaziy ombordan`, actorId, now);
+      }
+      await em.update(Branch, id, { stockFromCentral: enabled });
+    });
+    return this.get(this.dataSource.manager, id);
   }
 
   /**

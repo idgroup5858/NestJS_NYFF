@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
-import { Branch } from '../branches/branch.entity';
+import type { Branch } from '../branches/branch.entity';
 import { Warehouse } from '../branches/warehouse.entity';
 import type { MovementKind } from '../common/enums';
 import { fail } from '../common/errors';
@@ -52,7 +52,8 @@ export class StockService {
    * Qoldig'i shu o'zgarish bilan chegaradan pastga tushgan mahsulotlar — `LowStockEvents` ga (tranzaksiya tugagach
    * Telegram'ga): qator qulflangan holda yangilanadi, shuning uchun bir vaqtdagi sotuvlardan faqat bittasi "tushirgan"
    * bo'ladi — xabar bir marta. Qoldiqni tuzatish (`adjust`: 0 ga tushirish, qo'lda yozish) — xabarsiz: butun ombor 0
-   * qilinganda o'nlab "kam qoldi" ketmasin, qo'lda yozilganini esa yozgan odam ko'rib turibdi.
+   * qilinganda o'nlab "kam qoldi" ketmasin, qo'lda yozilganini esa yozgan odam ko'rib turibdi. [lowStockAlert] `false`
+   * — boshqa turdagi harakat ham xabarsiz (filial ombori markazga qo'shilganda — `mergeIntoCentral`).
    */
   async applyDeltas(
     em: EntityManager,
@@ -61,6 +62,7 @@ export class StockService {
     kind: MovementKind,
     refId: string,
     at: Date,
+    lowStockAlert = kind !== 'adjust',
   ): Promise<void> {
     const merged = mergeDeltas(deltas);
     if (merged.size === 0) return;
@@ -73,7 +75,7 @@ export class StockService {
        RETURNING "ingredientId", "qty", "minQty"`,
       [warehouseId, ids, qtys],
     );
-    if (kind !== 'adjust') {
+    if (lowStockAlert) {
       this.lowStock.add(
         em,
         rows
@@ -115,9 +117,16 @@ export class StockService {
    * Filial sotuvi qaysi ombordan ayriladi: odatda filialning o'z omboridan; filialda `stockFromCentral` yoqilgan bo'lsa
    * (markazga juda yaqin filial, 2026-11-17) — markaziy ombordan. Holat sotuv paytida o'qiladi (offline sotuv — markazga
    * yetib kelgan paytdagi holat bilan).
+   *
+   * Filial qatori `FOR KEY SHARE` bilan o'qiladi: switch yoqilayotganda (`BranchesService.setStockFromCentral` — `FOR
+   * UPDATE`, filial qoldig'i markazga qo'shiladi) shu paytdagi sotuv kutadi va yangi holat bilan markazdan ayriladi —
+   * qo'shilib bo'lgan filial omboridan emas. Sotuvlar bir-birini, `hrSeenAt` kabi oddiy yangilanishlar sotuvni kutmaydi.
    */
   async saleWarehouse(em: EntityManager, branchId: string): Promise<Warehouse> {
-    const branch = await em.findOne(Branch, { where: { id: branchId }, select: { id: true, stockFromCentral: true } });
+    const [branch]: Pick<Branch, 'stockFromCentral'>[] = await em.query(
+      `SELECT "stockFromCentral" FROM branches WHERE id = $1 FOR KEY SHARE`,
+      [branchId],
+    );
     if (!branch?.stockFromCentral) return this.branchWarehouse(em, branchId);
     return (await em.findOneBy(Warehouse, { kind: 'central' })) ?? fail('not_found', 'central warehouse');
   }
