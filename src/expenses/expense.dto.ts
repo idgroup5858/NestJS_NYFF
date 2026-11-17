@@ -10,6 +10,12 @@ export class CreateExpenseDto {
   @IsIn(EXPENSE_KINDS)
   kind: ExpenseKind;
 
+  /** faqat `kind: 'ingredient'` da (majburiy) — servisda `invalid_input` / `not_found` */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  ingredientId?: string;
+
   /** so'm, butun son > 0 — servisda `invalid_amount` */
   @IsNumber()
   amount: number;

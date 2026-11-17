@@ -27,11 +27,4 @@ export class StockItem {
   /** asosiy birlikda; qoldiq shundan kam bo'lsa — ogohlantirish. 0 — kuzatilmaydi */
   @Column({ type: 'int', default: 0 })
   minQty: number;
-
-  /**
-   * Norma, asosiy birlikda: "To'ldirish" qoldiqni shu darajagacha yetkazadi. 0 — yozilmagan: chegara × 2, chegara ham
-   * yo'q bo'lsa — 10 birlik (hisob — web'da)
-   */
-  @Column({ type: 'int', default: 0 })
-  targetQty: number;
 }

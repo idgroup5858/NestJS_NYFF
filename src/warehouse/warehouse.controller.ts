@@ -4,13 +4,14 @@ import { CurrentUser, Roles } from '../auth/decorators';
 import {
   ApprovePurchaseDto,
   CreateIngredientDto,
+  CreateProductionDto,
   CreatePurchaseDto,
   CreateTransferDto,
   MovementsQuery,
+  ProductionsQuery,
   PurchasesQuery,
   SetMinQtyDto,
   SetStockQtyDto,
-  SetTargetQtyDto,
   StockQuery,
   TransfersQuery,
   UpdateIngredientDto,
@@ -79,15 +80,6 @@ export class WarehouseController {
     @Body() dto: SetMinQtyDto,
   ) {
     return this.warehouse.setMinQty(warehouseId, ingredientId, dto.minQty);
-  }
-
-  @Put('stock/:warehouseId/:ingredientId/target-qty')
-  setTargetQty(
-    @Param('warehouseId') warehouseId: string,
-    @Param('ingredientId') ingredientId: string,
-    @Body() dto: SetTargetQtyDto,
-  ) {
-    return this.warehouse.setTargetQty(warehouseId, ingredientId, dto.targetQty);
   }
 
   /** Qoldiqni qo'lda yozish (admin va ta'minotchi) — farqi "Tuzatish №N" bo'lib yoziladi. */
@@ -165,5 +157,16 @@ export class WarehouseController {
   @Post('transfers')
   createTransfer(@Body() dto: CreateTransferDto, @CurrentUser() user: AuthUser) {
     return this.warehouse.createTransfer(dto, user.id);
+  }
+
+  @Get('productions')
+  productions(@Query() query: ProductionsQuery) {
+    return this.warehouse.productions(query);
+  }
+
+  /** Tayyorlash (markaziy omborda): sarflanganlar ayriladi, tayyor mahsulot qo'shiladi — "Tayyorlash №N". */
+  @Post('productions')
+  createProduction(@Body() dto: CreateProductionDto, @CurrentUser() user: AuthUser) {
+    return this.warehouse.createProduction(dto, user.id);
   }
 }

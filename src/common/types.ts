@@ -39,6 +39,15 @@ export interface TransferItem {
   packSize: number | null;
 }
 
+/**
+ * Tayyorlashda sarflangan mahsulot. Miqdor **qadoqsiz** birlikda — kg / l / dona (oshpaz "20 ta tuxum" deydi, "0,67
+ * qadoq" emas): qadoq hajmi bu yerda ishlatilmaydi, shuning uchun saqlanmaydi.
+ */
+export interface ProductionItem {
+  ingredientId: string;
+  qty: number;
+}
+
 export interface OrderItem {
   productId: string;
   /** sotilgan paytdagi nom va narx — keyin menyu o'zgarsa ham chek o'zgarmaydi */

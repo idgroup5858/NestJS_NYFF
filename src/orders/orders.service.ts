@@ -25,6 +25,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { Shift } from '../shifts/shift.entity';
 import { PAID_STATUS_SQL, paymentPartSql } from '../shifts/shift-summary';
 import { StockService } from '../warehouse/stock.service';
+import { orderItemCosts } from './item-costs';
 import { NO_COURIER, Order } from './order.entity';
 import { ConfirmOrderDto, CreateOrderDto, KioskOrderDto, MobileOrderDto, OrdersQuery } from './order.dto';
 import { customerOrderView, orderView, tvOrderView, type CustomerOrderView, type OrderView } from './order.views';
@@ -229,6 +230,8 @@ export class OrdersService {
         type: input.type,
         source: input.source,
         items,
+        // sotuv paytidagi tannarx — narx kabi o'zgarmas surat (faqat admin hisobotida)
+        itemCosts: await orderItemCosts(em, items, products),
         note: input.note?.trim() ?? '',
         total,
         payment: paid?.payment ?? null,

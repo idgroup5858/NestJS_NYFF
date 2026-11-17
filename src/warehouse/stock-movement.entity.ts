@@ -1,10 +1,12 @@
 import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
-import { ID_LENGTH } from '../common/columns';
+import { bigintNumber, ID_LENGTH } from '../common/columns';
 import type { MovementKind } from '../common/enums';
 
 /** Qoldiqning har bir o'zgarishi — tarix va hisobotlar uchun. */
 @Entity('stock_movements')
 @Index(['warehouseId', 'ingredientId', 'createdAt'])
+// "Xo'jalik sarflari" hisoboti — davr bo'yicha faqat "Sarflandi" (butun jadval millionlab qator)
+@Index('IDX_stock_movements_consume_createdAt', ['createdAt'], { where: `"kind" = 'consume'` })
 export class StockMovement {
   @PrimaryColumn({ type: 'varchar', length: ID_LENGTH })
   id: string;
@@ -29,4 +31,11 @@ export class StockMovement {
 
   @Column({ type: 'timestamptz' })
   createdAt: Date;
+
+  /**
+   * Faqat "Sarflandi" (`consume`) da: hisobdan chiqqan miqdorning qiymati, so'm — o'sha paytdagi oxirgi narxda (yangi
+   * kirim narxidan oldingi). Narxi yo'q edi yoki boshqa harakat — `null`.
+   */
+  @Column('bigint', { nullable: true, transformer: bigintNumber })
+  cost?: number | null;
 }

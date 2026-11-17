@@ -11,6 +11,7 @@ import { Shift } from '../shifts/shift.entity';
 import { TelegramChat } from '../telegram/telegram-chat.entity';
 import { User } from '../users/user.entity';
 import { Ingredient } from '../warehouse/ingredient.entity';
+import { Production } from '../warehouse/production.entity';
 import { Purchase } from '../warehouse/purchase.entity';
 import { StockAdjustment } from '../warehouse/stock-adjustment.entity';
 import { StockItem } from '../warehouse/stock-item.entity';
@@ -33,6 +34,7 @@ export const ENTITIES = [
   Purchase,
   Transfer,
   StockAdjustment,
+  Production,
   Shift,
   Order,
   Expense,

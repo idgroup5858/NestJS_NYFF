@@ -43,6 +43,14 @@ class IngredientFieldsDto {
   @IsOptional()
   @IsNumber()
   packSize?: number | null;
+
+  /**
+   * Sarf materiali — yangi partiya kelganda eski qoldiq "Sarflandi" bo'ladi (admin va ta'minotchi). Berilmasa —
+   * o'zgarmaydi (yangi mahsulotda — `false`).
+   */
+  @IsOptional()
+  @IsBoolean()
+  consumable?: boolean;
 }
 
 export class UpdateIngredientDto extends IngredientFieldsDto {
@@ -66,12 +74,6 @@ export class SetMinQtyDto {
   /** asosiy birlikda (g / ml / dona), butun son; 0 — kuzatilmaydi */
   @IsNumber()
   minQty: number;
-}
-
-export class SetTargetQtyDto {
-  /** norma, asosiy birlikda (g / ml / dona), butun son; 0 — yozilmagan (chegara × 2, u ham yo'q — 10 birlik) */
-  @IsNumber()
-  targetQty: number;
 }
 
 export class SetStockQtyDto {
@@ -183,4 +185,45 @@ export class TransfersQuery extends PageQuery {
   @IsOptional()
   @IsString()
   warehouseId?: string;
+}
+
+/** Tayyorlashda sarflangan mahsulot. */
+export class ProductionLineDto {
+  @IsString()
+  @MaxLength(40)
+  ingredientId: string;
+
+  /** qadoqsiz birlikda — kg / l / dona (qadoqli tuxum ham donada), > 0 — servisda `invalid_qty` */
+  @IsNumber()
+  qty: number;
+}
+
+/** Tayyorlash — doim markaziy omborda (2026-11-18). */
+export class CreateProductionDto {
+  /** tayyor mahsulot (katlet) */
+  @IsString()
+  @MaxLength(40)
+  ingredientId: string;
+
+  /** chiqqan miqdor, qadoqsiz birlikda — kg / l / dona, > 0 — servisda `invalid_qty` */
+  @IsNumber()
+  qty: number;
+
+  /** sarflanganlar; bo'sh — `empty_order`, tayyor mahsulotning o'zi — `invalid_input` */
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductionLineDto)
+  items: ProductionLineDto[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+}
+
+export class ProductionsQuery extends PageQuery {
+  /** shu mahsulot tayyorlanganlari (yangisi birinchi) */
+  @IsOptional()
+  @IsString()
+  ingredientId?: string;
 }

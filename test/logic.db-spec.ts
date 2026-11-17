@@ -576,7 +576,7 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       expect(basil.lastPrice).toBeNull();
       const isLow = async () => (await warehouse.lowStock(WC)).some((s) => s.ingredientId === basil.id);
       // chegarasiz 0 — to'ldirish ro'yxatida yo'q (ishlatilmayotgan bo'lishi mumkin), minus — bor
-      await warehouse.setTargetQty(WC, basil.id, 2000);
+      await em.save(StockItem, { warehouseId: WC, ingredientId: basil.id, qty: 0, minQty: 0 });
       expect(await isLow()).toBe(false);
       await em.update(StockItem, { warehouseId: WC, ingredientId: basil.id }, { qty: -100 });
       expect(await isLow()).toBe(true);
@@ -588,7 +588,6 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
         ingredientId: basil.id,
         qty: 0,
         minQty: 500,
-        targetQty: 2000,
       });
       expect(await isLow()).toBe(true);
     });
@@ -613,6 +612,32 @@ describe('biznes mantiq (frontend logic-smoke.ts)', () => {
       expect(report.topProducts[0].productId).toBe('burger-classic');
       await expenses.remove(gas.id);
       expect(await em.count(Expense)).toBe(0);
+    });
+
+    it("mahsulot chiqimi: mahsulot shu turda majburiy, qoldiqqa tegmaydi, hisobotda alohida, mahsulot o'chmaydi", async () => {
+      const base = { branchId: C, amount: 85_000, date: '2026-10-20' };
+      await expectCode('invalid_input', () => expenses.create({ ...base, kind: 'ingredient' }, 'usr_admin', now));
+      await expectCode('invalid_input', () =>
+        expenses.create({ ...base, kind: 'gas', ingredientId: 'bun-burger' }, 'usr_admin', now),
+      );
+      await expectCode('not_found', () =>
+        expenses.create({ ...base, kind: 'ingredient', ingredientId: 'no-such-item' }, 'usr_admin', now),
+      );
+      const parsley = await warehouse.saveIngredient(
+        { name: { uz: 'Petrushka', ru: 'Петрушка', en: 'Parsley' }, group: 'vegetables', unit: 'kg', active: true },
+        'supplier',
+      );
+      const before = await stockQty(WC, parsley.id);
+      const paid = await expenses.create({ ...base, kind: 'ingredient', ingredientId: parsley.id }, 'usr_admin', now);
+      expect(paid.ingredientId).toBe(parsley.id);
+      expect(await stockQty(WC, parsley.id)).toBe(before);
+      const report = await reports.sales({ from: '2026-10-20', to: '2026-10-20', branchId: C });
+      expect(report.expenses).toBe(85_000);
+      expect(report.expensesByKind.ingredient).toBe(85_000);
+      await expectCode('in_use', () => warehouse.removeIngredient(parsley.id));
+      await expenses.remove(paid.id);
+      await warehouse.removeIngredient(parsley.id);
+      expect(await em.countBy(Ingredient, { id: parsley.id })).toBe(0);
     });
   });
 

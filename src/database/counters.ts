@@ -1,6 +1,9 @@
 import { Column, Entity, EntityManager, PrimaryColumn } from 'typeorm';
 
-/** Ketma-ket raqamlar: `order:<filial>:<sana>` (har filialda har kuni 1 dan), `purchase`, `transfer`. */
+/**
+ * Ketma-ket raqamlar: `order:<filial>:<sana>` (har filialda har kuni 1 dan), `purchase`, `transfer`, `adjustment`,
+ * `production`.
+ */
 @Entity('counters')
 export class Counter {
   @PrimaryColumn({ type: 'varchar', length: 120 })

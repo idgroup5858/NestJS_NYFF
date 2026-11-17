@@ -14,6 +14,18 @@ export class ReportsController {
     return this.reports.sales({ from: query.from, to: query.to, branchId: query.branchId || null });
   }
 
+  /** Taomlar foydasi: soni, tushumi va sotuv paytidagi tannarxi — so'rovi `sales` bilan bir xil. */
+  @Get('products')
+  products(@Query() query: SalesReportQuery) {
+    return this.reports.products({ from: query.from, to: query.to, branchId: query.branchId || null });
+  }
+
+  /** Xo'jalik sarflari: davrda "Sarflandi" bo'lgan sarf materiallari — so'rovi `sales` bilan bir xil. */
+  @Get('consumption')
+  consumption(@Query() query: SalesReportQuery) {
+    return this.reports.consumption({ from: query.from, to: query.to, branchId: query.branchId || null });
+  }
+
   /** Bosh sahifadagi "hozir" kartochkalari: jonli buyurtmalar, kam qolgan mahsulotlar, tasdiq kutayotgan kirimlar. */
   @Get('overview')
   overview() {

@@ -188,11 +188,11 @@ describe("ombor mahsuloti birligini o'zgartirish", () => {
     const stock = (
       await ds.manager.find(StockItem, { where: { ingredientId: 'ketchup' }, order: { warehouseId: 'ASC' } })
     )
-      .filter((s) => s.qty !== 0 || s.minQty > 0 || s.targetQty > 0)
-      .map(({ warehouseId, qty, minQty, targetQty }) => ({ warehouseId, qty, minQty, targetQty }));
+      .filter((s) => s.qty !== 0 || s.minQty > 0)
+      .map(({ warehouseId, qty, minQty }) => ({ warehouseId, qty, minQty }));
     expect(usage.stock).toEqual(stock);
-    expect(usage.stock).toContainEqual({ warehouseId: WC, qty: 5950, minQty: 1200, targetQty: 0 });
-    expect(usage).toMatchObject({ purchases: 2, pendingPurchases: 1, transfers: 0 });
+    expect(usage.stock).toContainEqual({ warehouseId: WC, qty: 5950, minQty: 1200 });
+    expect(usage).toMatchObject({ purchases: 2, pendingPurchases: 1, transfers: 0, productions: 0 });
 
     // mahsulot hech qayerda ishlatilmagan
     const fresh = await http()
@@ -207,6 +207,7 @@ describe("ombor mahsuloti birligini o'zgartirish", () => {
         purchases: 0,
         pendingPurchases: 0,
         transfers: 0,
+        productions: 0,
       },
     );
 

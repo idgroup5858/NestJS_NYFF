@@ -5,10 +5,11 @@ import type { Order } from './order.entity';
  * holat (PINsiz ekranga mijoz ma'lumoti chiqmaydi); mijoz — o'z buyurtmasi, xodimlar ma'lumotisiz.
  */
 
-export type OrderView = Omit<Order, 'trackingTokenHash' | 'branch'>;
+export type OrderView = Omit<Order, 'trackingTokenHash' | 'branch' | 'itemCosts'>;
 
+/** Tannarx (`itemCosts`) — faqat admin hisobotida: yangi yaratilgan buyurtma obyektida bor, kassa / oshxonaga chiqmaydi. */
 export function orderView(order: Order): OrderView {
-  const { trackingTokenHash: _token, branch: _branch, ...view } = order;
+  const { trackingTokenHash: _token, branch: _branch, itemCosts: _costs, ...view } = order;
   return view;
 }
 

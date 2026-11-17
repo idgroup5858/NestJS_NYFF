@@ -34,7 +34,8 @@ interface Row {
 }
 
 /**
- * Faqat **filial** omborlari (markaziy — yo'q, foydalanuvchi qarori), faol mahsulotlar, hozir `qty < minQty`; har
+ * Faqat **filial** omborlari (markaziy — yo'q, foydalanuvchi qarori), faol mahsulotlar (sarf materiallarisiz — ularning
+ * qoldig'i keyingi partiyagacha kamaymaydi, 2026-11-18), hozir `qty < minQty`; har
  * biriga markaziy ombordagi qoldig'i (yozuvi yo'q — 0). [where] — qo'shimcha shart (`$1`, `$2` — [params]).
  */
 async function query(em: EntityManager, where: string, params: unknown[]): Promise<BranchLowStock[]> {
@@ -45,7 +46,7 @@ async function query(em: EntityManager, where: string, params: unknown[]): Promi
      FROM stock s
      JOIN warehouses w ON w.id = s."warehouseId" AND w.kind = 'branch'
      JOIN branches b ON b.id = w."branchId"
-     JOIN ingredients i ON i.id = s."ingredientId" AND i.active
+     JOIN ingredients i ON i.id = s."ingredientId" AND i.active AND NOT i.consumable
      WHERE s."minQty" > 0 AND s.qty < s."minQty" AND ${where}
      ORDER BY b.name, b.id, i.name->>'uz', i.id`,
     params,

@@ -44,9 +44,20 @@ export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
 
 /**
  * `adjust` — qoldiqni tuzatish, `StockAdjustment` hujjati: 0 ga tushirish (admin, 2026-11-10) yoki qo'lda yozish (admin
- * va ta'minotchi, 2026-11-15)
+ * va ta'minotchi, 2026-11-15). `production` — tayyorlash, `Production` hujjati (2026-11-18): sarflanganlar — manfiy,
+ * tayyor mahsulot — musbat (ikkalasi bitta omborda). `consume` — "Sarflandi" (2026-11-18): sarf materialiga yangi
+ * partiya kelganda (kirim, ko'chirish) eski qoldiq hisobdan chiqadi; `refId` — o'sha kirim / ko'chirish, `cost` — qiymati.
  */
-export const MOVEMENT_KINDS = ['purchase', 'transfer_in', 'transfer_out', 'sale', 'sale_cancel', 'adjust'] as const;
+export const MOVEMENT_KINDS = [
+  'purchase',
+  'transfer_in',
+  'transfer_out',
+  'sale',
+  'sale_cancel',
+  'adjust',
+  'production',
+  'consume',
+] as const;
 export type MovementKind = (typeof MOVEMENT_KINDS)[number];
 
 export const ORDER_TYPES = ['dine_in', 'takeaway', 'delivery'] as const;
@@ -87,6 +98,7 @@ export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 export const ONLINE_PAYMENTS = ['click', 'cash'] as const;
 export type OnlinePayment = (typeof ONLINE_PAYMENTS)[number];
 
-export const EXPENSE_KINDS = ['electricity', 'gas', 'water', 'internet', 'other'] as const;
+/** `ingredient` — ombor mahsuloti uchun to'lov (2026-11-18): qaysi mahsulot — `ingredientId`, qoldiqqa ta'sir qilmaydi. */
+export const EXPENSE_KINDS = ['electricity', 'gas', 'water', 'internet', 'other', 'ingredient'] as const;
 export type ExpenseKind = (typeof EXPENSE_KINDS)[number];
 

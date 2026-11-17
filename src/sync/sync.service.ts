@@ -12,6 +12,7 @@ import { dateKey } from '../domain/dates';
 import { resolvePayment } from '../domain/payments';
 import { imagesDir } from '../images/images-dir';
 import { MenuService } from '../menu/menu.service';
+import { orderItemCosts } from '../orders/item-costs';
 import { NO_COURIER, Order } from '../orders/order.entity';
 import { orderCounterKey } from '../orders/orders.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
@@ -124,6 +125,8 @@ export class SyncService {
       type: input.type,
       source: 'cashier',
       items,
+      // markazga yetib kelgan paytdagi retsept va narxlar bilan (offline kassada narxlar yo'q)
+      itemCosts: await orderItemCosts(em, items),
       note: input.note.trim(),
       total,
       payment: paid.payment,

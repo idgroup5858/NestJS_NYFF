@@ -40,6 +40,15 @@ export class Ingredient {
   @Column('bigint', { nullable: true, transformer: bigintNumber })
   lastPrice: number | null;
 
+  /**
+   * Sarf materiali (2026-11-18): salfetka, yuvish vositalari, gubka — sarfini o'lchab bo'lmaydiganlar. Omborga yangi
+   * partiya kelganda (kirim, ko'chirish) undagi eski qoldiq "Sarflandi" bo'ladi (`consume`, `StockService.
+   * writeOffConsumables`); "kam qoldi" ogohlantirishlariga kirmaydi. O'zgartirilsa qoldiqqa tegilmaydi — keyingi
+   * partiyadan ishlaydi.
+   */
+  @Column({ default: false })
+  consumable: boolean;
+
   @Column({ default: true })
   active: boolean;
 }

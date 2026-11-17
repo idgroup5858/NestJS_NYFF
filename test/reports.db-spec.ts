@@ -312,6 +312,7 @@ const expense = (id: string, branchId: string, kind: ExpenseKind, amount: number
   id,
   branchId,
   kind,
+  ingredientId: null,
   amount,
   date,
   note: '',
@@ -484,6 +485,7 @@ describe('hisobotlar (SQL ↔ frontend salesReport)', () => {
       water: 0,
       internet: 0,
       other: 7000,
+      ingredient: 0,
     });
     expect(report.net).toBe(75000);
   });

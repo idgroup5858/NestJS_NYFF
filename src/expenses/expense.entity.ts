@@ -3,7 +3,7 @@ import { Branch } from '../branches/branch.entity';
 import { bigintNumber, ID_LENGTH } from '../common/columns';
 import type { ExpenseKind } from '../common/enums';
 
-/** Chiqim — hozircha faqat kommunal to'lovlar; hisobotda tushumdan ayriladi. */
+/** Chiqim — kommunal to'lovlar va ombor mahsulotiga to'lov (qoldiqqa ta'sir qilmaydi); hisobotda tushumdan ayriladi. */
 @Entity('expenses')
 @Index(['branchId', 'date'])
 export class Expense {
@@ -19,6 +19,10 @@ export class Expense {
 
   @Column({ type: 'varchar', length: 16 })
   kind: ExpenseKind;
+
+  /** `kind: 'ingredient'` da — qaysi ombor mahsuloti; boshqa turlarda `null` */
+  @Column({ type: 'varchar', length: ID_LENGTH, nullable: true })
+  ingredientId: string | null;
 
   @Column('bigint', { transformer: bigintNumber })
   amount: number;

@@ -7,22 +7,26 @@ import { fail } from '../common/errors';
 import { newId } from '../common/ids';
 import { assertUnused } from '../common/in-use';
 import { pageParams, type Page } from '../common/pagination';
-import type { LocalizedText, PurchaseItem, RecipeLine, TransferItem } from '../common/types';
+import type { LocalizedText, ProductionItem, PurchaseItem, RecipeLine, TransferItem } from '../common/types';
 import { nextCounter } from '../database/counters';
+import { producedUnitPrice, productionCost } from '../domain/production';
 import { convertPrice, fromBase, sameScale, toBase, unitSize } from '../domain/units';
 import { Ingredient } from './ingredient.entity';
+import { Production } from './production.entity';
 import { PurchaseEvents } from './purchase-events';
 import { Purchase } from './purchase.entity';
 import { StockAdjustment } from './stock-adjustment.entity';
 import { StockItem } from './stock-item.entity';
 import { StockMovement } from './stock-movement.entity';
-import { StockService, type StockDelta } from './stock.service';
+import { mergeDeltas, StockService, type StockDelta } from './stock.service';
 import { Transfer } from './transfer.entity';
 import {
   CreateIngredientDto,
+  CreateProductionDto,
   CreatePurchaseDto,
   CreateTransferDto,
   MovementsQuery,
+  ProductionsQuery,
   PurchasesQuery,
   TransfersQuery,
   UpdateIngredientDto,
@@ -31,7 +35,7 @@ import {
 export type MovementWithRef = StockMovement & {
   refNumber: number | null;
   refWarehouseId: string | null;
-  /** kirim / ko'chirish / tuzatishni kim yozgan (xodim id'si); buyurtmada — `null` */
+  /** kirim / ko'chirish / tuzatish / tayyorlashni kim yozgan (xodim id'si); buyurtmada — `null` */
   refBy: string | null;
 };
 
@@ -59,12 +63,14 @@ export interface StockMerge {
 export interface IngredientUsage {
   /** retseptida shu mahsulot bor taomlar; [qty] — 1 porsiyaga, asosiy birlikda (g / ml / dona) */
   products: { id: string; name: LocalizedText; qty: number }[];
-  /** qoldig'i, ogohlantirish chegarasi yoki normasi bor omborlar (asosiy birlikda) */
-  stock: { warehouseId: string; qty: number; minQty: number; targetQty: number }[];
+  /** qoldig'i yoki ogohlantirish chegarasi bor omborlar (asosiy birlikda) */
+  stock: { warehouseId: string; qty: number; minQty: number }[];
   purchases: number;
   /** tasdiq kutayotgan eski kirimlar (2026-11-08 gacha yozilgan) */
   pendingPurchases: number;
   transfers: number;
+  /** tayyorlashlar — shu mahsulot tayyorlangan yoki sarflangan */
+  productions: number;
 }
 
 /** Qadoq hajmining yuqori chegarasi (asosiy birlikda): 1 dona = 1 t / 1000 l / 1 mln dona. */
@@ -145,6 +151,7 @@ export class WarehouseService {
           name,
           group: input.group,
           active: input.active,
+          ...(input.consumable !== undefined && { consumable: input.consumable }),
           ...(reunit && { unit }),
           ...(repack && { packSize }),
           ...(repriced !== undefined && { lastPrice: repriced }),
@@ -160,6 +167,7 @@ export class WarehouseService {
       unit,
       packSize: packSize ?? null,
       lastPrice: lastPrice ?? null,
+      consumable: input.consumable ?? false,
       active: input.active,
     };
     await this.dataSource.manager.insert(Ingredient, ingredient);
@@ -167,8 +175,9 @@ export class WarehouseService {
   }
 
   /**
-   * Ombor mahsulotini o'chirish — hech qayerda ishlatilmagan bo'lsa: taom retseptida, kirimda, ko'chirishda, qoldiq
-   * harakatida yo'q. Aks holda `in_use` — faolsizlantirish kerak. Qoldiq yozuvlari (harakatsiz — 0) u bilan o'chadi.
+   * Ombor mahsulotini o'chirish — hech qayerda ishlatilmagan bo'lsa: taom retseptida, kirimda, ko'chirishda,
+   * tayyorlashda, qoldiq harakatida, chiqimda yo'q. Aks holda `in_use` — faolsizlantirish kerak. Qoldiq yozuvlari
+   * (harakatsiz — 0) u bilan o'chadi.
    */
   async removeIngredient(id: string): Promise<void> {
     await this.dataSource.transaction(async (em) => {
@@ -177,7 +186,9 @@ export class WarehouseService {
         recipes: `SELECT 1 FROM products WHERE ${containsIngredient('recipe')} LIMIT 1`,
         purchases: `SELECT 1 FROM purchases WHERE ${containsIngredient('items')} LIMIT 1`,
         transfers: `SELECT 1 FROM transfers WHERE ${containsIngredient('items')} LIMIT 1`,
+        productions: `SELECT 1 FROM productions WHERE "ingredientId" = $1::text OR ${containsIngredient('items')} LIMIT 1`,
         movements: `SELECT 1 FROM stock_movements WHERE "ingredientId" = $1 LIMIT 1`,
+        expenses: `SELECT 1 FROM expenses WHERE "ingredientId" = $1 LIMIT 1`,
       });
       await em.delete(StockItem, { ingredientId: id });
       await em.delete(Ingredient, { id });
@@ -186,8 +197,8 @@ export class WarehouseService {
 
   /**
    * Birlikni o'zgartirishdan oldin (web ogohlantirish oynasi): sonlari eski birlikda turgan joylar — retseptida bor
-   * taomlar (1 porsiyaga, asosiy birlikda), qoldig'i yoki chegarasi bor omborlar, kirim va ko'chirishlar soni, tasdiq
-   * kutayotgan eski kirimlar (ular bo'lsa kg / l ↔ dona — `pending_purchase`).
+   * taomlar (1 porsiyaga, asosiy birlikda), qoldig'i yoki chegarasi bor omborlar, kirim, ko'chirish va tayyorlashlar
+   * soni, tasdiq kutayotgan eski kirimlar (ular bo'lsa kg / l ↔ dona — `pending_purchase`).
    */
   async ingredientUsage(id: string): Promise<IngredientUsage> {
     const em = this.dataSource.manager;
@@ -198,15 +209,17 @@ export class WarehouseService {
         [id],
       ),
       em.query<IngredientUsage['stock']>(
-        `SELECT "warehouseId", qty, "minQty", "targetQty" FROM stock
-         WHERE "ingredientId" = $1 AND (qty <> 0 OR "minQty" > 0 OR "targetQty" > 0) ORDER BY "warehouseId"`,
+        `SELECT "warehouseId", qty, "minQty" FROM stock
+         WHERE "ingredientId" = $1 AND (qty <> 0 OR "minQty" > 0) ORDER BY "warehouseId"`,
         [id],
       ),
-      em.query<Record<'purchases' | 'pendingPurchases' | 'transfers', string>[]>(
+      em.query<Record<'purchases' | 'pendingPurchases' | 'transfers' | 'productions', string>[]>(
         `SELECT (SELECT COUNT(*) FROM purchases WHERE ${containsIngredient('items')}) AS purchases,
            (SELECT COUNT(*) FROM purchases WHERE status = 'pending' AND ${containsIngredient('items')})
              AS "pendingPurchases",
-           (SELECT COUNT(*) FROM transfers WHERE ${containsIngredient('items')}) AS transfers`,
+           (SELECT COUNT(*) FROM transfers WHERE ${containsIngredient('items')}) AS transfers,
+           (SELECT COUNT(*) FROM productions WHERE "ingredientId" = $1::text OR ${containsIngredient('items')})
+             AS productions`,
         [id],
       ),
     ]);
@@ -220,6 +233,7 @@ export class WarehouseService {
       purchases: Number(counts.purchases),
       pendingPurchases: Number(counts.pendingPurchases),
       transfers: Number(counts.transfers),
+      productions: Number(counts.productions),
     };
   }
 
@@ -229,41 +243,29 @@ export class WarehouseService {
 
   /**
    * To'ldirish kerak bo'lganlar: chegarasi qo'yilgan va qoldig'i chegaradan kam, yoki qoldig'i **minus** (chegarasiz
-   * ham — qoldiq kiritilmasdan sotilgan). Chegarasiz 0 qoldiq — yo'q (ishlatilmayotgan mahsulot bo'lishi mumkin).
+   * ham — qoldiq kiritilmasdan sotilgan). Chegarasiz 0 qoldiq — yo'q (ishlatilmayotgan mahsulot bo'lishi mumkin). Sarf
+   * materiallari — yo'q (qoldig'i keyingi partiyagacha kamaymaydi, "kam qoldi" ma'nosiz).
    */
   lowStock(warehouseId?: string) {
     const qb = this.dataSource.manager
       .createQueryBuilder(StockItem, 's')
+      .innerJoin(Ingredient, 'i', 'i.id = s.ingredientId AND NOT i.consumable')
       .where(new Brackets((w) => w.where('s.minQty > 0 AND s.qty < s.minQty').orWhere('s.qty < 0')));
     if (warehouseId) qb.andWhere('s.warehouseId = :warehouseId', { warehouseId });
     return qb.getMany();
   }
 
   /** Ogohlantirish chegarasi (asosiy birlikda); 0 — kuzatilmaydi. Qoldiq yozuvi bo'lmasa — 0 qoldiq bilan ochiladi. */
-  setMinQty(warehouseId: string, ingredientId: string, minQty: number): Promise<StockItem> {
-    return this.setLimit(warehouseId, ingredientId, 'minQty', minQty);
-  }
-
-  /** Norma — "To'ldirish" shu darajagacha (asosiy birlikda); 0 — yozilmagan (chegara × 2 / 10 birlik). */
-  setTargetQty(warehouseId: string, ingredientId: string, targetQty: number): Promise<StockItem> {
-    return this.setLimit(warehouseId, ingredientId, 'targetQty', targetQty);
-  }
-
-  private async setLimit(
-    warehouseId: string,
-    ingredientId: string,
-    column: 'minQty' | 'targetQty',
-    value: number,
-  ): Promise<StockItem> {
+  async setMinQty(warehouseId: string, ingredientId: string, minQty: number): Promise<StockItem> {
     const em = this.dataSource.manager;
     await this.getWarehouse(em, warehouseId);
     await this.getIngredient(em, ingredientId);
-    if (!Number.isInteger(value) || value < 0) fail('invalid_qty', ingredientId);
+    if (!Number.isInteger(minQty) || minQty < 0) fail('invalid_qty', ingredientId);
     const rows: StockItem[] = await em.query(
-      `INSERT INTO stock ("warehouseId", "ingredientId", "qty", "${column}") VALUES ($1, $2, 0, $3)
-       ON CONFLICT ("warehouseId", "ingredientId") DO UPDATE SET "${column}" = EXCLUDED."${column}"
-       RETURNING "warehouseId", "ingredientId", "qty", "minQty", "targetQty"`,
-      [warehouseId, ingredientId, value],
+      `INSERT INTO stock ("warehouseId", "ingredientId", "qty", "minQty") VALUES ($1, $2, 0, $3)
+       ON CONFLICT ("warehouseId", "ingredientId") DO UPDATE SET "minQty" = EXCLUDED."minQty"
+       RETURNING "warehouseId", "ingredientId", "qty", "minQty"`,
+      [warehouseId, ingredientId, minQty],
     );
     return rows[0];
   }
@@ -401,9 +403,9 @@ export class WarehouseService {
   }
 
   /**
-   * Harakatlar (yangisi birinchi) — sabab bo'lgan hujjat raqami bilan: buyurtma, kirim, ko'chirish yoki tuzatish raqami
-   * (`refNumber`) va kim yozgani (`refBy`, buyurtmada — `null`); ko'chirishda — ikkinchi ombor (`refWarehouseId`:
-   * kirimda qayerdan, chiqimda qayerga).
+   * Harakatlar (yangisi birinchi) — sabab bo'lgan hujjat raqami bilan: buyurtma, kirim, ko'chirish, tuzatish yoki
+   * tayyorlash raqami (`refNumber`) va kim yozgani (`refBy`, buyurtmada — `null`); ko'chirishda — ikkinchi ombor
+   * (`refWarehouseId`: kirimda qayerdan, chiqimda qayerga).
    */
   async movements(query: MovementsQuery): Promise<Page<MovementWithRef>> {
     const { page, limit, skip } = pageParams(query, 100);
@@ -424,15 +426,18 @@ export class WarehouseService {
     const [rows, [{ count }]] = await Promise.all([
       em.query<MovementWithRef[]>(
         `SELECT m.id, m."warehouseId", m."ingredientId", m.qty, m.kind, m."refId", m."createdAt",
-           COALESCE(o.number, p.number, t.number, a.number) AS "refNumber",
+           m.cost::float8 AS cost,
+           COALESCE(o.number, p.number, t.number, a.number, pr.number) AS "refNumber",
            CASE m.kind WHEN 'transfer_in' THEN t."fromWarehouseId" WHEN 'transfer_out' THEN t."toWarehouseId" END
              AS "refWarehouseId",
-           COALESCE(p."createdBy", t."createdBy", a."createdBy") AS "refBy"
+           COALESCE(p."createdBy", t."createdBy", a."createdBy", pr."createdBy") AS "refBy"
          FROM stock_movements m
          LEFT JOIN orders o ON m.kind IN ('sale', 'sale_cancel') AND o.id = m."refId"
-         LEFT JOIN purchases p ON m.kind = 'purchase' AND p.id = m."refId"
-         LEFT JOIN transfers t ON m.kind IN ('transfer_in', 'transfer_out') AND t.id = m."refId"
+         -- "Sarflandi" — yangi partiyani olib kelgan kirim yoki ko'chirish
+         LEFT JOIN purchases p ON m.kind IN ('purchase', 'consume') AND p.id = m."refId"
+         LEFT JOIN transfers t ON m.kind IN ('transfer_in', 'transfer_out', 'consume') AND t.id = m."refId"
          LEFT JOIN stock_adjustments a ON m.kind = 'adjust' AND a.id = m."refId"
+         LEFT JOIN productions pr ON m.kind = 'production' AND pr.id = m."refId"
          ${filter}
          ORDER BY m."createdAt" DESC, m.id
          LIMIT ${limit} OFFSET ${skip}`,
@@ -500,6 +505,8 @@ export class WarehouseService {
         ingredientId: item.ingredientId,
         qty: toBase(item.qty, ingredientOf(item.ingredientId).unit, item.packSize),
       }));
+      // sarf materialining eski qoldig'i — "Sarflandi" (narxi — yangilanishdan oldin o'qilgani)
+      await this.stock.writeOffConsumables(em, created.warehouseId, [...ingredients.values()], created.id, now);
       await this.stock.applyDeltas(em, created.warehouseId, deltas, 'purchase', created.id, now);
       return created;
     });
@@ -542,6 +549,7 @@ export class WarehouseService {
         ingredientId: item.ingredientId,
         qty: toBase(item.qty, ingredientOf(item).unit, item.packSize),
       }));
+      await this.stock.writeOffConsumables(em, purchase.warehouseId, [...ingredients.values()], purchase.id, now);
       await this.stock.applyDeltas(em, purchase.warehouseId, deltas, 'purchase', purchase.id, now);
       return approved;
     });
@@ -614,8 +622,102 @@ export class WarehouseService {
       await em.insert(Transfer, transfer);
       const out = baseDeltas.map((d) => ({ ...d, qty: -d.qty }));
       await this.stock.applyDeltas(em, input.fromWarehouseId, out, 'transfer_out', transfer.id, now);
+      // qabul qilgan omborda sarf materialining eski qoldig'i — "Sarflandi"; jo'natgan omborda — oddiy chiqim
+      await this.stock.writeOffConsumables(em, input.toWarehouseId, [...ingredients.values()], transfer.id, now);
       await this.stock.applyDeltas(em, input.toWarehouseId, baseDeltas, 'transfer_in', transfer.id, now);
       return transfer;
+    });
+  }
+
+  // ───────────────────────── Tayyorlash ─────────────────────────
+
+  /** Tayyorlashlar (yangisi birinchi); [ingredientId] — shu mahsulot tayyorlanganlari. */
+  async productions(query: ProductionsQuery): Promise<Page<Production>> {
+    const { page, limit, skip } = pageParams(query);
+    const [items, total] = await this.dataSource.manager.findAndCount(Production, {
+      where: query.ingredientId ? { ingredientId: query.ingredientId } : {},
+      order: { createdAt: 'DESC', number: 'DESC' },
+      skip,
+      take: limit,
+    });
+    return { items, total, page, limit };
+  }
+
+  /**
+   * Tayyorlash (2026-11-18, admin va ta'minotchi) — doim **markaziy** omborda: go'sht, tuxum, yog' → katlet. Oshpaz
+   * haqiqatda qancha sarflaganini aytadi, chiqqan sonini sanab yozadi (oldindan "tarkib" yo'q — yo'qotish ham, qoldiq
+   * ham aniq). Miqdorlar qadoqsiz birlikda — kg / l / dona: qadoqli tuxum ham donada.
+   *
+   * Bitta tranzaksiyada: sarflanganlar ombordan ayriladi (qoldiqdan ko'p bo'lmaydi — `insufficient_stock`, bir mahsulot
+   * ikki qatorda bo'lsa — jami), tayyor mahsulot qo'shiladi; harakatlar — `production`, "Tayyorlash №N". Tannarx —
+   * sarflanganlarning oxirgi narxidan; hammasining narxi bo'lsa, tayyor mahsulotning "oxirgi narxi" = tannarx ÷ chiqqan
+   * miqdor (birortasi narxsiz — narx o'zgarmaydi). Chegaradan tushganlar `LowStockEvents` ga boradi (sotuvdagidek), lekin
+   * Telegram "kam qoldi" faqat filial omborlari bo'yicha — markaziy ombor uchun xabar ketmaydi.
+   */
+  async createProduction(input: CreateProductionDto, createdBy: string, now = new Date()): Promise<Production> {
+    return this.dataSource.transaction(async (em) => {
+      if (input.items.length === 0) fail('empty_order');
+      const central = (await em.findOneBy(Warehouse, { kind: 'central' })) ?? fail('not_found', 'central warehouse');
+      // narx bir vaqtda o'zgarib qolmasin (kirim, mahsulot oynasi) — qatorlar qulflanadi
+      const ingredients = await this.ingredientMap(
+        em,
+        [input.ingredientId, ...input.items.map((line) => line.ingredientId)],
+        true,
+      );
+      const ingredientOf = (id: string) => ingredients.get(id) ?? fail('not_found', `ingredient ${id}`);
+      /** qadoqsiz birlikdagi miqdor → asosiy birlik; 0 ga yaxlitlanadigan yoki juda katta — `invalid_qty` */
+      const baseQty = (qty: number, ingredient: Ingredient) => {
+        const base = toBase(qty, ingredient.unit);
+        if (!(qty > 0) || base < 1 || base > MAX_STOCK_QTY) fail('invalid_qty', ingredient.id);
+        return base;
+      };
+
+      const product = ingredientOf(input.ingredientId);
+      const produced = baseQty(input.qty, product);
+      const consumed = input.items.map((line) => {
+        const ingredient = ingredientOf(line.ingredientId);
+        if (ingredient.id === product.id) fail('invalid_input', 'items');
+        return { ingredient, qty: baseQty(line.qty, ingredient) };
+      });
+
+      const needed = mergeDeltas(consumed.map(({ ingredient, qty }) => ({ ingredientId: ingredient.id, qty })));
+      const available = await this.stock.lockQty(em, central.id, [...needed.keys()]);
+      for (const [ingredientId, qty] of needed) {
+        if ((available.get(ingredientId) ?? 0) < qty) fail('insufficient_stock', ingredientId);
+      }
+
+      const cost = productionCost(
+        consumed.map(({ ingredient, qty }) => ({
+          qty,
+          unit: ingredient.unit,
+          packSize: ingredient.packSize,
+          lastPrice: ingredient.lastPrice,
+        })),
+      );
+      const production: Production = {
+        id: newId('mfg'),
+        number: await nextCounter(em, 'production'),
+        warehouseId: central.id,
+        ingredientId: product.id,
+        qty: input.qty,
+        items: input.items.map((line): ProductionItem => ({ ingredientId: line.ingredientId, qty: line.qty })),
+        cost,
+        note: input.note?.trim() ?? '',
+        createdBy,
+        createdAt: now,
+      };
+      await em.insert(Production, production);
+      if (cost !== null) {
+        await em.update(Ingredient, product.id, {
+          lastPrice: producedUnitPrice(cost, produced, product.unit, product.packSize),
+        });
+      }
+      const deltas: StockDelta[] = [
+        { ingredientId: product.id, qty: produced },
+        ...consumed.map(({ ingredient, qty }) => ({ ingredientId: ingredient.id, qty: -qty })),
+      ];
+      await this.stock.applyDeltas(em, central.id, deltas, 'production', production.id, now);
+      return production;
     });
   }
 

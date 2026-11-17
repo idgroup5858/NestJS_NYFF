@@ -20,6 +20,11 @@ import { StockAdjustments1793820000000 } from './1793820000000-StockAdjustments'
 import { ProductTruck1793830000000 } from './1793830000000-ProductTruck';
 import { CashierMarksReady1793840000000 } from './1793840000000-CashierMarksReady';
 import { StockFromCentral1793850000000 } from './1793850000000-StockFromCentral';
+import { Productions1793860000000 } from './1793860000000-Productions';
+import { ExpenseIngredient1793870000000 } from './1793870000000-ExpenseIngredient';
+import { OrderItemCosts1793880000000 } from './1793880000000-OrderItemCosts';
+import { DropStockTarget1793890000000 } from './1793890000000-DropStockTarget';
+import { Consumables1793900000000 } from './1793900000000-Consumables';
 
 /** Barcha migratsiyalar tartib bilan. Yangisi `npm run migration:generate -- src/database/migrations/<Nom>` dan keyin shu yerga. */
 export const MIGRATIONS: Function[] = [
@@ -45,4 +50,9 @@ export const MIGRATIONS: Function[] = [
   ProductTruck1793830000000,
   CashierMarksReady1793840000000,
   StockFromCentral1793850000000,
+  Productions1793860000000,
+  ExpenseIngredient1793870000000,
+  OrderItemCosts1793880000000,
+  DropStockTarget1793890000000,
+  Consumables1793900000000,
 ];

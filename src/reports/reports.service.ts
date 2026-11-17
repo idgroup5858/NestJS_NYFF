@@ -40,6 +40,29 @@ export interface ProductStat {
   revenue: number;
 }
 
+/**
+ * Taom foydasi (admin "Hisobotlar" → "Taomlar foydasi"): sotilgan soni va tushumi, ulardan tannarxi ma'lum qismi
+ * (`costedQty`, `costedRevenue`) va o'sha qismning sotuv paytidagi tannarxi (`cost`). Foyda — `costedRevenue − cost`;
+ * tannarxi noma'lumi — `qty − costedQty` (2026-11-18 dan oldingi sotuv yoki retseptida narxsiz mahsulot bo'lgan).
+ */
+export interface ProductProfit extends ProductStat {
+  costedQty: number;
+  costedRevenue: number;
+  cost: number;
+}
+
+/**
+ * Xo'jalik sarfi: sarf materiali (salfetka, yuvish vositasi) davrda qancha "Sarflandi" — miqdori asosiy birlikda (g / ml
+ * / dona), qiymati ma'lum qismi (`costedQty`) va uning summasi (`cost`; narxi yo'q edi — kirmaydi).
+ */
+export interface ConsumptionStat {
+  ingredientId: string;
+  name: LocalizedText;
+  qty: number;
+  costedQty: number;
+  cost: number;
+}
+
 export interface BranchStat extends Tally {
   branchId: string;
   expenses: number;
@@ -101,6 +124,9 @@ interface ProductRow {
   name: LocalizedText;
   qty: string;
   revenue: string;
+  costedQty: string;
+  costedRevenue: string;
+  cost: string;
 }
 
 interface ExpenseRow {
@@ -116,7 +142,8 @@ export class ReportsService {
 
   /**
    * Sotuv hisoboti (frontend `salesReport` bilan bir xil natija): to'langan (bekor qilinmagan) buyurtmalar tushumi
-   * to'lov turi / buyurtma turi / manba / soat / kun / taom / filial kesimida va shu davrdagi kommunal xarajatlar.
+   * to'lov turi / buyurtma turi / manba / soat / kun / taom / filial kesimida va shu davrdagi chiqimlar (kommunal va
+   * mahsulot to'lovlari).
    * Buyurtma kuni va soati — ilova vaqt zonasidagi mahalliy vaqt. Hammasi bitta suratdan (REPEATABLE READ): jami,
    * taomlar va filiallar bir-biriga mos keladi.
    */
@@ -223,8 +250,9 @@ export class ReportsService {
       ),
       em.query<{ lowStock: string; pendingPurchases: string; firstOrderDate: DateKey | null }[]>(
         `SELECT
-           -- GET /stock/low bilan bir xil: chegaradan kam yoki minus (chegarasiz ham)
-           (SELECT COUNT(*) FROM stock s WHERE (s."minQty" > 0 AND s.qty < s."minQty") OR s.qty < 0) AS "lowStock",
+           -- GET /stock/low bilan bir xil: chegaradan kam yoki minus (chegarasiz ham), sarf materiallarisiz
+           (SELECT COUNT(*) FROM stock s JOIN ingredients i ON i.id = s."ingredientId" AND NOT i.consumable
+            WHERE (s."minQty" > 0 AND s.qty < s."minQty") OR s.qty < 0) AS "lowStock",
            (SELECT COUNT(*) FROM purchases p WHERE p.status = 'pending') AS "pendingPurchases",
            -- avval MIN (createdAt indeksidan), keyin mahalliy vaqtga: ifoda ichida MIN butun jadvalni o'qirdi
            (SELECT to_char(MIN(o."createdAt") AT TIME ZONE $1, 'YYYY-MM-DD') FROM orders o) AS "firstOrderDate"`,
@@ -237,6 +265,72 @@ export class ReportsService {
       pendingPurchases: num(counts.pendingPurchases),
       firstOrderDate: counts.firstOrderDate,
     };
+  }
+
+  /**
+   * Taomlar foydasi ("Hisobotlar" → "Taomlar foydasi"): sotuv hisobotidagi taomlar bilan bir xil qatorlar, nom va
+   * tartib (tushum bo'yicha) — har biriga sotuv paytida yozilgan tannarx. Davr va filial — `sales` dagidek.
+   */
+  async products(range: ReportRange): Promise<ProductProfit[]> {
+    const scope = scopeOf(range);
+    if (!scope) return [];
+    const rows = await this.topProducts(this.dataSource.manager, scope);
+    return rows.map((row) => ({
+      productId: row.productId,
+      name: row.name,
+      qty: num(row.qty),
+      revenue: num(row.revenue),
+      costedQty: num(row.costedQty),
+      costedRevenue: num(row.costedRevenue),
+      cost: num(row.cost),
+    }));
+  }
+
+  /**
+   * Xo'jalik sarflari ("Taomlar foydasi" tabi pastida): davrda "Sarflandi" bo'lgan sarf materiallari — miqdori (asosiy
+   * birlikda) va qiymati (hisobdan chiqqan paytdagi narxda). Filial berilsa — uning sotuv ombori: o'z ombori, "Sotuv
+   * markaziy ombordan" yoqilgan bo'lsa — markaziy (Luchvoy); berilmasa — hamma omborlar (markaziy ham). Kun —
+   * harakatning mahalliy sanasi. Tartib — summa bo'yicha.
+   */
+  async consumption(range: ReportRange): Promise<ConsumptionStat[]> {
+    const scope = scopeOf(range);
+    if (!scope) return [];
+    const em = this.dataSource.manager;
+    const params: unknown[] = [appTimeZone(), scope.from, scope.to];
+    if (scope.branchId !== null) {
+      const [row]: { id: string | null }[] = await em.query(
+        `SELECT CASE WHEN b."stockFromCentral" THEN (SELECT id FROM warehouses WHERE kind = 'central' LIMIT 1)
+                     ELSE (SELECT id FROM warehouses w WHERE w.kind = 'branch' AND w."branchId" = b.id) END AS id
+         FROM branches b WHERE b.id = $1`,
+        [scope.branchId],
+      );
+      // noma'lum filial — `sales` dagidek bo'sh, xato emas
+      if (!row?.id) return [];
+      params.push(row.id);
+    }
+    const rows: { ingredientId: string; name: LocalizedText; qty: string; costedQty: string; cost: string }[] =
+      await em.query(
+        `SELECT m."ingredientId", i.name,
+           SUM(-m.qty) AS qty,
+           COALESCE(SUM(-m.qty) FILTER (WHERE m.cost IS NOT NULL), 0) AS "costedQty",
+           COALESCE(SUM(m.cost), 0) AS cost
+         FROM stock_movements m
+         JOIN ingredients i ON i.id = m."ingredientId"
+         WHERE m.kind = 'consume'
+           AND m."createdAt" >= ($2::date::timestamp AT TIME ZONE $1)
+           AND m."createdAt" < (($3::date + 1)::timestamp AT TIME ZONE $1)
+           ${scope.branchId !== null ? 'AND m."warehouseId" = $4' : ''}
+         GROUP BY m."ingredientId", i.id
+         ORDER BY cost DESC, i.name->>'uz', m."ingredientId"`,
+        params,
+      );
+    return rows.map((row) => ({
+      ingredientId: row.ingredientId,
+      name: row.name,
+      qty: num(row.qty),
+      costedQty: num(row.costedQty),
+      cost: num(row.cost),
+    }));
   }
 
   /**
@@ -274,6 +368,8 @@ export class ReportsService {
   /**
    * Taomlar: buyurtma qatorlari (`items` jsonb) bo'yicha soni va tushumi (narx × soni). Nomi — taom birinchi
    * uchragan (eng oldingi) buyurtmadagi nom; tushumi teng bo'lsa ham birinchi uchragan oldin (frontend tartibi).
+   * Tannarx — qatorning sotuv paytida yozilgani (`itemCosts` dagi o'sha tartib raqamli element); `null` — ma'lum
+   * qismga (`costed*`, `cost`) kirmaydi.
    */
   private topProducts(em: EntityManager, scope: ScopeArgs): Promise<ProductRow[]> {
     const { sql, params } = ordersInScope(scope);
@@ -281,12 +377,16 @@ export class ReportsService {
       `SELECT x."productId",
          (array_agg(x.name ORDER BY x.seq))[1] AS name,
          SUM(x.qty) AS qty,
-         SUM(x.price * x.qty) AS revenue
+         SUM(x.price * x.qty) AS revenue,
+         COALESCE(SUM(x.qty) FILTER (WHERE x.cost IS NOT NULL), 0) AS "costedQty",
+         COALESCE(SUM(x.price * x.qty) FILTER (WHERE x.cost IS NOT NULL), 0) AS "costedRevenue",
+         COALESCE(SUM(x.cost * x.qty), 0) AS cost
        FROM (
          SELECT e.item->>'productId' AS "productId",
            e.item->'name' AS name,
            (e.item->>'qty')::numeric AS qty,
            (e.item->>'price')::numeric AS price,
+           (o."itemCosts" ->> (e.pos::int - 1))::numeric AS cost,
            row_number() OVER (ORDER BY o."createdAt", o.id, e.pos) AS seq
          FROM (${sql}) o
          CROSS JOIN LATERAL jsonb_array_elements(o.items) WITH ORDINALITY AS e(item, pos)
@@ -298,7 +398,7 @@ export class ReportsService {
     );
   }
 
-  /** Kommunal xarajatlar filial / tur / kun bo'yicha (sanasi — mahalliy kun, vaqt zonasi kerak emas). */
+  /** Chiqimlar filial / tur / kun bo'yicha (sanasi — mahalliy kun, vaqt zonasi kerak emas). */
   private expenses(em: EntityManager, scope: ScopeArgs): Promise<ExpenseRow[]> {
     const params: unknown[] = [scope.from, scope.to];
     if (scope.branchId !== null) params.push(scope.branchId);
@@ -316,6 +416,17 @@ interface ScopeArgs {
   from: DateKey;
   to: DateKey;
   branchId: string | null;
+}
+
+/**
+ * `products` / `consumption` oralig'i — `sales` dagidek: sana haqiqiy bo'lmasa `invalid_input`; eng ko'pi 400 kun;
+ * `from > to` — `null` (bo'sh hisobot, xato emas).
+ */
+function scopeOf(range: ReportRange): ScopeArgs | null {
+  if (!isRealDateKey(range.from)) fail('invalid_input', `from: ${range.from}`);
+  if (!isRealDateKey(range.to)) fail('invalid_input', `to: ${range.to}`);
+  const days = dateRange(range.from, range.to);
+  return days.length === 0 ? null : { from: days[0], to: days[days.length - 1], branchId: range.branchId };
 }
 
 /**

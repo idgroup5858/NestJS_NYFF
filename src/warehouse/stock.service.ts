@@ -5,7 +5,9 @@ import { Warehouse } from '../branches/warehouse.entity';
 import type { MovementKind } from '../common/enums';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
+import { unitSize } from '../domain/units';
 import { Product } from '../menu/product.entity';
+import type { Ingredient } from './ingredient.entity';
 import { LowStockEvents } from './low-stock-events';
 import { StockMovement } from './stock-movement.entity';
 
@@ -53,7 +55,8 @@ export class StockService {
    * Telegram'ga): qator qulflangan holda yangilanadi, shuning uchun bir vaqtdagi sotuvlardan faqat bittasi "tushirgan"
    * bo'ladi — xabar bir marta. Qoldiqni tuzatish (`adjust`: 0 ga tushirish, qo'lda yozish) — xabarsiz: butun ombor 0
    * qilinganda o'nlab "kam qoldi" ketmasin, qo'lda yozilganini esa yozgan odam ko'rib turibdi. [lowStockAlert] `false`
-   * — boshqa turdagi harakat ham xabarsiz (filial ombori markazga qo'shilganda — `mergeIntoCentral`).
+   * — boshqa turdagi harakat ham xabarsiz (filial ombori markazga qo'shilganda — `mergeIntoCentral`). [costs] —
+   * harakat qiymati mahsulot bo'yicha (faqat "Sarflandi").
    */
   async applyDeltas(
     em: EntityManager,
@@ -63,6 +66,7 @@ export class StockService {
     refId: string,
     at: Date,
     lowStockAlert = kind !== 'adjust',
+    costs?: Map<string, number | null>,
   ): Promise<void> {
     const merged = mergeDeltas(deltas);
     if (merged.size === 0) return;
@@ -93,8 +97,42 @@ export class StockService {
         kind,
         refId,
         createdAt: at,
+        cost: costs?.get(ingredientId) ?? null,
       })),
     );
+  }
+
+  /**
+   * Sarf materiali (`Ingredient.consumable`, 2026-11-18): omborga yangi partiya kelayapti (kirim, ko'chirish) — undagi
+   * eski **musbat** qoldiq sarflangan hisoblanadi va 0 ga tushadi: "Sarflandi" harakati (`consume`), `refId` — o'sha
+   * kirim / ko'chirish, `cost` — qoldiq × oxirgi narx (narxsiz — `null`). Yangi partiya qo'shilishidan **oldin** chaqiriladi;
+   * [ingredients] — kirim narxi yozilishidan oldin o'qilgan (eski partiya eski narxda). 0 / minus qoldiq — tegilmaydi.
+   * "Kam qoldi" xabari ketmaydi. Qatorlar qulflanadi — shu paytdagi sotuv kutib turadi.
+   */
+  async writeOffConsumables(
+    em: EntityManager,
+    warehouseId: string,
+    ingredients: Ingredient[],
+    refId: string,
+    at: Date,
+  ): Promise<void> {
+    const consumables = new Map(ingredients.filter((i) => i.consumable).map((i) => [i.id, i]));
+    if (consumables.size === 0) return;
+    const current = await this.lockQty(em, warehouseId, [...consumables.keys()]);
+    const deltas: StockDelta[] = [];
+    const costs = new Map<string, number | null>();
+    for (const [ingredientId, qty] of current) {
+      if (qty <= 0) continue;
+      const ingredient = consumables.get(ingredientId)!;
+      deltas.push({ ingredientId, qty: -qty });
+      costs.set(
+        ingredientId,
+        ingredient.lastPrice === null
+          ? null
+          : Math.round((qty * ingredient.lastPrice) / unitSize(ingredient.unit, ingredient.packSize)),
+      );
+    }
+    await this.applyDeltas(em, warehouseId, deltas, 'consume', refId, at, false, costs);
   }
 
   /** Qoldiqlar (asosiy birlikda), qatorlar tranzaksiya oxirigacha qulflanadi — tekshiruvdan keyin o'zgarib qolmasin. */

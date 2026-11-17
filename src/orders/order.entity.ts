@@ -47,6 +47,15 @@ export class Order {
   @Column({ type: 'jsonb' })
   items: OrderItem[];
 
+  /**
+   * Har qatorning 1 dona tannarxi (so'm), [items] bilan bir tartibda — sotuv paytidagi retsept × ombor mahsulotlarining
+   * oxirgi narxi (`orderItemCosts`, 2026-11-18). Element `null` — retseptdagi biror mahsulotning narxi yo'q edi; ustun
+   * `null` — tannarx yozilmagan (shu kundan oldingi buyurtma). Faqat admin hisoboti uchun (`GET /reports/products`):
+   * `select: false` — buyurtma o'qilganda kelmaydi, xodim / mijoz / kuryerga chiqmaydi.
+   */
+  @Column({ type: 'jsonb', nullable: true, select: false })
+  itemCosts?: (number | null)[] | null;
+
   /** butun buyurtmaga izoh */
   @Column({ type: 'text', default: '' })
   note: string;

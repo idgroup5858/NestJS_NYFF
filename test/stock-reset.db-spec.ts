@@ -35,8 +35,8 @@ describe('qoldiqni 0 ga tushirish', () => {
 
   const stockOf = (warehouseId: string) =>
     ds.manager.find(StockItem, { where: { warehouseId }, order: { ingredientId: 'ASC' } });
-  const setStock = (ingredientId: string, qty: number, minQty = 0, targetQty = 0) =>
-    ds.manager.update(StockItem, { warehouseId: WC, ingredientId }, { qty, minQty, targetQty });
+  const setStock = (ingredientId: string, qty: number, minQty = 0) =>
+    ds.manager.update(StockItem, { warehouseId: WC, ingredientId }, { qty, minQty });
   const qtyOf = async (ingredientId: string) =>
     (await ds.manager.findOneByOrFail(StockItem, { warehouseId: WC, ingredientId })).qty;
 
@@ -65,7 +65,7 @@ describe('qoldiqni 0 ga tushirish', () => {
     ).body.token as string;
     const supplier = { Authorization: `Bearer ${supplierToken}` };
 
-    await setStock('ketchup', -1250, 1200, 3000);
+    await setStock('ketchup', -1250, 1200);
     const others = (await stockOf(WC)).filter((s) => s.ingredientId !== 'ketchup');
 
     await http().post(`/api/stock/${WC}/ketchup/reset`).set(supplier).expect(403);
@@ -76,13 +76,12 @@ describe('qoldiqni 0 ga tushirish', () => {
       count: 1,
       adjustment: { number: 1, warehouseId: WC, createdBy: ADMIN },
     });
-    // chegara va norma joyida, boshqa mahsulotlar o'zgarmagan
+    // chegara joyida, boshqa mahsulotlar o'zgarmagan
     expect(
       await ds.manager.findOneByOrFail(StockItem, { warehouseId: WC, ingredientId: 'ketchup' }),
     ).toMatchObject({
       qty: 0,
       minQty: 1200,
-      targetQty: 3000,
     });
     expect((await stockOf(WC)).filter((s) => s.ingredientId !== 'ketchup')).toEqual(others);
 
@@ -128,9 +127,7 @@ describe('qoldiqni 0 ga tushirish', () => {
 
     const after = await stockOf(WC);
     expect(after.every((s) => s.qty === 0)).toBe(true);
-    expect(after.map(({ minQty, targetQty }) => ({ minQty, targetQty }))).toEqual(
-      before.map(({ minQty, targetQty }) => ({ minQty, targetQty })),
-    );
+    expect(after.map(({ minQty }) => minQty)).toEqual(before.map(({ minQty }) => minQty));
     expect(await stockOf(CENTRAL)).toEqual(central);
     expect(await stockOf('wh_yunusobod')).toEqual(yunusobod);
 
@@ -175,9 +172,9 @@ describe('qoldiqni 0 ga tushirish', () => {
     const put = (ingredientId: string, qty: unknown, warehouseId = WC) =>
       http().put(`/api/stock/${warehouseId}/${ingredientId}/qty`).send({ qty });
 
-    it("ta'minotchi: minus → yozilgan son, farqi — \"Tuzatish №1\" (kim yozgani bilan); chegara / norma joyida; xabarsiz", async () => {
+    it("ta'minotchi: minus → yozilgan son, farqi — \"Tuzatish №1\" (kim yozgani bilan); chegara joyida; xabarsiz", async () => {
       const supplier = await login('usr_supplier', '5555');
-      await setStock('ketchup', -1250, 1200, 3000);
+      await setStock('ketchup', -1250, 1200);
       const others = (await stockOf(WC)).filter((s) => s.ingredientId !== 'ketchup');
 
       const saved = await put('ketchup', 3000).set(supplier).expect(200);
@@ -187,7 +184,7 @@ describe('qoldiqni 0 ga tushirish', () => {
       });
       expect(
         await ds.manager.findOneByOrFail(StockItem, { warehouseId: WC, ingredientId: 'ketchup' }),
-      ).toMatchObject({ qty: 3000, minQty: 1200, targetQty: 3000 });
+      ).toMatchObject({ qty: 3000, minQty: 1200 });
       expect((await stockOf(WC)).filter((s) => s.ingredientId !== 'ketchup')).toEqual(others);
 
       // chegaradan pastga tushirish ham — "kam qoldi" xabarisiz
@@ -219,7 +216,7 @@ describe('qoldiqni 0 ga tushirish', () => {
       expect(saved.body).toMatchObject({ count: 1, adjustment: { createdBy: ADMIN } });
       expect(
         await ds.manager.findOneByOrFail(StockItem, { warehouseId: WC, ingredientId: 'ketchup' }),
-      ).toMatchObject({ qty: 750, minQty: 0, targetQty: 0 });
+      ).toMatchObject({ qty: 750, minQty: 0 });
     });
 
     it('xatolar: butun 0…1 mlrd emas — invalid_qty, yo\'q ombor / mahsulot — not_found, kassa xodimi — forbidden', async () => {

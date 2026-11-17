@@ -93,7 +93,7 @@ ruxsati kerak (`android:usesCleartextTraffic="true"` yoki `network_security_conf
   — **yuborilsa ham e'tiborga olinmaydi**: xodim — tokendan, filial — tokendan, narx — bazadan. Kiosk va TV da esa
   filial — so'rovdagi `branchId` (majburiy; shu filialning TV / kiosk kodi bilan).
 - **HTTP statuslar** — bitta qoida: yangi yozuv yaratish (`POST /orders`, `/kiosk/orders`, `/mobile/orders`,
-  `/purchases`, `/transfers`, `/branches`, `/categories`, `/products`, `/ingredients`, `/users`, `/expenses`) —
+  `/purchases`, `/transfers`, `/productions`, `/branches`, `/categories`, `/products`, `/ingredients`, `/users`, `/expenses`) —
   `201`; amal (`login`, `admin-login`, `courier-login`, `unlock`, `confirm` / `ready` / `reopen` / `cancel`, smenani ochish / yopish, eski kirimni
   tasdiqlash / rad etish) va `GET` / `PATCH` / `PUT` — `200`; tanasiz natija — `204`: `PUT /auth/pin`, `PUT /auth/password`,
   `POST /categories/:id/move`, `POST /products/:id/move`, barcha `DELETE` (`/branches`, `/categories`, `/products`,
@@ -659,6 +659,13 @@ ombordan) → `ready`. `cancelled` — istalgan bosqichdan; ayrilgan mahsulotlar
 qaytadi. Kassa buyurtmasi va kioskda karta / Click bilan to'langani darhol
 `preparing`.
 
+**Tannarx (2026-11-18).** Buyurtma yaratilganda (kassa, kiosk, mobil; offline kassa buyurtmasi — markazga yetib
+kelganda) har qatorning 1 dona tannarxi bazaga yoziladi: taom retsepti × ombor mahsulotlarining o'sha paytdagi oxirgi
+narxi (`lastPrice`). Keyin narx o'zgarsa ham o'tgan sotuvniki o'zgarmaydi; retseptdagi biror mahsulotning narxi yo'q
+bo'lsa — o'sha qator noma'lum, bundan oldingi buyurtmalar — hammasi noma'lum. Tannarx **hech qaysi buyurtma
+ko'rinishida yo'q** (`Order`, `CustomerOrder`, kuryer, TV, socket) — faqat admin hisobotida
+([7.9](#79-hisobotlar-reports--admin), `GET /reports/products`).
+
 ### 6.3 Menyu
 
 ```ts
@@ -727,21 +734,36 @@ interface Ingredient {
   unit: StockUnit                  // tahrirda faqat admin o'zgartiradi; qoldiq, retsept, hujjatlardagi sonlar o'zgarmaydi
   packSize: number | null          // qadoq hajmi asosiy birlikda (600 — 1 dona = 600 g); null — qadoqsiz. O'zgartirsa bo'ladi
   lastPrice: number | null         // oxirgi kirimdagi 1 kg / l / dona narxi (qadoqli — 1 dona narxi)
+  consumable: boolean              // sarf materiali (2026-11-18): yangi partiya kelganda eski qoldiq "Sarflandi" (pastda)
   active: boolean
 }
-interface StockItem { warehouseId: string; ingredientId: string; qty: number; minQty: number; targetQty: number }   // asosiy birlikda; qty manfiy bo'lishi mumkin
-// targetQty — norma (2026-11-08): web'dagi "To'ldirish" qoldiqni shu darajagacha yetkazadi; 0 — yozilmagan: minQty × 2, u ham 0 — 10 birlik (10 kg / 10 l / 10 dona / 10 qadoq)
-type MovementKind = 'purchase' | 'transfer_in' | 'transfer_out' | 'sale' | 'sale_cancel' | 'adjust'
+interface StockItem { warehouseId: string; ingredientId: string; qty: number; minQty: number }   // asosiy birlikda; qty manfiy bo'lishi mumkin
+// minQty — ogohlantirish chegarasi: qoldiq shundan kam — "Kam" va Telegram xabari. Web'dagi "To'ldirish" — minQty × 2 gacha, 0 — 10 birlik
+// targetQty (norma, 2026-11-08) olib tashlandi (2026-11-18): chegara bilan adashtirishdi
+type MovementKind = 'purchase' | 'transfer_in' | 'transfer_out' | 'sale' | 'sale_cancel' | 'adjust' | 'production' | 'consume'
 // adjust — qoldiqni tuzatish ("Tuzatish"): 0 ga tushirish (2026-11-10; qty — o'sha paytdagi qoldiqning teskarisi)
 //          yoki qo'lda yozish (2026-11-15; qty — yangi qoldiq − hozirgisi)
+// production — tayyorlash (2026-11-18): sarflangan — manfiy, tayyor mahsulot — musbat (ikkalasi markaziy omborda)
+// consume — "Sarflandi" (2026-11-18): sarf materialiga yangi partiya kelganda eski qoldiq; refId — o'sha kirim yoki
+//           ko'chirish (`pur_…` / `trf_…`), cost — qiymati
 interface StockMovement {
   id: string; warehouseId: string; ingredientId: string
   qty: number                      // asosiy birlikda: + kirim, − chiqim
   kind: MovementKind
-  refId: string                    // buyurtma / kirim / ko'chirish / tuzatish id'si
+  refId: string                    // buyurtma / kirim / ko'chirish / tuzatish / tayyorlash id'si
   createdAt: string
+  cost: number | null              // faqat consume: qoldiq × o'sha paytdagi oxirgi narx, so'm; narxsiz yoki boshqa tur — null
 }
 interface StockAdjustment { id: string; number: number; warehouseId: string; createdBy: string; createdAt: string }   // "Tuzatish №N"
+interface Production {             // "Tayyorlash №N" (2026-11-18): go'sht, tuxum, yog' → katlet
+  id: string; number: number
+  warehouseId: string              // doim markaziy ombor
+  ingredientId: string             // tayyor mahsulot
+  qty: number                      // chiqqan miqdor — qadoqsiz: kg / l / dona
+  items: { ingredientId: string; qty: number }[]   // sarflanganlar — qadoqsiz: kg / l / dona (qadoqli tuxum ham donada)
+  cost: number | null              // tannarx, so'm: sarflanganlar × oxirgi narxi; birortasi narxsiz — null
+  note: string; createdBy: string; createdAt: string
+}
 interface Purchase {
   id: string; number: number; warehouseId: string
   items: { ingredientId: string; qty: number; price: number | null; packSize: number | null }[]
@@ -756,9 +778,11 @@ interface Transfer {
   items: { ingredientId: string; qty: number; packSize: number | null }[]   // ombor birligida (packSize bo'lsa — donada)
   note: string; createdBy: string; createdAt: string
 }
-type ExpenseKind = 'electricity' | 'gas' | 'water' | 'internet' | 'other'
+type ExpenseKind = 'electricity' | 'gas' | 'water' | 'internet' | 'other' | 'ingredient'
+// ingredient — ombor mahsulotiga to'lov (2026-11-18): qaysi mahsulot — ingredientId; qoldiq o'zgarmaydi (u kirim orqali)
 interface Expense {
   id: string; branchId: string; kind: ExpenseKind; amount: number
+  ingredientId: string | null      // faqat kind: 'ingredient' da, boshqalarida null
   date: string                     // "YYYY-MM-DD"
   note: string; createdBy: string; createdAt: string
 }
@@ -925,30 +949,41 @@ miqdor, 1 birlik narxi, qator summasi, kirim summasi, ombor, kim kiritdi).
 |---|---|---|---|
 | `GET /warehouses` | | `Warehouse[]` (markaziy birinchi) | |
 | `GET /ingredients` | | `Ingredient[]` (guruh, id bo'yicha) | |
-| `POST /ingredients` | `{ name: LocalizedText, group: IngredientGroup, unit: StockUnit, active: boolean, packSize?: number \| null, lastPrice?: number \| null }` | `201 Ingredient` | `name_required`, `invalid_price`, `invalid_qty` (`packSize`) |
-| `PATCH /ingredients/:id` | `{ name, group, active, unit?: StockUnit, packSize?: number \| null, lastPrice?: number \| null }` — `unit` berilmasa yoki o'sha birlik — o'zgarmaydi (pastda) | `Ingredient` | `not_found`, `name_required`, `invalid_price`, `invalid_qty` (`packSize`), `forbidden` (ta'minotchi boshqa birlik yubordi), `pending_purchase`, `invalid_input` (`unit` ro'yxatda yo'q) |
-| `GET /ingredients/:id/usage` | faqat admin | `{ products: { id, name: LocalizedText, qty }[], stock: { warehouseId, qty, minQty, targetQty }[], purchases, pendingPurchases, transfers }` — retseptida bor taomlar (`qty` — 1 porsiyaga, asosiy birlikda; nom bo'yicha), qoldig'i ≠ 0, chegarasi yoki normasi bor omborlar (asosiy birlikda), kirim / eski kutayotgan kirim / ko'chirishlar soni | `not_found` |
-| `DELETE /ingredients/:id` | | `204` — qoldiq yozuvlari ham (harakatsiz — 0) | `not_found`, `in_use` — retseptda (`recipes`), kirimda (`purchases`), ko'chirishda (`transfers`), qoldiq harakatida (`movements`) |
+| `POST /ingredients` | `{ name: LocalizedText, group: IngredientGroup, unit: StockUnit, active: boolean, packSize?: number \| null, lastPrice?: number \| null, consumable?: boolean }` (`consumable` berilmasa — `false`) | `201 Ingredient` | `name_required`, `invalid_price`, `invalid_qty` (`packSize`), `invalid_input` (`consumable` boolean emas) |
+| `PATCH /ingredients/:id` | `{ name, group, active, unit?: StockUnit, packSize?: number \| null, lastPrice?: number \| null, consumable?: boolean }` — `unit` / `consumable` berilmasa (yoki o'sha birlik) — o'zgarmaydi (pastda) | `Ingredient` | `not_found`, `name_required`, `invalid_price`, `invalid_qty` (`packSize`), `forbidden` (ta'minotchi boshqa birlik yubordi), `pending_purchase`, `invalid_input` (`unit` ro'yxatda yo'q) |
+| `GET /ingredients/:id/usage` | faqat admin | `{ products: { id, name: LocalizedText, qty }[], stock: { warehouseId, qty, minQty }[], purchases, pendingPurchases, transfers, productions }` — retseptida bor taomlar (`qty` — 1 porsiyaga, asosiy birlikda; nom bo'yicha), qoldig'i ≠ 0 yoki chegarasi bor omborlar (asosiy birlikda), kirim / eski kutayotgan kirim / ko'chirish / tayyorlashlar soni (`productions` — 2026-11-18: tayyorlangan yoki sarflangan) | `not_found` |
+| `DELETE /ingredients/:id` | | `204` — qoldiq yozuvlari ham (harakatsiz — 0) | `not_found`, `in_use` — retseptda (`recipes`), kirimda (`purchases`), ko'chirishda (`transfers`), tayyorlashda (`productions`), qoldiq harakatida (`movements`), chiqimda (`expenses`) |
 | `GET /stock` | query: `warehouseId?` | `StockItem[]` (yozuvi yo'q mahsulot — qoldiq 0) | |
-| `GET /stock/low` | query: `warehouseId?` | `StockItem[]` — to'ldirish kerak: `minQty > 0` va `qty < minQty`, **yoki** `qty < 0` (2026-11-08 dan chegarasiz ham — qoldiq kiritilmasdan sotilgan; chegarasiz `0` — yo'q) | |
+| `GET /stock/low` | query: `warehouseId?` | `StockItem[]` — to'ldirish kerak: `minQty > 0` va `qty < minQty`, **yoki** `qty < 0` (2026-11-08 dan chegarasiz ham — qoldiq kiritilmasdan sotilgan; chegarasiz `0` — yo'q). Sarf materiallari — yo'q (2026-11-18) | |
 | `PUT /stock/:warehouseId/:ingredientId/min-qty` | `{ minQty: number }` — asosiy birlikda, butun ≥ 0 (0 — kuzatilmaydi) | `StockItem` | `not_found`, `invalid_qty` |
-| `PUT /stock/:warehouseId/:ingredientId/target-qty` | `{ targetQty: number }` — norma, asosiy birlikda, butun ≥ 0 (0 — yozilmagan); chegarani o'zgartirmaydi | `StockItem` | `not_found`, `invalid_qty` |
 | `PUT /stock/:warehouseId/:ingredientId/qty` | 2026-11-15, admin va ta'minotchi: `{ qty: number }` — **yangi qoldiq** (sanab chiqilgani), asosiy birlikda, butun 0…1 000 000 000 | `200 { adjustment: StockAdjustment \| null; count: number }` — farqi (yangi − hozirgi) `adjust` harakati va "Tuzatish №N" hujjati bo'lib yoziladi (raqamlash 0 ga tushirish bilan umumiy); qator qulflanadi — shu paytdagi sotuv yangi qoldiqdan ayriladi; qoldiq yozuvi bo'lmasa — ochiladi; chegara / norma o'zgarmaydi, "kam qoldi" xabari ketmaydi. Hozirgisi bilan bir xil — `{ adjustment: null, count: 0 }`, hech narsa yozilmaydi | `not_found`, `invalid_qty`, `invalid_input` (`qty` son emas) |
 | `POST /stock/:warehouseId/reset` | faqat admin; tanasiz | `200 { adjustment: StockAdjustment \| null; count: number }` — ombordagi 0 dan farqli **hamma** qoldiq (minus ham, plus ham, faolsiz mahsulot ham) 0 ga: har biriga `adjust` harakati, bitta "Tuzatish" hujjati; chegara / norma o'zgarmaydi, "kam qoldi" Telegram xabari ketmaydi. Hammasi allaqachon 0 — `{ adjustment: null, count: 0 }`, hech narsa yozilmaydi | `not_found`, `forbidden` |
 | `POST /stock/:warehouseId/:ingredientId/reset` | faqat admin; tanasiz | xuddi yuqoridagidek, bitta mahsulot (`count` — 0 yoki 1) | `not_found`, `forbidden` |
-| `GET /movements` | query: `warehouseId?`, `ingredientId?`, `kind?`, `refId?`, `page?`, `limit?` (standart 100) | `Page<StockMovement & { refNumber: number \| null; refWarehouseId: string \| null; refBy: string \| null }>` (yangisi birinchi) — `refNumber`: buyurtma / kirim / ko'chirish / tuzatish raqami; `refWarehouseId`: ko'chirishda ikkinchi ombor (kirimda — qayerdan, chiqimda — qayerga); `refBy` (2026-11-10): kirim / ko'chirish / tuzatishni yozgan xodim id'si, buyurtmada — `null` | |
+| `GET /movements` | query: `warehouseId?`, `ingredientId?`, `kind?`, `refId?`, `page?`, `limit?` (standart 100) | `Page<StockMovement & { refNumber: number \| null; refWarehouseId: string \| null; refBy: string \| null }>` (yangisi birinchi) — `refNumber`: buyurtma / kirim / ko'chirish / tuzatish / tayyorlash raqami ("Sarflandi" da — yangi partiyani olib kelgan kirim yoki ko'chirish raqami, `refBy` — uni yozgan); `refWarehouseId`: ko'chirishda ikkinchi ombor (kirimda — qayerdan, chiqimda — qayerga); `refBy` (2026-11-10): kirim / ko'chirish / tuzatish / tayyorlashni yozgan xodim id'si, buyurtmada — `null` | |
 | `GET /purchases` | query: `status?`, `warehouseId?`, `page?`, `limit?` | `Page<Purchase>` | |
 | `GET /purchases/:id` | | `Purchase` | `not_found` |
 | `POST /purchases` | `{ warehouseId, items: { ingredientId, qty, price? }[], note?: string ≤1000 }` — `qty` ombor birligida (qadoqli — donada), > 0; `price` — 1 birlik (qadoqli — 1 dona) narxi, so'm, butun ≥ 0 (berilmasa — `lastPrice`) | `201 Purchase` (`approved`) — darhol qoldiqqa qo'shiladi, har mahsulotning `lastPrice` i shu narxga yangilanadi, `packSize` — mahsulotning hozirgisi; Telegram'ga "Yangi kirim" | `empty_order`, `not_found`, `invalid_qty`, `invalid_price` (manfiy / kasr, yoki narx yo'q va `lastPrice` ham yo'q), `invalid_input` (`price` son emas) |
 | `POST /purchases/:id/approve` | faqat eski `pending` kirim; admin: `{ prices?: { [ingredientId]: number } }` — 1 birlik (qatorda qadoq bo'lsa — 1 dona) narxi (so'm, butun ≥ 0); berilmagani kirimdagi narxida qoladi | `200 Purchase` (`approved`) — qoldiqqa qatordagi `packSize` bilan qo'shiladi, `lastPrice` yangilanadi | `not_found`, `already_decided` (yangi kirim — doim), `invalid_price` |
 | `POST /purchases/:id/reject` | faqat eski `pending` kirim; admin | `200 Purchase` (`rejected`) | `not_found`, `already_decided` |
 | `GET /transfers` | query: `warehouseId?` (chiqqan yoki kirgan), `page?`, `limit?` | `Page<Transfer>` | |
-| `POST /transfers` | `{ fromWarehouseId, toWarehouseId, items: { ingredientId, qty }[] (ombor birligida, qadoqli — donada, > 0), note?: string ≤1000 }` | `201 Transfer` — bitta tranzaksiyada chiqim + kirim | `same_warehouse`, `empty_order`, `not_found`, `invalid_qty`, `insufficient_stock` |
+| `POST /transfers` | `{ fromWarehouseId, toWarehouseId, items: { ingredientId, qty }[] (ombor birligida, qadoqli — donada, > 0), note?: string ≤1000 }` | `201 Transfer` — bitta tranzaksiyada chiqim + kirim (sarf materialida qabul qilgan ombordagi eski qoldiq avval "Sarflandi" — pastda) | `same_warehouse`, `empty_order`, `not_found`, `invalid_qty`, `insufficient_stock` |
+| `GET /productions` | query: `ingredientId?` (shu mahsulot **tayyorlanganlari**), `page?`, `limit?` | `Page<Production>` (yangisi birinchi) — web oxirgisini (`limit=1`) formadagi "sarflandi" ro'yxatini oldindan to'ldirishga oladi | |
+| `POST /productions` | 2026-11-18: `{ ingredientId, qty, items: { ingredientId, qty }[], note?: string ≤1000 }` — tayyor mahsulot va chiqqan miqdor, sarflanganlar; hamma miqdor **qadoqsiz** (kg / l / dona), > 0 | `201 Production` — doim **markaziy** omborda, bitta tranzaksiyada: sarflanganlar ayriladi (qoldiqdan oshmaydi, bir mahsulot ikki qatorda — jami), tayyor mahsulot qo'shiladi (`production` harakatlari, "Tayyorlash №N"); hammasining narxi bo'lsa — tayyor mahsulotning `lastPrice` = `cost` ÷ chiqqan miqdor (uning hisob birligida), aks holda `cost: null` va narx o'zgarmaydi | `empty_order`, `not_found`, `invalid_qty` (≤ 0 yoki asosiy birlikda 0 ga yaxlitlanadi — 0,0001 kg), `invalid_input` (tayyor mahsulot sarflanganlar orasida — `detail: items`), `insufficient_stock` |
 
 `lastPrice` — 1 birlik (kg / l / dona; qadoqli — 1 dona) narxi, so'm, butun ≥ 0; admin ham, ta'minotchi ham yuboradi
 (2026-11-15 gacha — faqat admin, ta'minotchiga `403 forbidden` edi). Yuborilmasa — o'zgarmaydi, `null` — narxsiz.
 Kirim formasida oldindan yoziladi va har kirimda kiritilgan narxga yangilanadi; eski kirim tasdiqlanganda ham (qator
 boshqa qadoq hajmi bilan yozilgan bo'lsa — mahsulotning hozirgi birligiga o'giriladi).
+
+**Sarf materiali** (`consumable`, 2026-11-18) — salfetka, yuvish vositalari, gubka: sarfini o'lchab bo'lmaydi. Omborga
+yangi partiya kelganda — kirim (`POST /purchases`, eski kirim tasdiqlanganda ham) **o'sha omborda**, ko'chirish
+(`POST /transfers`) **qabul qilgan omborda** — undagi eski **musbat** qoldiq avval `consume` harakati ("Sarflandi") bilan
+0 ga tushadi, keyin yangi partiya qo'shiladi. `refId` — o'sha kirim / ko'chirish; `cost` — qoldiq × o'sha paytdagi oxirgi
+narx (kirimda — **yangi narx yozilishidan oldingi**), narxsiz — `null`. Jo'natgan omborda — oddiy `transfer_out`; 0 /
+minus qoldiq, filial omborini markazga qo'shish (`stockFromCentral`) — tegilmaydi. Switch o'zgartirilsa qoldiqqa
+tegilmaydi — keyingi partiyadan ishlaydi. "Kam qoldi" ga kirmaydi: `GET /stock/low`, `overview.lowStock`, Telegram
+(darhol xabar va smena hisoboti), AI `stock` holati (`ok`). Luchvoy kabi markazdan sotadigan filialning sarfi —
+markaziy omborda (yangi kirim kelganda).
 
 `packSize` — qadoq hajmi **asosiy birlikda** (g / ml / dona), butun 1…1 000 000 (aks holda `invalid_qty`, `detail`:
 `packSize`): ketchup `unit: 'kg'`, `packSize: 600` — 1 dona = 600 g; salfetka `unit: 'pcs'`, `packSize: 100` — 1 qadoq
@@ -967,8 +1002,15 @@ mahsulot tasdiq kutayotgan eski kirimda bo'lsa — `409 pending_purchase` (avval
 **kg ↔ l** — ikkalasi ×1000: sonlar va narx to'g'ri qoladi, faqat birlik almashadi (qadoq hajmi bilan narx odatdagidek
 o'giriladi).
 
-`createdBy`, `decidedBy` — tokendan. Ko'chirish qoldiqdan oshmaydi (bir mahsulot ikki qatorda bo'lsa — jami); sotuv
-esa qoldiqni manfiyga tushirishi mumkin. Filial omborida qoldiq chegaradan pastga tushsa — Telegram botga darhol
+**Tayyorlash** (2026-11-18) — markaziy omborda bir nechta mahsulotdan yangisi: 50 kg go'sht, 5 qadoq tuxum (30 talik)
+kirim qilingan; oshpaz katlet yasab "48 kg go'sht, 20 ta tuxum, 1 l yog' ketdi" deydi, ta'minotchi chiqqan katlet sonini
+(498) yozadi. Oldindan "tarkib" yo'q — har safar haqiqatda sarflangani yoziladi (yo'qotish ham, qoldiq ham aniq).
+Miqdorlar qadoqsiz: qadoqli tuxum ham **donada** (`20`, "0,67 qadoq" emas). Katlet — oddiy ombor mahsuloti (`pcs`):
+filialga ko'chirish bilan yuboriladi, burger retseptida "katlet — 1". Telegram "kam qoldi" faqat filial omborlari
+bo'yicha — tayyorlash (markazda) xabar yubormaydi.
+
+`createdBy`, `decidedBy` — tokendan. Ko'chirish va tayyorlash qoldiqdan oshmaydi (bir mahsulot ikki qatorda bo'lsa —
+jami); sotuv esa qoldiqni manfiyga tushirishi mumkin. Filial omborida qoldiq chegaradan pastga tushsa — Telegram botga darhol
 xabar ([13](#13-ai-yordamchi-va-telegram-bot), "Kam qoldi").
 
 ### 7.7 Xodimlar (`/users`) — admin
@@ -1000,7 +1042,7 @@ Yuborilmasa (`PATCH`) — o'zgarmaydi; boshqa rollarda — `{}`.
 | Metod va yo'l | So'rov | Javob | Xatolar |
 |---|---|---|---|
 | `GET /expenses` | query: `branchId?`, `from?`, `to?` (`YYYY-MM-DD`, ikkalasi kiradi) | `Expense[]` (sahifalashsiz, sanasi bo'yicha yangisi birinchi) | |
-| `POST /expenses` | `{ branchId, kind: ExpenseKind, amount: number (butun > 0), date: "YYYY-MM-DD", note?: string ≤500 }` | `201 Expense` | `not_found`, `invalid_amount` (summa yoki sana formati) |
+| `POST /expenses` | `{ branchId, kind: ExpenseKind, ingredientId?: string (faqat va majburiy — kind: 'ingredient'; nofaol mahsulot ham bo'ladi), amount: number (butun > 0), date: "YYYY-MM-DD", note?: string ≤500 }` | `201 Expense` | `not_found` (filial yoki mahsulot), `invalid_amount` (summa yoki sana formati), `invalid_input` (`detail`: `ingredientId` — `ingredient` turida yo'q yoki boshqa turda bor) |
 | `DELETE /expenses/:id` | | `204` | `not_found` |
 
 ### 7.9 Hisobotlar (`/reports`) — admin
@@ -1008,6 +1050,8 @@ Yuborilmasa (`PATCH`) — o'zgarmaydi; boshqa rollarda — `{}`.
 | Metod va yo'l | So'rov | Javob | Xatolar |
 |---|---|---|---|
 | `GET /reports/sales` | query: `from`, `to` (`YYYY-MM-DD`, majburiy, ikkalasi kiradi), `branchId?` (berilmasa / bo'sh — butun tarmoq) | `SalesReport` | `invalid_input` (format yoki mavjud bo'lmagan sana, `detail`: `from: 2026-02-30`) |
+| `GET /reports/products` | `sales` bilan bir xil | `ProductProfit[]` — taomlar foydasi (pastda) | `sales` bilan bir xil |
+| `GET /reports/consumption` | `sales` bilan bir xil | `ConsumptionStat[]` — xo'jalik sarflari (pastda) | `sales` bilan bir xil |
 | `GET /reports/overview` | | `{ liveOrders: { branchId: string; count: number }[], lowStock: number, pendingPurchases: number, firstOrderDate: "YYYY-MM-DD" \| null }` — `firstOrderDate`: birinchi buyurtma kuni (undan oldingi davr bilan solishtirish ma'nosiz) | |
 
 `SalesReport` — web ilovadagi `salesReport()` (`ReactJS_NYFF/src/domain/logic/reports.ts`) bilan bir xil shakl va
@@ -1039,8 +1083,36 @@ interface SalesReport extends Tally {      // orders / revenue — to'langan (pr
   Noma'lum `branchId` — xato emas, bo'sh hisobot.
 - `topProducts[].name` — taom birinchi uchragan buyurtmadagi nom; tushum teng bo'lsa — birinchi uchragani oldin.
 
+`ProductProfit` (web: "Hisobotlar" → "Taomlar foydasi") — `topProducts` bilan bir xil qatorlar, nom, soni, tushum va
+tartib (davr, filial, 400 kun, `from > to` — `sales` dagidek), har biriga sotuv paytida yozilgan tannarx
+([6.2](#62-buyurtma)):
+
+```ts
+interface ProductProfit {
+  productId: string; name: LocalizedText
+  qty: number; revenue: number             // hammasi (tannarxi noma'lumlari ham)
+  costedQty: number; costedRevenue: number // ulardan tannarxi ma'lum qismi
+  cost: number                             // o'sha qismning tannarxi: Σ (1 dona tannarx × soni)
+}
+// foyda = costedRevenue − cost; marja = foyda / costedRevenue; noma'lum = qty − costedQty
+```
+
+`ConsumptionStat` (web: "Taomlar foydasi" tabi pastida "Xo'jalik sarflari", 2026-11-18) — davrda "Sarflandi"
+(`consume`) bo'lgan sarf materiallari ([7.6](#76-ombor)), summa bo'yicha kamayish tartibida. Kun — harakatning mahalliy
+sanasi; davr / 400 kun / `from > to` — `sales` dagidek. `branchId` berilsa — filialning sotuv ombori: o'z ombori,
+"Sotuv markaziy ombordan" yoqilgan bo'lsa — markaziy (hozirgi holat bo'yicha); berilmasa — hamma omborlar (markaziy ham);
+noma'lum filial — `[]`. Taomlar foydasidan ayrilmaydi.
+
+```ts
+interface ConsumptionStat {
+  ingredientId: string; name: LocalizedText      // nomi — hozirgisi
+  qty: number                                    // asosiy birlikda (g / ml / dona)
+  costedQty: number; cost: number                // qiymati ma'lum qismi va uning summasi (narxi yo'q edi — kirmaydi)
+}
+```
+
 `overview` (admin bosh sahifasi): `liveOrders` — faol filiallar bo'yicha `pending` + `preparing` buyurtmalar soni
-(buyurtmasiz filial — `0`); `lowStock` — `GET /stock/low` dagi yozuvlar soni (chegaradan kam yoki minus, barcha
+(buyurtmasiz filial — `0`); `lowStock` — `GET /stock/low` dagi yozuvlar soni (chegaradan kam yoki minus, sarf materiallarisiz, barcha
 omborlar); `pendingPurchases` — tasdiq kutayotgan **eski** kirimlar soni (yangi kirim tasdiq kutmaydi — odatda `0`).
 
 ### 7.10 Holat
@@ -1143,10 +1215,10 @@ API, Socket.IO, taom / kategoriya rasmlari — ildizdan (`/api`, `/socket.io`, `
 | `shifts.close(shiftId)` | kassir — `POST /shifts/current/close`; admin — `POST /shifts/:id/close` |
 | `purchases.create` / `approve(id, prices, adminId)` / `reject(id, adminId)` | `POST /purchases` / `POST /purchases/:id/approve` `{ prices }` / `POST /purchases/:id/reject` |
 | `transfers.create` | `POST /transfers` |
+| `productions.create` / `productions.last(ingredientId)` | `POST /productions` / `GET /productions?ingredientId=&limit=1` (Ombor → "Tayyorlash") |
 | `ingredients.save(input)` | `POST /ingredients` (yangi) / `PATCH /ingredients/:id` |
 | `ingredients.usage(id)` | `GET /ingredients/:id/usage` (birlikni o'zgartirishdan oldingi ogohlantirish) |
 | `ingredients.setMinQty(w, i, minQty)` | `PUT /stock/:w/:i/min-qty` |
-| `ingredients.setTargetQty(w, i, targetQty)` | `PUT /stock/:w/:i/target-qty` |
 | `stock.reset(w)` / `stock.reset(w, i)` | `POST /stock/:w/reset` / `POST /stock/:w/:i/reset` (admin, qoldiqni 0 ga) |
 | `stock.setQty(w, i, qty)` | `PUT /stock/:w/:i/qty` (admin va ta'minotchi, qoldiqni qo'lda yozish) |
 | `users.changeOwnPin(userId, old, new)` | `PUT /auth/pin` |
@@ -1160,7 +1232,7 @@ API, Socket.IO, taom / kategoriya rasmlari — ildizdan (`/api`, `/socket.io`, `
 | sessiya: `login` / `adminLogin` / `unlockSession` / `ensureCashierShift` | `POST /auth/login` / `POST /auth/admin-login` / `POST /auth/unlock` / `POST /shifts/current`; sahifa yangilanganda `GET /auth/me` |
 
 O'qish (`useDb()` o'rniga): `GET /branches`, `/warehouses`, `/users`, `/auth/staff`, `/categories`, `/products`,
-`/menu`, `/ingredients`, `/stock`, `/stock/low`, `/movements`, `/purchases`, `/transfers`, `/orders`,
+`/menu`, `/ingredients`, `/stock`, `/stock/low`, `/movements`, `/purchases`, `/transfers`, `/productions`, `/orders`,
 `/orders/active`, `/orders/ready`, `/shifts`, `/shifts/:id`, `/expenses`, `/reports/*`.
 
 Frontend turlaridan farqlar:
@@ -1316,9 +1388,9 @@ model — `GEMINI_MODEL`) yuboradi, model kerakli ma'lumotni **tool**'lar orqali
 asosida model javob yozadi. Ikki kanal: admin paneldagi chat va Telegram bot — ikkalasi bitta `AiService`.
 
 - **Tool'lar faqat o'qiydi** (hech narsani o'zgartirmaydi): `sales_report` (davr tushumi, to'lov / buyurtma turi / manba
-  bo'yicha, kommunal chiqimlar va sof, filiallar, har taom sotuvi va sotilmaganlar, gavjum soatlar, kunlar yoki oylar),
+  bo'yicha, chiqimlar va sof, filiallar, har taom sotuvi va sotilmaganlar, gavjum soatlar, kunlar yoki oylar),
   `current_status` (filiallar: ishlayaptimi — ochiq smena, kassirlar, faol buyurtmalar, online holati; ishdagi kuryerlar),
-  `shifts` (smena jami — butun smena uchun, bir necha kunga cho'zilishi mumkin), `expenses`, `purchases` (masalliq xaridlari),
+  `shifts` (smena jami — butun smena uchun, bir necha kunga cho'zilishi mumkin), `expenses` (kommunal va mahsulot to'lovlari — `item`: mahsulot nomi), `purchases` (masalliq xaridlari),
   `stock` (qoldiq, kam qolganlar — o'z birligida; qadoqli mahsulot — donada, `unit: "dona (600 g)"` va
   `breakdown: "9 dona + 550 g"`; filial ombori — filialning hozirgi nomi bilan), `orders`, `menu`
   (kategoriyalar tartibida taomlar va narxlar, filialda sotilmaydiganlari, o'chirilganlari).

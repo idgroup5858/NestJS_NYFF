@@ -395,7 +395,8 @@ export class AiTools {
       declaration: {
         name: 'expenses',
         description:
-          'Utility expenses (electricity, gas, water, internet, other) entered for a period: total, totals by kind ' +
+          'Expenses entered for a period — utilities (electricity, gas, water, internet, other) and money paid for ' +
+          'stock items (kind "ingredient", the item in "item"; stock is not changed by them): total, totals by kind ' +
           'and by branch, and the list of entries.',
         parameters: { type: Type.OBJECT, properties: { ...PERIOD, branchId: BRANCH }, required: ['from', 'to'] },
       },
@@ -404,6 +405,13 @@ export class AiTools {
         const names = await this.branchNames();
         const branchId = this.branchArg(args, names);
         const list = await this.expenses.findAll({ ...period, ...(branchId && { branchId }) });
+        const itemIds = [...new Set(list.flatMap((e) => (e.ingredientId ? [e.ingredientId] : [])))];
+        const items = new Map(
+          (itemIds.length > 0 ? await this.dataSource.manager.findBy(Ingredient, { id: In(itemIds) }) : []).map((i) => [
+            i.id,
+            i.name.uz,
+          ]),
+        );
         const byKind = Object.fromEntries(EXPENSE_KINDS.map((kind) => [kind, 0])) as Record<ExpenseKind, number>;
         const byBranch = new Map<string, number>();
         for (const e of list) {
@@ -418,6 +426,7 @@ export class AiTools {
             date: e.date,
             branch: names.get(e.branchId) ?? e.branchId,
             kind: e.kind,
+            ...(e.ingredientId && { item: items.get(e.ingredientId) ?? e.ingredientId }),
             amount: e.amount,
             ...(e.note && { note: e.note }),
           })),
@@ -551,8 +560,14 @@ export class AiTools {
           .filter((row) => ingredient.has(row.ingredientId))
           .map((row) => {
             const item = ingredient.get(row.ingredientId)!;
-            const status: keyof typeof ORDER =
-              row.qty <= 0 ? 'out' : row.minQty > 0 && row.qty < row.minQty ? 'low' : 'ok';
+            // sarf materiali — qoldig'i keyingi partiyagacha kamaymaydi, "kam qoldi" yo'q (GET /stock/low dagidek)
+            const status: keyof typeof ORDER = item.consumable
+              ? 'ok'
+              : row.qty <= 0
+                ? 'out'
+                : row.minQty > 0 && row.qty < row.minQty
+                  ? 'low'
+                  : 'ok';
             return {
               warehouse: warehouse.get(row.warehouseId) ?? row.warehouseId,
               name: item.name.uz,

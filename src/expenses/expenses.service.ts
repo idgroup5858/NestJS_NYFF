@@ -5,6 +5,7 @@ import { Branch } from '../branches/branch.entity';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
 import { isRealDateKey } from '../domain/dates';
+import { Ingredient } from '../warehouse/ingredient.entity';
 import { CreateExpenseDto, ExpensesQuery } from './expense.dto';
 import { Expense } from './expense.entity';
 
@@ -13,6 +14,7 @@ export class ExpensesService {
   constructor(
     @InjectRepository(Expense) private readonly expenses: Repository<Expense>,
     @InjectRepository(Branch) private readonly branches: Repository<Branch>,
+    @InjectRepository(Ingredient) private readonly ingredients: Repository<Ingredient>,
   ) {}
 
   findAll(query: ExpensesQuery) {
@@ -31,15 +33,24 @@ export class ExpensesService {
     });
   }
 
-  /** Kommunal to'lov (svet, gaz, suv, internet...) — hisobotda tushumdan ayriladi. */
+  /**
+   * Kommunal to'lov (svet, gaz, suv, internet...) yoki ombor mahsulotiga to'lov (`kind: 'ingredient'` + `ingredientId`,
+   * nofaol mahsulot ham bo'ladi; qoldiqqa ta'sir qilmaydi — u kirim orqali) — hisobotda tushumdan ayriladi.
+   */
   async create(input: CreateExpenseDto, createdBy: string, now = new Date()): Promise<Expense> {
     if (!(await this.branches.existsBy({ id: input.branchId }))) fail('not_found', `branch ${input.branchId}`);
     if (!Number.isInteger(input.amount) || input.amount <= 0) fail('invalid_amount');
     if (!isRealDateKey(input.date)) fail('invalid_amount', 'date');
+    // mahsulot faqat `ingredient` turida va unda majburiy
+    if ((input.kind === 'ingredient') !== !!input.ingredientId) fail('invalid_input', 'ingredientId');
+    if (input.ingredientId && !(await this.ingredients.existsBy({ id: input.ingredientId }))) {
+      fail('not_found', `ingredient ${input.ingredientId}`);
+    }
     const expense: Expense = {
       id: newId('exp'),
       branchId: input.branchId,
       kind: input.kind,
+      ingredientId: input.ingredientId || null,
       amount: input.amount,
       date: input.date,
       note: input.note?.trim() ?? '',
