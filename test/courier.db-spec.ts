@@ -13,6 +13,7 @@ import { planRoute } from '../src/domain/courier-route';
 import { Order } from '../src/orders/order.entity';
 import { customerOrderView } from '../src/orders/order.views';
 import { OrdersService } from '../src/orders/orders.service';
+import { ShiftsService } from '../src/shifts/shifts.service';
 import { UsersService } from '../src/users/users.service';
 import { actor, createTestApp, expectCode } from './test-app';
 
@@ -264,6 +265,26 @@ describe('kuryer: olish, yetkazish tartibi, yetkazildi / qaytdi', () => {
     expect(statuses.find((c) => c.id === bobur.id)).toMatchObject({ onDuty: true, orders: 0, branchId: null, departed: false });
     // 12 soatdan eskisi — kuryer tizimidan oldingi tarix, ro'yxatni to'ldirmaydi
     expect(await orders.deliveries(C, later(13 * 60))).toEqual([]);
+  });
+
+  it("kassadagi \"Dostavka\" — faqat chekdagi belgi: kuryerga, kassaning \"Dostavka\" ro'yxatiga va TV ga chiqmaydi; oshxonada bor", async () => {
+    await app.get(ShiftsService).openOrResume(cashierOf[C].id, C, now);
+    const order = await orders.createByCashier(
+      cashierOf[C],
+      { type: 'delivery', items: [{ productId: 'burger-classic', qty: 1 }], payment: 'cash' },
+      now,
+    );
+    expect(order).toMatchObject({ type: 'delivery', source: 'cashier', status: 'preparing', online: null, deliveryFee: null });
+
+    expect((await orders.active(C)).map((o) => o.id)).toContain(order.id);
+    expect(await availableIds()).not.toContain(order.id);
+    expect((await orders.deliveries(C, now)).map((o) => o.id)).not.toContain(order.id);
+    await expectCode('invalid_status', () => courier.take(bobur, order.id, now));
+    const tv = await orders.tvQueue(C, now);
+    expect([...tv.preparing, ...tv.ready].map((o) => o.id)).not.toContain(order.id);
+
+    await orders.markReady(order.id, kitchenOf[C], later(1));
+    expect((await orders.tvQueue(C, later(1))).ready.map((o) => o.id)).not.toContain(order.id);
   });
 
   it("admin: kuryer — email (kichik harfda, takrorlanmaydi) va parol; bo'sh parol eskisini qoldiradi; rol almashsa yangisi majburiy", async () => {
