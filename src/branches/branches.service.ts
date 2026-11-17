@@ -60,6 +60,7 @@ export class BranchesService {
         onlineEnabled: true,
         faceIdRequired: false,
         cashierMarksReady: false,
+        stockFromCentral: false,
         hrSeenAt: null,
       };
       await em.insert(Branch, branch);
@@ -160,6 +161,18 @@ export class BranchesService {
     const em = this.dataSource.manager;
     await this.get(em, id);
     await em.update(Branch, id, { cashierMarksReady: enabled });
+    return this.get(em, id);
+  }
+
+  /**
+   * Filial sotuvi markaziy ombordan ayriladimi (2026-11-17) — markazga juda yaqin filial uchun. Faqat keyingi sotuvlarga
+   * ta'sir qiladi: qoldiq ko'chirilmaydi, filial ombori o'zgarmaydi; bekor qilingan buyurtma esa doim qaysi ombordan
+   * ayrilgan bo'lsa, o'shanga qaytadi (`StockService.returnOrder`).
+   */
+  async setStockFromCentral(id: string, enabled: boolean): Promise<Branch> {
+    const em = this.dataSource.manager;
+    await this.get(em, id);
+    await em.update(Branch, id, { stockFromCentral: enabled });
     return this.get(em, id);
   }
 

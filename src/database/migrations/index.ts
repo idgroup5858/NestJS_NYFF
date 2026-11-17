@@ -19,6 +19,7 @@ import { StockTargetQty1793810000000 } from './1793810000000-StockTargetQty';
 import { StockAdjustments1793820000000 } from './1793820000000-StockAdjustments';
 import { ProductTruck1793830000000 } from './1793830000000-ProductTruck';
 import { CashierMarksReady1793840000000 } from './1793840000000-CashierMarksReady';
+import { StockFromCentral1793850000000 } from './1793850000000-StockFromCentral';
 
 /** Barcha migratsiyalar tartib bilan. Yangisi `npm run migration:generate -- src/database/migrations/<Nom>` dan keyin shu yerga. */
 export const MIGRATIONS: Function[] = [
@@ -43,4 +44,5 @@ export const MIGRATIONS: Function[] = [
   StockAdjustments1793820000000,
   ProductTruck1793830000000,
   CashierMarksReady1793840000000,
+  StockFromCentral1793850000000,
 ];

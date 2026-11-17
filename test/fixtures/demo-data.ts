@@ -380,6 +380,7 @@ export function buildBase(now: Date): DemoBase {
       workHours: null,
       faceIdRequired: false,
       cashierMarksReady: false,
+      stockFromCentral: false,
       hrSeenAt: null,
     })),
     warehouses: WAREHOUSES.map((warehouse) => ({ ...warehouse })),

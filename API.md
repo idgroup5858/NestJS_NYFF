@@ -564,6 +564,7 @@ interface Branch {
   workHours: WorkHours | null      // online qabul vaqti; null — 24/7
   faceIdRequired: boolean          // FaceID tekshiruvi (2026-11-04, standart false) — 15-bo'lim
   cashierMarksReady: boolean       // kassir ham "Tayyor" / "Qaytarish" bosadi (oshpaz yordamchisi yo'q filial; 2026-11-13, standart false)
+  stockFromCentral: boolean        // sotuv markaziy ombordan ayriladi (markazga juda yaqin filial; 2026-11-17, standart false)
   hrSeenAt: string | null          // filial HR tizimi oxirgi marta murojaat qilgan vaqt; null — hali ulanmagan
   onlineState: BranchOnlineState   // faqat GET /branches va GET /branches/:id javobida
 }
@@ -653,8 +654,9 @@ type TvOrder = Pick<Order, 'id' | 'branchId' | 'number' | 'type' | 'status' | 'p
 ```
 
 Holatlar: `pending` (kiosk — kassada to'lanmagan; mobil — qabul qilinmagan) → `preparing` (to'langan / qabul qilingan;
-mahsulotlar filial omboridan retsept bo'yicha ayriladi) → `ready`. `cancelled` — istalgan bosqichdan; ayrilgan
-mahsulotlar aynan o'sha miqdorda omborga qaytadi. Kassa buyurtmasi va kioskda karta / Click bilan to'langani darhol
+mahsulotlar filial omboridan retsept bo'yicha ayriladi; filialda `stockFromCentral` yoqilgan bo'lsa — markaziy
+ombordan) → `ready`. `cancelled` — istalgan bosqichdan; ayrilgan mahsulotlar aynan o'sha miqdorda, ayrilgan omborga
+qaytadi. Kassa buyurtmasi va kioskda karta / Click bilan to'langani darhol
 `preparing`.
 
 ### 6.3 Menyu
@@ -797,6 +799,7 @@ joyda: DTO xatosi — `invalid_input`, tokensiz — `unauthorized`, rol mos emas
 | `PUT /branches/:id/online` | admin | `{ enabled: boolean }` | `Branch` | `not_found` |
 | `PUT /branches/:id/faceid` | admin | `{ enabled: boolean }` — FaceID tekshiruvi (kartochkadan bir bosishda; terminal buzilsa o'chiriladi) | `Branch` | `not_found`, `invalid_input` |
 | `PUT /branches/:id/cashier-ready` | admin | `{ enabled: boolean }` — kassir ham "Tayyor" / "Qaytarish" bosadi (oshpaz yordamchisi yo'q filial); oshpaz yordamchisining huquqi o'zgarmaydi. Kassa yangi qiymatni filiallar ro'yxatini qayta olganda ko'radi (socket xabari yo'q), server esa har bosishda tekshiradi | `Branch` | `not_found`, `invalid_input` |
+| `PUT /branches/:id/stock-from-central` | admin | `{ enabled: boolean }` — filial sotuvi (kassa, kiosk, mobil, offline sync) retsept bo'yicha filial omboridan emas, **markaziy ombordan** ayriladi (markazga juda yaqin filial). Faqat keyingi sotuvlarga: qoldiq ko'chirilmaydi, filial ombori o'zgarmaydi (kerak bo'lsa admin `POST /stock/:w/reset`); bekor qilingan buyurtma qaysi ombordan ayrilgan bo'lsa, o'shanga qaytadi. Ko'chirish / kirim cheklanmaydi | `Branch` | `not_found`, `invalid_input` |
 | `GET /branches/:id/hr-key` | admin | | `{ key }` — filial HR tizimi ("NYFF HR") kaliti `br_….<maxfiy qism>`; hali yo'q bo'lsa yaratiladi (offline kalitdan alohida) ([15](#15-faceid-filial-hr-tizimi)) | `not_found` |
 | `POST /branches/:id/hr-key` | admin | | `200 { key }` — yangi kalit, eskisi bilan HR endi ulana olmaydi | `not_found` |
 | `DELETE /branches/:id` | admin | | `204` — ombori (qoldiq yozuvlari), offline va HR kalitlari, TV va kiosk kodlari, FaceID o'tishlari va so'rovlari ham; boshqa filiallarning zaxirasi bo'lsa — `null` ga, taomlarning `unavailableBranchIds` idan chiqariladi | `not_found`, `in_use` — buyurtma (`orders`, o'tkazilganlari ham), smena (`shifts`), chiqim (`expenses`), xodim (`users`), omborida kirim / ko'chirish / harakat (`purchases`, `transfers`, `movements`) bor — faolsizlantiring |
@@ -1509,7 +1512,8 @@ Har buyurtma alohida tranzaksiyada:
 - `source: 'cashier'`, `syncedAt` — qabul qilingan vaqt ([6.2](#62-buyurtma)); narx va summa offline'dagidek (pul
   olingan — menyu keyin o'zgargan bo'lsa ham);
 - **smena** — kassirning buyurtma vaqtida ochiq bo'lgan smenasi; topilmasa — hozir ochig'i; u ham yo'q — `null`;
-- **ombor** — retsept bo'yicha buyurtma vaqti bilan ayriladi (bekor qilingani — tegmaydi);
+- **ombor** — retsept bo'yicha buyurtma vaqti bilan ayriladi (bekor qilingani — tegmaydi); qaysi ombordan —
+  markazga yetib kelgan paytdagi `stockFromCentral` bo'yicha ([7.2](#72-filiallar-va-yetkazib-berish));
 - **raqam hisoblagichi** — o'sha kun uchun offline raqamlardan orqada qolmaydi (`GREATEST`);
 - ma'lumot xatosi (`invalid_amount`, `invalid_qty`, `empty_order`, boshqa filial id'si — `forbidden`) — shu buyurtma
   `rejected`, qolganlari yoziladi; offline kassa uni qayta yubormaydi.

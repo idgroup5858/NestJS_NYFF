@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
+import { Branch } from '../branches/branch.entity';
 import { Warehouse } from '../branches/warehouse.entity';
 import type { MovementKind } from '../common/enums';
 import { fail } from '../common/errors';
@@ -111,8 +112,20 @@ export class StockService {
   }
 
   /**
-   * To'langan buyurtma oshxonaga ketdi: retsept bo'yicha mahsulotlar filial omboridan ayriladi. [products] — taomlar
-   * allaqachon o'qilgan bo'lsa; berilmasa bazadan (menyudan o'chirilgan taom hisobga olinmaydi).
+   * Filial sotuvi qaysi ombordan ayriladi: odatda filialning o'z omboridan; filialda `stockFromCentral` yoqilgan bo'lsa
+   * (markazga juda yaqin filial, 2026-11-17) — markaziy ombordan. Holat sotuv paytida o'qiladi (offline sotuv — markazga
+   * yetib kelgan paytdagi holat bilan).
+   */
+  async saleWarehouse(em: EntityManager, branchId: string): Promise<Warehouse> {
+    const branch = await em.findOne(Branch, { where: { id: branchId }, select: { id: true, stockFromCentral: true } });
+    if (!branch?.stockFromCentral) return this.branchWarehouse(em, branchId);
+    return (await em.findOneBy(Warehouse, { kind: 'central' })) ?? fail('not_found', 'central warehouse');
+  }
+
+  /**
+   * To'langan buyurtma oshxonaga ketdi: retsept bo'yicha mahsulotlar filial omboridan (filialda `stockFromCentral`
+   * yoqilgan bo'lsa — markaziy ombordan) ayriladi. [products] — taomlar allaqachon o'qilgan bo'lsa; berilmasa bazadan
+   * (menyudan o'chirilgan taom hisobga olinmaydi).
    */
   async deductOrder(
     em: EntityManager,
@@ -127,7 +140,7 @@ export class StockService {
           (product) => [product.id, product],
         ),
       );
-    const warehouse = await this.branchWarehouse(em, order.branchId);
+    const warehouse = await this.saleWarehouse(em, order.branchId);
     await this.applyDeltas(em, warehouse.id, recipeDeltas(recipes, order.items, -1), 'sale', order.id, at);
   }
 

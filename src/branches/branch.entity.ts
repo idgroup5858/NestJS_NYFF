@@ -64,6 +64,14 @@ export class Branch {
   @Column({ default: false })
   cashierMarksReady: boolean;
 
+  /**
+   * Filial markaziy omborga juda yaqin (2026-11-17, Luchvoy — 5 metr): sotuv retsepti filial omboridan emas, **markaziy
+   * ombordan** ayriladi (`StockService.saleWarehouse`). Filial omboriga o'zi tegmaydi — uni admin "Omborni 0 qilish"
+   * bilan tushiradi. Standart — o'chiq.
+   */
+  @Column({ default: false })
+  stockFromCentral: boolean;
+
   /** filial HR tizimi markazga oxirgi marta murojaat qilgan vaqt (admin kartochkasida — HR ishlayaptimi) */
   @Column({ type: 'timestamptz', nullable: true })
   hrSeenAt: Date | null;

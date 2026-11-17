@@ -65,6 +65,13 @@ export class BranchesController {
   setCashierMarksReady(@Param('id') id: string, @Body() dto: SetOnlineDto) {
     return this.branches.setCashierMarksReady(id, dto.enabled);
   }
+
+  /** Markazga juda yaqin filial: sotuv markaziy ombordan ayriladi. */
+  @Roles('admin')
+  @Put(':id/stock-from-central')
+  setStockFromCentral(@Param('id') id: string, @Body() dto: SetOnlineDto) {
+    return this.branches.setStockFromCentral(id, dto.enabled);
+  }
 }
 
 @Controller('delivery')
