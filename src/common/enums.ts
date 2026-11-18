@@ -94,9 +94,20 @@ export type ReturnReason = (typeof RETURN_REASONS)[number];
 
 export const PAYMENT_METHODS = ['cash', 'card', 'click'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
-/** Mobil ilovada mijoz tanlaydigan to'lov: `click` — ilovada to'langan, `cash` — kuryerga / filialda naqd. */
-export const ONLINE_PAYMENTS = ['click', 'cash'] as const;
+/**
+ * Mobil ilovada mijoz tanlaydigan to'lov: `cash` — kuryerga / filialda naqd; `card` — ilovada karta bilan to'langan
+ * (Milliy Ecom / NBU, 2026-11-18: buyurtma faqat to'lovdan keyin yaratiladi — `POST /mobile/payments`; kassir qabul
+ * qilganda smenaga `card` bo'lib yoziladi); `click` — "ilovada to'langan" belgisi (Click ulanmagan, pul olinmaydi).
+ */
+export const ONLINE_PAYMENTS = ['click', 'cash', 'card'] as const;
 export type OnlinePayment = (typeof ONLINE_PAYMENTS)[number];
+
+/**
+ * Mobil karta to'lovi (`mobile_payments`): `waiting` — bank sahifasi ochilgan, mijoz hali to'lamagan; `paid` — bank
+ * "to'landi" dedi (buyurtma yaratiladi); `failed` — bank rad etdi; `expired` — muddat ichida to'lanmadi.
+ */
+export const MOBILE_PAYMENT_STATUSES = ['waiting', 'paid', 'failed', 'expired'] as const;
+export type MobilePaymentStatus = (typeof MOBILE_PAYMENT_STATUSES)[number];
 
 /** `ingredient` — ombor mahsuloti uchun to'lov (2026-11-18): qaysi mahsulot — `ingredientId`, qoldiqqa ta'sir qilmaydi. */
 export const EXPENSE_KINDS = ['electricity', 'gas', 'water', 'internet', 'other', 'ingredient'] as const;

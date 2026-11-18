@@ -21,6 +21,7 @@ import { imagesDir } from './images/images-dir';
 import { ImagesModule } from './images/images.module';
 import { MenuModule } from './menu/menu.module';
 import { OrdersModule } from './orders/orders.module';
+import { MobilePaymentsModule } from './payments/mobile-payments.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { ReportsModule } from './reports/reports.module';
 import { SetupModule } from './setup/setup.module';
@@ -113,6 +114,8 @@ const jobs = process.env.JOBS === 'off' ? [] : [ScheduleModule.forRoot()];
     WarehouseModule,
     ShiftsModule,
     OrdersModule,
+    // mobil ilovada karta bilan to'lov (NBU) — `.env` da NBU sozlamalari to'liq bo'lgan serverda
+    MobilePaymentsModule,
     CourierModule,
     ExpensesModule,
     ReportsModule,

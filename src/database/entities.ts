@@ -7,6 +7,7 @@ import { FaceIdRequest } from '../faceid/faceid-request.entity';
 import { Category } from '../menu/category.entity';
 import { Product } from '../menu/product.entity';
 import { Order } from '../orders/order.entity';
+import { MobilePayment } from '../payments/mobile-payment.entity';
 import { Shift } from '../shifts/shift.entity';
 import { TelegramChat } from '../telegram/telegram-chat.entity';
 import { User } from '../users/user.entity';
@@ -37,6 +38,7 @@ export const ENTITIES = [
   Production,
   Shift,
   Order,
+  MobilePayment,
   Expense,
   AiMessage,
   TelegramChat,

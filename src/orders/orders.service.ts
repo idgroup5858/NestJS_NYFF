@@ -48,6 +48,28 @@ export interface PlaceOrderInput {
   online?: OnlineInfo | null;
   /** mobil dostavka: hudud narxi (mijozga ko'rsatilgani); hududdan tashqarida — `null` */
   deliveryFee?: number | null;
+  /**
+   * Ilovada karta bilan oldindan to'langan mobil buyurtma: taomlar to'lov ochilgandagi nom va narx bilan (mijoz shu
+   * summani to'lagan). Sotuv tekshiruvi qayta qilinmaydi — oradagi daqiqalarda taom sotuvdan olingan bo'lsa ham
+   * buyurtma yoziladi, kassir hal qiladi (bekor qilsa — admin pulni qaytaradi).
+   */
+  prepaidItems?: OrderItem[];
+}
+
+/** Mobil buyurtma: filial (dostavkada — server tanlagani), hudud narxi va tozalangan mijoz ma'lumotlari. */
+export interface PreparedMobileOrder {
+  branchId: string;
+  deliveryFee: number | null;
+  online: OnlineInfo;
+}
+
+/** Oldindan to'langan mobil buyurtma (`mobile_payments` yozuvi) — buyurtma shundan tuziladi. */
+export interface PrepaidMobileOrder extends PreparedMobileOrder {
+  type: OrderType;
+  lines: { productId: string; qty: number }[];
+  items: OrderItem[];
+  note: string;
+  trackingTokenHash: string;
 }
 
 /** Filialning kunlik buyurtma raqami hisoblagichi (`counters`). */
@@ -76,6 +98,25 @@ function cleanOnline(type: OrderType, online: OnlineInfo): OnlineInfo {
   if (online.location && !isLatLng(online.location)) fail('invalid_location');
   const location = online.location ? roundLatLng(online.location) : null;
   return { platform: online.platform, name: online.name.trim(), phone, address, payment: online.payment, location };
+}
+
+/**
+ * Buyurtma qatorlari → sotuvdagi nom va narx: soni butun ≥ 1, taom bor, shu filialda sotuvda, "faqat zalda" taom —
+ * faqat zalda (shu tartibda; birinchi xato qaytadi).
+ */
+function priceLines(
+  branch: Branch,
+  type: OrderType,
+  lines: { productId: string; qty: number }[],
+  products: Map<string, Product>,
+): OrderItem[] {
+  return lines.map((line) => {
+    if (!Number.isInteger(line.qty) || line.qty < 1) fail('invalid_qty', line.productId);
+    const product = products.get(line.productId) ?? fail('not_found', `product ${line.productId}`);
+    if (!soldAt(product, branch.id)) fail('product_unavailable', product.id);
+    if (product.dineInOnly && type !== 'dine_in') fail('dine_in_only', product.id);
+    return { productId: product.id, name: product.name, price: product.price, qty: line.qty };
+  });
 }
 
 @Injectable()
@@ -155,25 +196,9 @@ export class OrdersService {
     dto: MobileOrderDto,
     now = new Date(),
   ): Promise<{ order: CustomerOrderView; trackingToken: string }> {
-    // mijoz o'zi tuzata oladigan xatolar (bo'sh savat, telefon, manzil) — filial tanlashdan oldin
-    if (dto.items.length === 0) fail('empty_order');
-    const online = cleanOnline(dto.type, {
-      ...dto.online,
-      address: dto.online.address ?? '',
-      location: dto.online.location ?? null,
-    });
-    let branchId: string;
-    let deliveryFee: number | null = null;
-    if (dto.type === 'delivery') {
-      const location = online.location ?? fail('location_required');
-      const route = await this.branches.route(location, now);
-      branchId = route.branchId ?? fail('branch_closed');
-      deliveryFee = route.fee;
-    } else {
-      const branch = await this.branches.get(this.dataSource.manager, dto.branchId ?? fail('branch_required'));
-      if (!(await this.branches.isOpen(branch, now))) fail('branch_closed', branch.id);
-      branchId = branch.id;
-    }
+    // karta bilan — avval to'lov (`POST /mobile/payments`), buyurtma to'langandan keyin
+    if (dto.online.payment === 'card') fail('invalid_input', 'online.payment card — POST /mobile/payments');
+    const { branchId, deliveryFee, online } = await this.prepareMobile(dto, now);
     const trackingToken = newSecret(24);
     const order = await this.place(
       {
@@ -194,71 +219,133 @@ export class OrdersService {
   }
 
   /**
+   * Mobil buyurtmaning forma tekshiruvlari va filiali (bazaga yozmaydi): mijoz o'zi tuzata oladigan xatolar (bo'sh savat,
+   * telefon, manzil) — filial tanlashdan oldin; dostavka — joylashuv bo'yicha (`routeDelivery`), olib ketish — mijoz
+   * tanlagan filial ochiq bo'lishi shart.
+   */
+  async prepareMobile(dto: MobileOrderDto, now = new Date()): Promise<PreparedMobileOrder> {
+    if (dto.items.length === 0) fail('empty_order');
+    const online = cleanOnline(dto.type, {
+      ...dto.online,
+      address: dto.online.address ?? '',
+      location: dto.online.location ?? null,
+    });
+    if (dto.type === 'delivery') {
+      const location = online.location ?? fail('location_required');
+      const route = await this.branches.route(location, now);
+      return { branchId: route.branchId ?? fail('branch_closed'), deliveryFee: route.fee, online };
+    }
+    const branch = await this.branches.get(this.dataSource.manager, dto.branchId ?? fail('branch_required'));
+    if (!(await this.branches.isOpen(branch, now))) fail('branch_closed', branch.id);
+    return { branchId: branch.id, deliveryFee: null, online };
+  }
+
+  /** Taomlar narxi shu filialda (buyurtma yozilmaydi) — tekshiruvlar `place` dagidek: soni, sotuvda, "faqat zalda". */
+  async quoteMobile(branchId: string, type: OrderType, lines: { productId: string; qty: number }[]): Promise<OrderItem[]> {
+    const em = this.dataSource.manager;
+    const branch = (await em.findOneBy(Branch, { id: branchId })) ?? fail('not_found', `branch ${branchId}`);
+    const products = await this.productMap(em, lines.map((line) => line.productId));
+    return priceLines(branch, type, lines, products);
+  }
+
+  /**
+   * Ilovada karta bilan to'langan buyurtma — chaqiruvchining tranzaksiyasida (to'lov yozuvi bilan birga). Kassir qabul
+   * qilishi kutiladi (`pending`, 5 daqiqalik muddat — oddiy mobil buyurtmadek); filial yopilgan bo'lsa — fon ishi
+   * o'tkazadi / bekor qiladi. Xabar (socket) — tranzaksiya tugagach [announce] bilan.
+   */
+  placePaidMobile(em: EntityManager, paid: PrepaidMobileOrder, now = new Date()): Promise<Order> {
+    return this.placeIn(
+      em,
+      {
+        branchId: paid.branchId,
+        type: paid.type,
+        source: 'mobile',
+        items: paid.lines,
+        note: paid.note,
+        payment: null,
+        cashierId: null,
+        online: paid.online,
+        deliveryFee: paid.deliveryFee,
+        prepaidItems: paid.items,
+      },
+      now,
+      paid.trackingTokenHash,
+    );
+  }
+
+  /** Buyurtma o'zgardi — filial, TV, mijoz va kuryerlarga xabar. */
+  announce(order: Order): void {
+    this.realtime.orderChanged(order);
+  }
+
+  /**
    * Buyurtma: narxlar taomdan olinadi (filialda sotuvda bo'lishi shart), raqam filialning bugungi navbatidagi son. To'langan buyurtma darhol
    * "tayyorlanmoqda" (chek oshxonaga) va mahsulotlar ombordan ayriladi; kassir buyurtmasi uning ochiq smenasiga yoziladi.
    * Kioskda "kassada to'layman" va mobil ilovadan — `pending`: kassir tasdiqlaguncha oshxonaga ham, omborga ham tegmaydi.
    */
   async place(input: PlaceOrderInput, now = new Date(), trackingTokenHash: string | null = null): Promise<Order> {
-    const order = await this.dataSource.transaction(async (em) => {
-      if (input.items.length === 0) fail('empty_order');
-      const branch = (await em.findOneBy(Branch, { id: input.branchId })) ?? fail('not_found', `branch ${input.branchId}`);
-      if (!branch.active) fail('not_found', `branch ${branch.id} inactive`);
-      if (input.payment === null && input.source === 'cashier') fail('invalid_amount');
-      let online: OnlineInfo | null = null;
-      if (input.source === 'mobile') {
-        if (!input.online || input.payment !== null || input.cashierId !== null) fail('invalid_amount');
-        online = cleanOnline(input.type, input.online);
-      }
+    const order = await this.dataSource.transaction((em) => this.placeIn(em, input, now, trackingTokenHash));
+    this.announce(order);
+    return order;
+  }
 
-      const products = await this.productMap(em, [...new Set(input.items.map((line) => line.productId))]);
-      const items: OrderItem[] = input.items.map((line) => {
-        if (!Number.isInteger(line.qty) || line.qty < 1) fail('invalid_qty', line.productId);
-        const product = products.get(line.productId) ?? fail('not_found', `product ${line.productId}`);
-        if (!soldAt(product, branch.id)) fail('product_unavailable', product.id);
-        if (product.dineInOnly && input.type !== 'dine_in') fail('dine_in_only', product.id);
-        return { productId: product.id, name: product.name, price: product.price, qty: line.qty };
-      });
+  /** [place] ning o'zi — berilgan tranzaksiyada, xabarsiz. */
+  private async placeIn(
+    em: EntityManager,
+    input: PlaceOrderInput,
+    now: Date,
+    trackingTokenHash: string | null,
+  ): Promise<Order> {
+    if (input.items.length === 0) fail('empty_order');
+    const branch = (await em.findOneBy(Branch, { id: input.branchId })) ?? fail('not_found', `branch ${input.branchId}`);
+    if (!branch.active) fail('not_found', `branch ${branch.id} inactive`);
+    if (input.payment === null && input.source === 'cashier') fail('invalid_amount');
+    let online: OnlineInfo | null = null;
+    if (input.source === 'mobile') {
+      if (!input.online || input.payment !== null || input.cashierId !== null) fail('invalid_amount');
+      online = cleanOnline(input.type, input.online);
+    }
 
-      const shiftId = input.cashierId !== null ? await this.openShiftId(em, input.cashierId, branch.id) : null;
-      const total = items.reduce((sum, item) => sum + item.price * item.qty, 0);
-      const paid = input.payment === null ? null : resolvePayment(input.payment, input.split, total);
+    const products = await this.productMap(em, [...new Set(input.items.map((line) => line.productId))]);
+    const items: OrderItem[] = input.prepaidItems ?? priceLines(branch, input.type, input.items, products);
 
-      const order: Order = {
-        id: input.id ?? newId('ord'),
-        branchId: branch.id,
-        number: await nextCounter(em, orderCounterKey(branch.id, now)),
-        type: input.type,
-        source: input.source,
-        items,
-        // sotuv paytidagi tannarx — narx kabi o'zgarmas surat (faqat admin hisobotida)
-        itemCosts: await orderItemCosts(em, items, products),
-        note: input.note?.trim() ?? '',
-        total,
-        payment: paid?.payment ?? null,
-        split: paid?.split ?? null,
-        online,
-        status: paid ? 'preparing' : 'pending',
-        cashierId: input.cashierId,
-        shiftId,
-        createdAt: now,
-        preparingAt: paid ? now : null,
-        readyAt: null,
-        cancelledAt: null,
-        cancelledBy: null,
-        cancelReason: null,
-        routedAt: now,
-        transferCount: 0,
-        fromBranchId: null,
-        trackingTokenHash,
-        ...NO_COURIER,
-        deliveryFee: input.source === 'mobile' && input.type === 'delivery' ? (input.deliveryFee ?? null) : null,
-        syncedAt: null,
-      };
-      await em.insert(Order, order);
-      if (paid) await this.deductStock(em, order, products, now);
-      return order;
-    });
-    this.realtime.orderChanged(order);
+    const shiftId = input.cashierId !== null ? await this.openShiftId(em, input.cashierId, branch.id) : null;
+    const total = items.reduce((sum, item) => sum + item.price * item.qty, 0);
+    const paid = input.payment === null ? null : resolvePayment(input.payment, input.split, total);
+
+    const order: Order = {
+      id: input.id ?? newId('ord'),
+      branchId: branch.id,
+      number: await nextCounter(em, orderCounterKey(branch.id, now)),
+      type: input.type,
+      source: input.source,
+      items,
+      // sotuv paytidagi tannarx — narx kabi o'zgarmas surat (faqat admin hisobotida)
+      itemCosts: await orderItemCosts(em, items, products),
+      note: input.note?.trim() ?? '',
+      total,
+      payment: paid?.payment ?? null,
+      split: paid?.split ?? null,
+      online,
+      status: paid ? 'preparing' : 'pending',
+      cashierId: input.cashierId,
+      shiftId,
+      createdAt: now,
+      preparingAt: paid ? now : null,
+      readyAt: null,
+      cancelledAt: null,
+      cancelledBy: null,
+      cancelReason: null,
+      routedAt: now,
+      transferCount: 0,
+      fromBranchId: null,
+      trackingTokenHash,
+      ...NO_COURIER,
+      deliveryFee: input.source === 'mobile' && input.type === 'delivery' ? (input.deliveryFee ?? null) : null,
+      syncedAt: null,
+    };
+    await em.insert(Order, order);
+    if (paid) await this.deductStock(em, order, products, now);
     return order;
   }
 

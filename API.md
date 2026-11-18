@@ -62,6 +62,12 @@ ruxsati kerak (`android:usesCleartextTraffic="true"` yoki `network_security_conf
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini modeli (javob, shevaga o'girish, ovozli savolni matnga o'girish) |
 | `TELEGRAM` | yoqilgan | `off` — Telegram bot tinglanmaydi (testlar; token saqlanadi, lekin polling yo'q) |
 | `PG_DUMP` | PATH dagi `pg_dump` | oylik zaxira nusxa uchun `pg_dump` yo'li; Windows'da PATH da bo'lmasa `C:\Program Files\PostgreSQL\<eng yangi>\bin\pg_dump.exe` ([13](#13-ai-yordamchi-va-telegram-bot)) |
+| `NBU_API_KEY` `NBU_SECRET_KEY` `NBU_USERNAME` `NBU_PASSWORD` | bo'sh | Milliy Ecom (NBU) kalitlari; test sahifasi (`/shorva/nbu/test`) ham shulardan. Mobil ilovada karta ([5.7](#57-karta-bilan-tolov-milliy-ecom--nbu)) — shu to'rttasi va `NBU_CALLBACK_*` **hammasi** yozilgan serverda yoqiladi; bittasi bo'sh bo'lsa o'chiq (qisman yozilgan bo'lsa — logda qaysi biri yo'q) |
+| `NBU_BASE_URL` | `https://ecom.nbu.uz/epgate/api/v1` | bank API manzili |
+| `NBU_SIGNATURE_ENCODING` | `hex` | `X-SIGNATURE` kodlash: `hex` yoki `base64` |
+| `NBU_CALLBACK_USERNAME` `NBU_CALLBACK_PASSWORD` | bo'sh | bank callback'i (`POST /api/callback`) shu Basic login / parol bilan keladi |
+| `PUBLIC_URL` | bo'sh | **ixtiyoriy.** Bank to'lovdan keyin mijozni `<domen>/api/mobile/payments/return` ga qaytaradi; domen — ilova murojaat qilgan manzil (Android'da qattiq yozilgan server; Apache ortida — `X-Forwarded-Host`; haqiqiy domen doim `https`). Yozilsa — shu domen ishlatiladi |
+| `NBU_SESSION_TIMEOUT` | `900` | bank sahifasi necha soniya ochiq turadi (300 … 3600) |
 
 ---
 
@@ -166,6 +172,7 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `too_many_attempts` | 429 | ✔ | Ko'p marta xato kiritildi — birozdan keyin urinib ko'ring | PIN bloki (`detail`: qolgan soniya, `"287s"` — 2026-11-04 dan blokni qo'ygan 5-xatoning o'zida ham, `"300s"`; offline kassada ham) yoki IP chegarasi (`detail` yo'q, `Retry-After` sarlavhasi, soniya). Web PIN pad blok paytida o'chadi va `detail` bo'yicha "4:59 dan keyin" sanaydi (`detail` siz — 1 daqiqa). TV / kiosk kodi uchun blok yo'q ([4.4](#44-tv-va-kiosk)) |
 | `branch_closed` | 409 | ✔ | Filial hozir buyurtma qabul qilmayapti | mobil: tanlangan filial yopiq (`detail`: branchId) yoki dostavka uchun ochiq filial yo'q |
 | `location_required` | 400 | ✔ | Yetkazib berish joyini xaritada belgilang (GPS) | mobil dostavkada `online.location` yo'q |
+| `card_unavailable` | 503 | ✔ | Karta bilan to'lov hozir ishlamayapti — naqd to'lovni tanlang | `POST /mobile/payments`: serverda karta sozlanmagan (NBU sozlamalari to'liq emas) yoki bank to'lov ochmadi / javob bermadi ([5.7](#57-karta-bilan-tolov-milliy-ecom--nbu)) |
 | `off_duty` | 409 | ✔ | Avval «Ishdaman» ni yoqing | kuryer "Ishdaman" o'chiq holda buyurtma olmoqchi |
 | `already_taken` | 409 | ✔ | Bu buyurtmani boshqa kuryer oldi | |
 | `other_branch` | 409 | ✔ | Qo'lingizda boshqa filial buyurtmalari bor | kuryer bir vaqtda faqat bitta filialdan oladi (`detail`: qo'ldagi filial) |
@@ -448,8 +455,9 @@ Javob `201`:
   qilishi mumkin (shu orada holat o'zgargan bo'lsa). Taomlar server tanlagan filialda sotuvda bo'lishi shart.
 - So'rov idempotent emas: tarmoq xatosida avtomatik qayta yubormang (ikki buyurtma bo'lishi mumkin) — foydalanuvchidan
   so'rang.
-- `online.payment`: `click` — "ilovada to'langan", `cash` — kuryerga / filialda naqd. **Click hali ulanmagan** — hozir
-  faqat belgi, pul olinmaydi.
+- `online.payment`: `cash` — kuryerga / filialda naqd; `click` — "ilovada to'langan" belgisi (**Click hali ulanmagan** —
+  pul olinmaydi); `card` — bu endpointda **qabul qilinmaydi** (`400 invalid_input`): karta bilan avval to'lov,
+  buyurtma to'langandan keyin — `POST /mobile/payments` ([5.7](#57-karta-bilan-tolov-milliy-ecom--nbu)).
 
 Tekshiruvlar (shu tartibda; birinchi xato qaytadi):
 
@@ -545,6 +553,56 @@ o'tkaziladi.
 
 Qabul kutish vaqti: `routedAt` + 5 daqiqa (masalan "Filial javobini kutyapmiz · 3:12").
 
+### 5.7 Karta bilan to'lov (Milliy Ecom / NBU)
+
+2026-11-18. Buyurtma **to'lovdan keyin** yaratiladi: to'lanmagan buyurtmani filial, oshxona, TV va kuryer umuman
+ko'rmaydi. Kod hamma serverda bir xil, karta faqat `.env` da NBU sozlamalari va callback login / paroli
+to'liq bo'lgan serverda yoqiladi ([1](#1-server)); boshqasida `GET /mobile/payments/methods` → `card: false` — ilovada "Karta" — "Tez
+kunda", buyurtmalar avvalgidek naqd.
+
+1. `GET /api/mobile/payments/methods` → `{ "cash": true, "card": true }`.
+2. `POST /api/mobile/payments` — tana `POST /mobile/orders` niki ([5.4](#54-buyurtma-berish)), faqat
+   `online.payment: "card"`. Server buyurtmani o'sha tartibda tekshiradi (forma, filial, taomlar — xatolar 5.4
+   jadvalidagidek), summani hisoblaydi (taomlar; **yetkazish narxi kirmaydi** — kuryerga alohida) va bankda to'lov
+   ochadi. Javob `201`:
+
+   ```json
+   { "payment": { "id": "01a1eea2-b52c-7720-a682-72033d3f3754", "status": "waiting", "total": 79000,
+                  "expiresAt": "2026-11-18T12:15:00.000Z", "orderId": null, "error": null },
+     "paymentUrl": "https://ecom.nbu.uz/…",
+     "returnUrl": "https://fast.newyork24.uz/api/mobile/payments/return",
+     "trackingToken": "q9Vx…(32 belgi)" }
+   ```
+
+   **`payment.id` va `trackingToken` ni darhol saqlang** — ilova yopilib qolsa ham keyin buyurtmani topish uchun.
+   Bank to'lov ochmasa / javob bermasa — `503 card_unavailable` (pul yechilmagan, qayta urinish xavfsiz).
+3. `paymentUrl` ni WebView'da oching (JavaScript va DOM storage yoqiq). Mijoz karta va SMS kodni **bank sahifasida**
+   kiritadi. Bank tugagach brauzerni `<returnUrl>?result=success|failure&id=<payment.id>` ga yo'naltiradi — shu bilan
+   boshlanadigan manzilni ochmasdan ushlab, oynani yoping (`result` — faqat taxmin, natija serverdan).
+4. `GET /api/mobile/payments/{id}` + `X-Order-Token: <trackingToken>` — har 2 soniyada: server kerak bo'lsa bankdan
+   ham so'raydi (5 soniyada ko'pi bilan bir marta), shuning uchun bank callback'i kechiksa ham natija tez ko'rinadi.
+
+   | `status` | Shart | Ilova |
+   |---|---|---|
+   | `waiting` | | bank tasdiqlamagan — so'rashda davom eting (≈1,5 daqiqa), keyin "Tasdiq kechikmoqda" |
+   | `paid` | `orderId` bor | buyurtma yaratildi — `GET /mobile/orders/{orderId}` **shu `trackingToken` bilan** ([5.5](#55-holatni-kuzatish)), keyin oddiy kuzatish |
+   | `paid` | `orderId: null`, `error` bor | pul yechildi, lekin buyurtma yaratilmadi (filial o'chirilgan va h.k.) — "Filial bog'lanadi, pulni qaytaradi" |
+   | `paid` | ikkalasi `null` | buyurtma bir lahzada yaratiladi — so'rashda davom eting |
+   | `failed` / `expired` | | pul yechilmagan — "Qayta urinish" |
+
+To'langan buyurtma: `source: "mobile"`, `status: "pending"`, `online.payment: "card"` — kassir oddiy mobil buyurtmadek
+qabul qiladi (5 daqiqalik muddat, boshqa filialga o'tkazish — [5.6](#56-holat--ui-matni)), smenaga va hisobotga
+**`card`** bo'lib yoziladi. Narxlar — to'lov ochilgandagi (oradagi daqiqalarda menyu o'zgarsa ham mijoz to'lagan
+summa). Kuryer `card` buyurtmadan taom pulini olmaydi (faqat yetkazish narxi). **Pul qaytarish tizimda yo'q**: to'langan
+buyurtma bekor bo'lsa (kassir, admin, qabul muddati) admin pulni o'zi qaytaradi — admin ro'yxatida bunday buyurtma
+qizil "Karta" va "pulni qaytaring" yozuvi bilan.
+
+Server tomoni: to'lov `mobile_payments` jadvalida (bankka `orderId` = `payment.id`, UUID v7). Bank callback'i —
+`POST /api/callback` (Basic login / parol); bizda yo'q `orderId` (test sahifasidagi to'lov) — e'tiborsiz, tana to'liq
+logga yoziladi. Fon ishi (har 30 s): callback kelmay qolgan to'lovni har daqiqada bankdan so'raydi; muddati o'tgani
+(`expiresAt` + 1 daqiqa) — bank "to'lanmagan" desa `expired`, bankka ulanib bo'lmasa — 30 daqiqagacha kutadi. Muddati
+o'tgandan keyin kelgan "to'landi" ham buyurtma bo'ladi.
+
 ---
 
 ## 6. Ma'lumot turlari
@@ -610,7 +668,7 @@ interface OnlineInfo {            // faqat mobil buyurtmada
   name: string
   phone: string
   address: string                 // olib ketishda ""; dostavkada ham "" bo'lishi mumkin (joy xaritadan tanlangan)
-  payment: 'click' | 'cash'
+  payment: 'click' | 'cash' | 'card'   // card — ilovada karta bilan oldindan to'langan (5.7)
   location: LatLng | null         // dostavkada doim bor
 }
 
@@ -657,6 +715,16 @@ type CustomerOrder = Pick<Order, 'id' | 'branchId' | 'number' | 'type' | 'items'
 
 /** TV ko'rinishi (REST `GET /tv/queue` va socket `tv:<id>`) — mijoz ma'lumotisiz. */
 type TvOrder = Pick<Order, 'id' | 'branchId' | 'number' | 'type' | 'status' | 'preparingAt' | 'readyAt'>
+
+/** Mobil ilovada karta bilan to'lov (5.7). */
+interface MobilePayment {
+  id: string                      // UUID v7 — bankka orderId bo'lib ketadi
+  status: 'waiting' | 'paid' | 'failed' | 'expired'
+  total: number                   // taomlar summasi, so'm (yetkazish narxisiz); bankka — tiyinda (×100)
+  expiresAt: string               // bank sahifasi shu vaqtgacha ochiq
+  orderId: string | null          // to'langandan keyin yaratilgan buyurtma
+  error: string | null            // to'langan, lekin buyurtma yaratilmadi — xato kodi
+}
 ```
 
 Holatlar: `pending` (kiosk — kassada to'lanmagan; mobil — qabul qilinmagan) → `preparing` (to'langan / qabul qilingan;
@@ -902,6 +970,11 @@ tashlanadi); buyurtma izohi `note?: string ≤500`. Narx, nom — bazadan (taom 
 | `GET /tv/queue` | TV kodi: `X-Tv-Code` ([4.4](#44-tv-va-kiosk)) | query: `branchId` (majburiy) | `{ preparing: TvOrder[], ready: TvOrder[] }` | `branch_required`, `wrong_tv_code` (kod yo'q / noto'g'ri / yangilangan, filial noma'lum), `not_found` (kod to'g'ri, filial faol emas) |
 | `POST /mobile/orders` | ochiq | [5.4](#54-buyurtma-berish) | `201 { order: CustomerOrder, trackingToken: string }` | [5.4](#54-buyurtma-berish) jadvali |
 | `GET /mobile/orders/:id` | ochiq + `X-Order-Token` / `?token=` | | `CustomerOrder` | `not_found` |
+| `GET /mobile/payments/methods` | ochiq | | `{ cash: true, card: boolean }` | |
+| `POST /mobile/payments` | ochiq; IP: 20 / 60 s | `MobileOrderDto`, `online.payment: 'card'` ([5.7](#57-karta-bilan-tolov-milliy-ecom--nbu)) | `201 { payment: MobilePayment, paymentUrl, returnUrl, trackingToken }` | `card_unavailable`, `invalid_input`, [5.4](#54-buyurtma-berish) jadvali |
+| `GET /mobile/payments/:id` | ochiq + `X-Order-Token` / `?token=` | | `MobilePayment` | `not_found` |
+| `GET /mobile/payments/return` | ochiq | query: `result=success\|failure`, `id` | HTML (bank qaytaradigan sahifa — ilova uni ochmasdan ushlaydi) | |
+| `POST /callback` | bank: Basic `NBU_CALLBACK_USERNAME` / `NBU_CALLBACK_PASSWORD` | bank to'lov natijasi (`orderId`, `status`, `amount`, `transactionId`, …) | `200 { status: "accepted" }` | `401` |
 
 Tafsilotlar:
 
@@ -1335,7 +1408,7 @@ interface AvailableOrder {
   status: 'preparing' | 'ready'
   createdAt: string; preparingAt: string | null; readyAt: string | null
   items: OrderItem[]; total: number
-  payment: 'cash' | 'click' | null   // mijoz tanlagani
+  payment: 'cash' | 'click' | 'card' | null   // mijoz tanlagani; naqd faqat `cash` da olinadi
   deliveryFee: number | null         // hudud narxi; null — narxni kuryer aytadi
   address: string; location: LatLng | null
   distanceKm: number | null          // filialdan mijozgacha (to'g'ri chiziq)

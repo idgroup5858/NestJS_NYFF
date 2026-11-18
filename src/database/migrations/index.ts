@@ -25,6 +25,7 @@ import { ExpenseIngredient1793870000000 } from './1793870000000-ExpenseIngredien
 import { OrderItemCosts1793880000000 } from './1793880000000-OrderItemCosts';
 import { DropStockTarget1793890000000 } from './1793890000000-DropStockTarget';
 import { Consumables1793900000000 } from './1793900000000-Consumables';
+import { MobilePayments1793910000000 } from './1793910000000-MobilePayments';
 
 /** Barcha migratsiyalar tartib bilan. Yangisi `npm run migration:generate -- src/database/migrations/<Nom>` dan keyin shu yerga. */
 export const MIGRATIONS: Function[] = [
@@ -55,4 +56,5 @@ export const MIGRATIONS: Function[] = [
   OrderItemCosts1793880000000,
   DropStockTarget1793890000000,
   Consumables1793900000000,
+  MobilePayments1793910000000,
 ];
