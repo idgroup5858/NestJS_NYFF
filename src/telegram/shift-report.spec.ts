@@ -60,7 +60,7 @@ describe('smena hisoboti', () => {
         '',
         "Turi bo'yicha:",
         "  • Zalda: 2 ta — 500 000 so'm",
-        "  • Dostavka: 2 ta — 750 000 so'm",
+        "  • Yetkazish: 2 ta — 750 000 so'm",
         '',
         'Qayerdan:',
         '  • Kassa: 3 ta',

@@ -48,7 +48,7 @@ export interface ShiftReport {
 const TYPE_LABEL: Record<OrderType, string> = {
   dine_in: 'Zalda',
   takeaway: 'Olib ketish',
-  delivery: 'Dostavka',
+  delivery: 'Yetkazish',
 };
 const SOURCE_LABEL: Record<OrderSource, string> = { cashier: 'Kassa', kiosk: 'Kiosk', mobile: 'Mobil ilova' };
 const PAYMENT_LABEL: Record<PaymentMethod, string> = { cash: 'Naqd', card: 'Karta', click: 'Click' };

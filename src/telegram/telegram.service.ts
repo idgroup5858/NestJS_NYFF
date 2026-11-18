@@ -72,7 +72,7 @@ const TEXT = {
   badLink: "Link noto'g'ri yoki yangilangan. Admin paneldagi «AI → Telegram» bo'limidan yangi linkni oching.",
   linked: (name: string) =>
     `Ulandingiz, ${name}! Endi savolingizni yozing, masalan:\n` +
-    "• Bugungi tushum qancha?\n• Shu haftada dostavkadan qancha tushdi?\n• Qaysi mahsulotlar kam qoldi?\n" +
+    "• Bugungi tushum qancha?\n• Shu haftada yetkazishdan qancha tushdi?\n• Qaysi mahsulotlar kam qoldi?\n" +
     "• Hozir qaysi filiallar ishlayapti?\n\nTez savollar — pastdagi «Menu» tugmasida (/tushum, /qoldiq, /filiallar…). " +
     'Yangi suhbat — /new',
   already: (name: string) => `Siz ${name} sifatida ulangansiz. Savolingizni yozing. Yangi suhbat — /new`,
