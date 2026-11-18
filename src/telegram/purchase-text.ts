@@ -1,7 +1,7 @@
 import { In, type EntityManager } from 'typeorm';
 import { Branch } from '../branches/branch.entity';
 import { Warehouse } from '../branches/warehouse.entity';
-import { BASE_LABEL, num, packName, UNIT_LABEL } from '../domain/stock-text';
+import { BASE_LABEL, docQtyText, num, packName, UNIT_LABEL } from '../domain/stock-text';
 import { fullName, User } from '../users/user.entity';
 import { Ingredient } from '../warehouse/ingredient.entity';
 import type { Purchase } from '../warehouse/purchase.entity';
@@ -12,8 +12,10 @@ export interface PurchaseNoticeLine {
   name: string;
   /** kirimdagi miqdor: kg / l / dona; qadoqli — donada (qadoqda) */
   qty: number;
-  /** "kg", "l", "dona" yoki qadoq nomi ("dona" / "qadoq") */
+  /** "kg", "l", "dona" yoki qadoq nomi ("dona" / "qadoq") — narx shu birlik uchun */
   unit: string;
+  /** miqdor matni: "12,5 kg", "10 dona"; donali qadoqli (tuxum) — "1 qadoq + 20 dona" */
+  amount: string;
   /** qadoqli mahsulotda: "1 dona = 600 g" */
   pack: string | null;
   /** 1 birlik narxi; eski kirimda `null` bo'lishi mumkin */
@@ -55,6 +57,7 @@ export async function loadPurchaseNotice(em: EntityManager, purchase: Purchase):
         name: found ? found.name.uz || found.name.ru || found.name.en : item.ingredientId,
         qty: item.qty,
         unit: item.packSize === null ? UNIT_LABEL[unit] : packName(unit),
+        amount: docQtyText(item.qty, unit, item.packSize),
         pack: item.packSize === null ? null : `1 ${packName(unit)} = ${num(item.packSize)} ${BASE_LABEL[unit]}`,
         price: item.price,
       };
@@ -76,14 +79,16 @@ const lineSum = (line: PurchaseNoticeLine) => Math.round(line.qty * (line.price 
  *    1 kg narxi: 5 000 so'm · jami: 100 000 so'm
  * • Ketchup — 10 dona (1 dona = 600 g)
  *    1 dona narxi: 16 800 so'm · jami: 168 000 so'm
+ * • Tuxum — 1 qadoq + 20 dona (1 qadoq = 30 dona)
+ *    1 qadoq narxi: 50 000 so'm · jami: 83 333 so'm
  *
- * Kirim summasi: 268 000 so'm
+ * Kirim summasi: 351 333 so'm
  * Izoh: Haftalik kirim
  * ```
  */
 export function purchaseNoticeText(notice: PurchaseNotice): string {
   const lines = notice.lines.flatMap((line) => [
-    `• ${line.name} — ${num(line.qty)} ${line.unit}${line.pack ? ` (${line.pack})` : ''}`,
+    `• ${line.name} — ${line.amount}${line.pack ? ` (${line.pack})` : ''}`,
     line.price === null
       ? '   narxi kiritilmagan'
       : `   1 ${line.unit} narxi: ${som(line.price)} · jami: ${som(lineSum(line))}`,

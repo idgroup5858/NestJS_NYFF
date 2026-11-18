@@ -144,7 +144,7 @@ export class NbuTestService {
     const encoding = this.overrides.signatureEncoding ?? env('NBU_SIGNATURE_ENCODING');
     const oaep = this.overrides.oaepHash ?? env('NBU_OAEP_HASH');
     return {
-      baseUrl: this.overrides.baseUrl ?? (env('NBU_BASE_URL') || 'https://ecom.nbu.uz/epgate'),
+      baseUrl: this.overrides.baseUrl ?? (env('NBU_BASE_URL') || 'https://ecom.nbu.uz/epgate/api/v1'),
       apiKey: this.overrides.apiKey ?? env('NBU_API_KEY'),
       secretKey: this.overrides.secretKey ?? env('NBU_SECRET_KEY'),
       username: this.overrides.username ?? env('NBU_USERNAME'),

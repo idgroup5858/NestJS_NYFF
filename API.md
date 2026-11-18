@@ -80,6 +80,12 @@ ruxsati kerak (`android:usesCleartextTraffic="true"` yoki `network_security_conf
   **donada** (`10` dona → qoldiqqa `6000` g), retsept va qoldiq baribir grammda; qoldiq ekranda — to'liq donalar va
   ochilgani: 5950 g → "9 dona + 550 g". Hujjat qatorida yozilgan paytdagi hajm (`items[].packSize`) saqlanadi —
   mahsulotniki keyin o'zgarsa ham qator o'sha hajm bilan hisoblanadi.
+  **Donali qadoq** (2026-11-18): `unit: 'pcs'` + `packSize` (tuxum — 1 qadoq = 30 dona) — kirim / ko'chirish `qty` si
+  baribir **qadoqda**, qadoqdan tashqari dona — kasr: 1 qadoq + 20 dona → `qty: (1 * 30 + 20) / 30` (1,6666…), faqat
+  50 dona → `50 / 30`, faqat 7 dona → `7 / 30`. Server `Math.round(qty * packSize)` qiladi — qoldiqqa aniq `50` / `7`
+  dona tushadi (kasrni yaxlitlab yubormang: `1.67` → 50, lekin `1.6` → 48). Narx — 1 qadoq uchun, qator summasi
+  `qty * price` (50 / 30 × 50 000 = 83 333). Ko'rsatishda qatorni `qty * packSize` donaga o'girib, qoldiq kabi
+  bo'ling: "1 qadoq + 20 dona" (web, Telegram, AI shunday). Ketchup kabi `kg` / `l` qadog'i — avvalgidek bitta son.
 - **ID**: satr, prefiks + 16 ta hex: `ord_3f2a9c1b7e4d8a05` (`br_`, `usr_`, `cat_`, `prd_`, `ing_`, `pur_`,
   `trf_`, `mov_`, `shf_`, `exp_`, `wh_`). Eski va sinov id'lari boshqacha (`br_chilonzor`, `burger-classic`) — id'ni hech qachon
   tahlil qilmang, faqat solishtiring.
@@ -962,11 +968,11 @@ miqdor, 1 birlik narxi, qator summasi, kirim summasi, ombor, kim kiritdi).
 | `GET /movements` | query: `warehouseId?`, `ingredientId?`, `kind?`, `refId?`, `page?`, `limit?` (standart 100) | `Page<StockMovement & { refNumber: number \| null; refWarehouseId: string \| null; refBy: string \| null }>` (yangisi birinchi) — `refNumber`: buyurtma / kirim / ko'chirish / tuzatish / tayyorlash raqami ("Sarflandi" da — yangi partiyani olib kelgan kirim yoki ko'chirish raqami, `refBy` — uni yozgan); `refWarehouseId`: ko'chirishda ikkinchi ombor (kirimda — qayerdan, chiqimda — qayerga); `refBy` (2026-11-10): kirim / ko'chirish / tuzatish / tayyorlashni yozgan xodim id'si, buyurtmada — `null` | |
 | `GET /purchases` | query: `status?`, `warehouseId?`, `page?`, `limit?` | `Page<Purchase>` | |
 | `GET /purchases/:id` | | `Purchase` | `not_found` |
-| `POST /purchases` | `{ warehouseId, items: { ingredientId, qty, price? }[], note?: string ≤1000 }` — `qty` ombor birligida (qadoqli — donada), > 0; `price` — 1 birlik (qadoqli — 1 dona) narxi, so'm, butun ≥ 0 (berilmasa — `lastPrice`) | `201 Purchase` (`approved`) — darhol qoldiqqa qo'shiladi, har mahsulotning `lastPrice` i shu narxga yangilanadi, `packSize` — mahsulotning hozirgisi; Telegram'ga "Yangi kirim" | `empty_order`, `not_found`, `invalid_qty`, `invalid_price` (manfiy / kasr, yoki narx yo'q va `lastPrice` ham yo'q), `invalid_input` (`price` son emas) |
+| `POST /purchases` | `{ warehouseId, items: { ingredientId, qty, price? }[], note?: string ≤1000 }` — `qty` ombor birligida (qadoqli — donada; donali qadoqda qadoq + dona — kasr, 1-bo'lim), > 0; `price` — 1 birlik (qadoqli — 1 dona) narxi, so'm, butun ≥ 0 (berilmasa — `lastPrice`) | `201 Purchase` (`approved`) — darhol qoldiqqa qo'shiladi, har mahsulotning `lastPrice` i shu narxga yangilanadi, `packSize` — mahsulotning hozirgisi; Telegram'ga "Yangi kirim" | `empty_order`, `not_found`, `invalid_qty`, `invalid_price` (manfiy / kasr, yoki narx yo'q va `lastPrice` ham yo'q), `invalid_input` (`price` son emas) |
 | `POST /purchases/:id/approve` | faqat eski `pending` kirim; admin: `{ prices?: { [ingredientId]: number } }` — 1 birlik (qatorda qadoq bo'lsa — 1 dona) narxi (so'm, butun ≥ 0); berilmagani kirimdagi narxida qoladi | `200 Purchase` (`approved`) — qoldiqqa qatordagi `packSize` bilan qo'shiladi, `lastPrice` yangilanadi | `not_found`, `already_decided` (yangi kirim — doim), `invalid_price` |
 | `POST /purchases/:id/reject` | faqat eski `pending` kirim; admin | `200 Purchase` (`rejected`) | `not_found`, `already_decided` |
 | `GET /transfers` | query: `warehouseId?` (chiqqan yoki kirgan), `page?`, `limit?` | `Page<Transfer>` | |
-| `POST /transfers` | `{ fromWarehouseId, toWarehouseId, items: { ingredientId, qty }[] (ombor birligida, qadoqli — donada, > 0), note?: string ≤1000 }` | `201 Transfer` — bitta tranzaksiyada chiqim + kirim (sarf materialida qabul qilgan ombordagi eski qoldiq avval "Sarflandi" — pastda) | `same_warehouse`, `empty_order`, `not_found`, `invalid_qty`, `insufficient_stock` |
+| `POST /transfers` | `{ fromWarehouseId, toWarehouseId, items: { ingredientId, qty }[] (ombor birligida, qadoqli — donada, donali qadoqda qadoq + dona — kasr, > 0), note?: string ≤1000 }` | `201 Transfer` — bitta tranzaksiyada chiqim + kirim (sarf materialida qabul qilgan ombordagi eski qoldiq avval "Sarflandi" — pastda) | `same_warehouse`, `empty_order`, `not_found`, `invalid_qty`, `insufficient_stock` |
 | `GET /productions` | query: `ingredientId?` (shu mahsulot **tayyorlanganlari**), `page?`, `limit?` | `Page<Production>` (yangisi birinchi) — web oxirgisini (`limit=1`) formadagi "sarflandi" ro'yxatini oldindan to'ldirishga oladi | |
 | `POST /productions` | 2026-11-18: `{ ingredientId, qty, items: { ingredientId, qty }[], note?: string ≤1000 }` — tayyor mahsulot va chiqqan miqdor, sarflanganlar; hamma miqdor **qadoqsiz** (kg / l / dona), > 0 | `201 Production` — doim **markaziy** omborda, bitta tranzaksiyada: sarflanganlar ayriladi (qoldiqdan oshmaydi, bir mahsulot ikki qatorda — jami), tayyor mahsulot qo'shiladi (`production` harakatlari, "Tayyorlash №N"); hammasining narxi bo'lsa — tayyor mahsulotning `lastPrice` = `cost` ÷ chiqqan miqdor (uning hisob birligida), aks holda `cost: null` va narx o'zgarmaydi | `empty_order`, `not_found`, `invalid_qty` (≤ 0 yoki asosiy birlikda 0 ga yaxlitlanadi — 0,0001 kg), `invalid_input` (tayyor mahsulot sarflanganlar orasida — `detail: items`), `insufficient_stock` |
 
@@ -1390,7 +1396,7 @@ asosida model javob yozadi. Ikki kanal: admin paneldagi chat va Telegram bot —
 - **Tool'lar faqat o'qiydi** (hech narsani o'zgartirmaydi): `sales_report` (davr tushumi, to'lov / buyurtma turi / manba
   bo'yicha, chiqimlar va sof, filiallar, har taom sotuvi va sotilmaganlar, gavjum soatlar, kunlar yoki oylar),
   `current_status` (filiallar: ishlayaptimi — ochiq smena, kassirlar, faol buyurtmalar, online holati; ishdagi kuryerlar),
-  `shifts` (smena jami — butun smena uchun, bir necha kunga cho'zilishi mumkin), `expenses` (kommunal va mahsulot to'lovlari — `item`: mahsulot nomi), `purchases` (masalliq xaridlari),
+  `shifts` (smena jami — butun smena uchun, bir necha kunga cho'zilishi mumkin), `expenses` (kommunal va mahsulot to'lovlari — `item`: mahsulot nomi), `purchases` (masalliq xaridlari; donali qadoqda `qty` 3 xonagacha va `breakdown: "1 qadoq + 20 dona"`),
   `stock` (qoldiq, kam qolganlar — o'z birligida; qadoqli mahsulot — donada, `unit: "dona (600 g)"` va
   `breakdown: "9 dona + 550 g"`; filial ombori — filialning hozirgi nomi bilan), `orders`, `menu`
   (kategoriyalar tartibida taomlar va narxlar, filialda sotilmaydiganlari, o'chirilganlari).

@@ -16,7 +16,7 @@ import {
   type StockUnit,
 } from '../common/enums';
 import { addDays, dateKey, isRealDateKey, parseDateKey, type DateKey } from '../domain/dates';
-import { BASE_LABEL, packName, stockText, UNIT_LABEL } from '../domain/stock-text';
+import { BASE_LABEL, docQtyText, packName, stockText, UNIT_LABEL } from '../domain/stock-text';
 import { fromBase, toBase } from '../domain/units';
 import { ExpensesService } from '../expenses/expenses.service';
 import { Category } from '../menu/category.entity';
@@ -443,7 +443,8 @@ export class AiTools {
           'Ingredient purchases (stock receipts entered by the supplier with their prices; added to stock ' +
           'immediately, no admin approval) created in a period: money spent (approved = received purchases), old ' +
           'purchases still awaiting approval, spending per ingredient and the latest purchase documents. Use it for ' +
-          '"how much was spent on products / ingredients".',
+          '"how much was spent on products / ingredients". Items counted in packs of pieces (eggs) may have a ' +
+          'fractional qty and a breakdown ("1 qadoq + 20 dona") — quote the breakdown.',
         parameters: {
           type: Type.OBJECT,
           properties: {
@@ -499,12 +500,17 @@ export class AiTools {
           awaitingApproval: { count: pending.length, amountAtKnownPrices: pending.reduce((sum, p) => sum + amount(p), 0) },
           rejected: purchases.filter((p) => p.status === 'rejected').length,
           spendingByIngredient: [...spent]
-            .map(([id, row]) => ({
-              name: ingredient.get(id)?.name.uz ?? id,
-              qty: round3(row.qty),
-              unit: unitLabel(ingredient.get(id)?.unit, ingredient.get(id)?.packSize),
-              amount: Math.round(row.amount),
-            }))
+            .map(([id, row]) => {
+              const found = ingredient.get(id);
+              return {
+                name: found?.name.uz ?? id,
+                qty: round3(row.qty),
+                unit: unitLabel(found?.unit, found?.packSize),
+                ...(found?.unit === 'pcs' &&
+                  found.packSize !== null && { breakdown: docQtyText(row.qty, found.unit, found.packSize) }),
+                amount: Math.round(row.amount),
+              };
+            })
             .sort((a, b) => b.amount - a.amount)
             .slice(0, 25),
           latest: purchases.slice(0, 20).map((p) => ({
@@ -513,12 +519,17 @@ export class AiTools {
             status: p.status,
             createdAt: localTime(p.createdAt),
             amount: amount(p),
-            items: p.items.map((i) => ({
-              name: ingredient.get(i.ingredientId)?.name.uz ?? i.ingredientId,
-              qty: i.qty,
-              unit: unitLabel(ingredient.get(i.ingredientId)?.unit, i.packSize),
-              price: i.price,
-            })),
+            items: p.items.map((i) => {
+              const unit = ingredient.get(i.ingredientId)?.unit;
+              return {
+                name: ingredient.get(i.ingredientId)?.name.uz ?? i.ingredientId,
+                // donali qadoqda kasr bo'ladi: 1 qadoq + 20 dona (30 talik) — 1,6667
+                qty: round3(i.qty),
+                unit: unitLabel(unit, i.packSize),
+                ...(unit === 'pcs' && i.packSize !== null && { breakdown: docQtyText(i.qty, unit, i.packSize) }),
+                price: i.price,
+              };
+            }),
           })),
         };
       },

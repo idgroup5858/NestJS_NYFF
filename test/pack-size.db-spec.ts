@@ -3,6 +3,7 @@ import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { AiTools } from '../src/ai/ai.tools';
 import { splitPacks } from '../src/domain/units';
+import { loadPurchaseNotice, purchaseNoticeText } from '../src/telegram/purchase-text';
 import { Product } from '../src/menu/product.entity';
 import { Ingredient } from '../src/warehouse/ingredient.entity';
 import { Purchase } from '../src/warehouse/purchase.entity';
@@ -207,6 +208,61 @@ describe('ombor mahsuloti qadog\'i (1 dona = 600 g)', () => {
     });
     expect(purchases.output.latest[0].items).toEqual([
       { name: 'Ketchup', qty: 10, unit: 'dona (600 g)', price: 16800 },
+    ]);
+  });
+
+  it('donali qadoq (tuxum, 30 talik): "1 qadoq + 20 dona" — kasr qadoq, qoldiqqa aniq 50 dona', async () => {
+    const egg = await warehouse.saveIngredient(
+      { name: { uz: 'Tuxum', ru: 'Яйца', en: 'Eggs' }, group: 'other', unit: 'pcs', packSize: 30, active: true },
+      'admin',
+    );
+    // web: qadoq va dona maydonlari → qadoqda (1 · 30 + 20) / 30; faqat dona — 50 / 30; faqat qadoq — 2
+    const purchase = await warehouse.createPurchase(
+      {
+        warehouseId: CENTRAL,
+        items: [{ ingredientId: egg.id, qty: (1 * 30 + 20) / 30, price: 50000 }],
+      },
+      'usr_supplier',
+      now,
+    );
+    expect(await stockQty(CENTRAL, egg.id)).toBe(50);
+    await warehouse.createPurchase(
+      { warehouseId: CENTRAL, items: [{ ingredientId: egg.id, qty: 2 }] },
+      'usr_supplier',
+      now,
+    );
+    expect(await stockQty(CENTRAL, egg.id)).toBe(110);
+    expect(splitPacks(110, 30)).toEqual({ packs: 3, rest: 20 });
+
+    // filialga 7 dona (qadoq maydoni bo'sh)
+    await warehouse.createTransfer(
+      { fromWarehouseId: CENTRAL, toWarehouseId: WC, items: [{ ingredientId: egg.id, qty: 7 / 30 }] },
+      'usr_supplier',
+      now,
+    );
+    expect(await stockQty(CENTRAL, egg.id)).toBe(103);
+    expect(await stockQty(WC, egg.id)).toBe(7);
+
+    // Telegram: qadoq + dona, summa — 50 / 30 × 50 000
+    const text = purchaseNoticeText(await loadPurchaseNotice(ds.manager, purchase));
+    expect(text).toContain('• Tuxum — 1 qadoq + 20 dona (1 qadoq = 30 dona)');
+    expect(text).toContain("1 qadoq narxi: 50 000 so'm · jami: 83 333 so'm");
+
+    // AI: kasr 3 xonagacha va "1 qadoq + 20 dona"
+    const today = '2026-11-04';
+    const purchases = (await app.get(AiTools).run('purchases', { from: today, to: today })) as {
+      output: { spendingByIngredient: unknown[]; latest: { number: number; items: unknown[] }[] };
+    };
+    // ikki kirim: 50 + 60 dona
+    expect(purchases.output.spendingByIngredient).toContainEqual({
+      name: 'Tuxum',
+      qty: 3.667,
+      unit: 'qadoq (30 dona)',
+      breakdown: '3 qadoq + 20 dona',
+      amount: 183333,
+    });
+    expect(purchases.output.latest.find((p) => p.number === purchase.number)?.items).toEqual([
+      { name: 'Tuxum', qty: 1.667, unit: 'qadoq (30 dona)', breakdown: '1 qadoq + 20 dona', price: 50000 },
     ]);
   });
 

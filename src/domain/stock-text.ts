@@ -1,5 +1,5 @@
 import type { StockUnit } from '../common/enums';
-import { fromBase, splitPacks } from './units';
+import { fromBase, splitPacks, toBase } from './units';
 
 /** Odam o'qiydigan birlik nomlari (AI javobi, Telegram xabarlari) — "pcs" emas, "dona". */
 export const UNIT_LABEL: Record<StockUnit, string> = { kg: 'kg', l: 'l', pcs: 'dona' };
@@ -27,4 +27,14 @@ export function stockText(qty: number, unit: StockUnit, packSize: number | null)
   if (packs > 0 || rest === 0) parts.push(`${num(packs)} ${packName(unit)}`);
   if (rest > 0) parts.push(`${num(rest)} ${BASE_LABEL[unit]}`);
   return parts.join(' + ');
+}
+
+/**
+ * Kirim / ko'chirish qatoridagi miqdor (ombor birligida, qadoqli — qadoqda) odam o'qiydigan ko'rinishda. Donali qadoqli
+ * mahsulot (tuxum, 1 qadoq = 30 dona) — to'liq qadoqlar va qolgan dona (2026-11-18): 50/30 → "1 qadoq + 20 dona", 2 →
+ * "2 qadoq"; boshqasi — "12,5 kg", "10 dona" (ketchup 600 g lik).
+ */
+export function docQtyText(qty: number, unit: StockUnit, packSize: number | null): string {
+  if (unit === 'pcs' && packSize !== null) return stockText(toBase(qty, unit, packSize), unit, packSize);
+  return `${num(qty)} ${packSize === null ? UNIT_LABEL[unit] : packName(unit)}`;
 }
