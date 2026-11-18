@@ -65,6 +65,62 @@ export function readNbuPayment(value: unknown, orderId?: string): NbuPaymentInfo
   };
 }
 
+/** Bank sahifasi havolasi bo'lishi mumkin bo'lgan maydonlar (avval aniq nomlar, keyin "url" / "link" so'zi borlari). */
+const URL_KEYS = ['paymenturl', 'payment_url', 'paymentlink', 'checkouturl', 'redirecturl', 'formurl', 'url', 'link', 'href'];
+/** Biz yuborgan qaytish manzillari javobda qaytarilishi mumkin — ular bank sahifasi emas. */
+const NOT_PAYMENT_URL = /^(success|failure|fail|callback|return|cancel|notify)/i;
+const isHttp = (value: unknown): value is string => typeof value === 'string' && /^https?:\/\/\S+$/i.test(value.trim());
+
+/**
+ * `payment/init` javobidagi bank sahifasi havolasi. Hujjatda — `data.paymentUrl`, haqiqatda — `data.url` (2026-11-18);
+ * shakl yana o'zgarsa ham topilsin — javob ichidan qidiriladi: avval aniq nomli maydonlar, keyin nomida "url" / "link"
+ * bori, keyin ichkari (`data`, `result` …). Qaytish manzillarimiz (`successUrl`, `failureUrl`) olinmaydi.
+ */
+export function findPaymentUrl(value: unknown, depth = 0): string | null {
+  if (isHttp(value)) return depth > 0 ? value.trim() : null;
+  if (depth > 5 || !value || typeof value !== 'object') return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findPaymentUrl(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  const entries = Object.entries(value as Record<string, unknown>).filter(([key]) => !NOT_PAYMENT_URL.test(key));
+  for (const name of URL_KEYS) {
+    const hit = entries.find(([key, item]) => key.toLowerCase() === name && isHttp(item));
+    if (hit) return (hit[1] as string).trim();
+  }
+  const named = entries.find(([key, item]) => /url|link|href/i.test(key) && isHttp(item));
+  if (named) return (named[1] as string).trim();
+  for (const [key, item] of entries) {
+    // `data: "https://…"` kabi — havolaning o'zi
+    if (isHttp(item) && /^(data|result|payload)$/i.test(key)) return item.trim();
+    if (item && typeof item === 'object') {
+      const found = findPaymentUrl(item, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** Javob ichidan nomi bo'yicha birinchi matn qiymati (`transactionId`). */
+function findText(value: unknown, name: string, depth = 0): string | null {
+  if (depth > 5 || !value || typeof value !== 'object') return null;
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (key === name && (typeof item === 'string' || typeof item === 'number')) return String(item);
+    const found = findText(item, name, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Logga — javob qisqartirib (2000 belgi). */
+function preview(json: unknown): string {
+  const raw = typeof json === 'string' ? json : JSON.stringify(json);
+  return (raw ?? 'null').slice(0, 2000);
+}
+
 interface NbuConfig {
   baseUrl: string;
   apiKey: string;
@@ -88,7 +144,7 @@ export class NbuClient {
     failureUrl: string;
     sessionTimeout: number;
   }): Promise<{ paymentUrl: string; transactionId: string | null }> {
-    const data = await this.authorized('payment/init', '/payment/init', {
+    const { data, json } = await this.authorized('payment/init', '/payment/init', {
       amount: input.amount,
       currency: 860,
       orderId: input.orderId,
@@ -97,14 +153,18 @@ export class NbuClient {
       successUrl: input.successUrl,
       failureUrl: input.failureUrl,
     });
-    const paymentUrl = text(data.paymentUrl) ?? '';
-    if (!paymentUrl) throw new NbuError("payment/init: javobda paymentUrl yo'q");
-    return { paymentUrl, transactionId: text(data.transactionId) };
+    // haqiqiy javob (2026-11-18, test sahifasi): `{ status, data: { transactionId, url }, meta }` — hujjatdagi
+    // `paymentUrl` emas; boshqa shakl kelsa — javob ichidan qidiriladi
+    const paymentUrl = (isHttp(data.url) ? data.url.trim() : null) ?? findPaymentUrl(json);
+    if (!paymentUrl) throw new NbuError(`payment/init: javobda to'lov havolasi yo'q — javob: ${preview(json)}`);
+    // bank javobi shakli hali aniqlanmoqda — logda ko'rinib tursin (maxfiy narsa yo'q: havola, tranzaksiya, holat)
+    this.logger.log(`payment/init javobi: ${preview(json)}`);
+    return { paymentUrl, transactionId: text(data.transactionId) ?? findText(json, 'transactionId') };
   }
 
   /** To'lov holati `orderId` bo'yicha. */
   async status(orderId: string): Promise<NbuPaymentInfo> {
-    const data = await this.authorized('payment/status', '/payment/status', { orderId });
+    const { data } = await this.authorized('payment/status', '/payment/status', { orderId });
     return readNbuPayment(data, orderId);
   }
 
@@ -122,14 +182,21 @@ export class NbuClient {
     };
   }
 
-  /** Token bilan so'rov; bank tokenni rad etsa — yangi token bilan bir marta qayta. */
-  private async authorized(op: string, path: string, body: unknown): Promise<Record<string, unknown>> {
+  /**
+   * Token bilan so'rov; bank tokenni rad etsa — yangi token bilan bir marta qayta. `data` — javobdagi `data` obyekti,
+   * `json` — butun javob (shakli kutilganidan farq qilsa qidirish uchun).
+   */
+  private async authorized(
+    op: string,
+    path: string,
+    body: unknown,
+  ): Promise<{ data: Record<string, unknown>; json: unknown }> {
     let result = await this.send('POST', path, body, await this.accessToken());
     if (result.http === 401 || result.http === 403 || /token/i.test(result.message)) {
       this.logger.warn(`${op}: token rad etildi (HTTP ${result.http}) — qayta login`);
       result = await this.send('POST', path, body, await this.accessToken(true));
     }
-    return this.unwrap(op, result);
+    return { data: this.unwrap(op, result), json: result.json };
   }
 
   private accessToken(force = false): Promise<string> {

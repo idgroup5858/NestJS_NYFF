@@ -356,7 +356,8 @@ export class NbuTestService {
       this.session.refreshToken = text('refreshToken') ?? this.session.refreshToken;
     }
     this.session.lastTransactionId = text('transactionId') ?? this.session.lastTransactionId;
-    this.session.paymentUrl = text('paymentUrl') ?? this.session.paymentUrl;
+    // bank havolani `data.url` da beradi (hujjatda — `paymentUrl`)
+    this.session.paymentUrl = text('paymentUrl') ?? text('url') ?? this.session.paymentUrl;
   }
 
   private remember(result: NbuCallResult): NbuCallResult {

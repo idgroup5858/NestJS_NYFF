@@ -329,6 +329,10 @@
 > `mobile-payments.db-spec.ts` — 18 ta, bank — soxtasi), bazasiz 70 ta; `tsc`, `nest build`, `migration:generate
 > --check` — farq yo'q; web `tsc -b` toza. **Haqiqiy bank bilan sinalmagan** — callback va `/payment/status` shakli
 > bag'rikeng o'qiladi (`readNbuPayment`), birinchi haqiqiy to'lovdan keyin logdagi tanaga qarab aniqlashtiriladi.
+> O'sha kuni `fast` da birinchi urinish: karta yoqildi, bank token berdi va to'lovni ochdi, lekin server havolani
+> topmadi — bank uni hujjatdagi `data.paymentUrl` da emas, **`data.url`** da beradi (test sahifasi javobi:
+> `{ status, data: { transactionId, url }, meta: { requestId, timestamp } }`). Tuzatildi: avval `data.url`, bo'lmasa
+> javob ichidan qidiriladi (`findPaymentUrl`, bazasiz testlar — 4 ta), javob logga; test sahifasi ham `url` ni ko'radi.
 > **Keyingi qadam:** `fast` da karta bilan haqiqiy sinov (1 000 so'm); keyin 10 (push, Click, hudud narxi summaga).
 > Android: mijoz — `Kotlin_NYFF`, kuryer — `Kotlin_NYFF_Courier`.
 > Yangi ish faqat foydalanuvchi aniq **"boshla"** deganidan keyin boshlanadi. Savollarga javob berish — boshlashga ruxsat emas.
