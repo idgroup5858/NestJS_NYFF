@@ -6,6 +6,7 @@ import type { MovementKind } from '../common/enums';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
 import { unitSize } from '../domain/units';
+import { rawQty } from '../domain/yield-norm';
 import { Product } from '../menu/product.entity';
 import type { Ingredient } from './ingredient.entity';
 import { LowStockEvents } from './low-stock-events';
@@ -24,17 +25,25 @@ export function mergeDeltas(deltas: StockDelta[]): Map<string, number> {
   return new Map([...merged].filter(([, qty]) => qty !== 0).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
-/** Taomlar retsepti bo'yicha kerak bo'ladigan mahsulotlar (asosiy birlikda). [sign] = -1 — sotuv uchun chiqim. */
+/**
+ * Taomlar retsepti bo'yicha kerak bo'ladigan mahsulotlar (asosiy birlikda). [sign] = -1 — sotuv uchun chiqim.
+ * [cookYields] — "pishganda chiqishi" yozilgan mahsulotlar (id → 1000 g dan necha g): retseptdagi son pishgan miqdor,
+ * ombordan xomi ayriladi — 1 porsiyaga yaxlitlanib, keyin soniga ko'paytiriladi (100 g → 153 g, 2 ta — 306 g).
+ */
 export function recipeDeltas(
   products: Map<string, Product>,
   items: { productId: string; qty: number }[],
   sign: 1 | -1,
+  cookYields: Map<string, number> = new Map(),
 ): StockDelta[] {
   const deltas: StockDelta[] = [];
   for (const item of items) {
     const product = products.get(item.productId);
     if (!product) continue;
-    for (const line of product.recipe) deltas.push({ ingredientId: line.ingredientId, qty: sign * line.qty * item.qty });
+    for (const line of product.recipe) {
+      const qty = rawQty(line.qty, cookYields.get(line.ingredientId));
+      deltas.push({ ingredientId: line.ingredientId, qty: sign * qty * item.qty });
+    }
   }
   return deltas;
 }
@@ -172,7 +181,7 @@ export class StockService {
   /**
    * To'langan buyurtma oshxonaga ketdi: retsept bo'yicha mahsulotlar filial omboridan (filialda `stockFromCentral`
    * yoqilgan bo'lsa — markaziy ombordan) ayriladi. [products] — taomlar allaqachon o'qilgan bo'lsa; berilmasa bazadan
-   * (menyudan o'chirilgan taom hisobga olinmaydi).
+   * (menyudan o'chirilgan taom hisobga olinmaydi). "Pishganda chiqishi" yozilgan mahsulot — xomi (2026-11-19).
    */
   async deductOrder(
     em: EntityManager,
@@ -187,8 +196,21 @@ export class StockService {
           (product) => [product.id, product],
         ),
       );
+    const ingredientIds = order.items.flatMap((item) => recipes.get(item.productId)?.recipe ?? []).map((l) => l.ingredientId);
+    const cookYields = await this.cookYields(em, ingredientIds);
     const warehouse = await this.saleWarehouse(em, order.branchId);
-    await this.applyDeltas(em, warehouse.id, recipeDeltas(recipes, order.items, -1), 'sale', order.id, at);
+    await this.applyDeltas(em, warehouse.id, recipeDeltas(recipes, order.items, -1, cookYields), 'sale', order.id, at);
+  }
+
+  /** "Pishganda chiqishi" yozilgan mahsulotlar [ingredientIds] orasidan: id → 1000 g xomdan necha g pishgan. */
+  private async cookYields(em: EntityManager, ingredientIds: string[]): Promise<Map<string, number>> {
+    const ids = [...new Set(ingredientIds)];
+    if (ids.length === 0) return new Map();
+    const rows: { id: string; cookYield: number }[] = await em.query(
+      `SELECT id, "cookYield" FROM ingredients WHERE id = ANY($1) AND "cookYield" IS NOT NULL`,
+      [ids],
+    );
+    return new Map(rows.map((row) => [row.id, row.cookYield]));
   }
 
   /** Bekor qilingan buyurtma: sotuvda ayrilganlar (harakatlar bo'yicha) aynan qaytadi — retsept keyin o'zgargan bo'lsa ham. */

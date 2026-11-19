@@ -1,7 +1,7 @@
 import { In, type EntityManager } from 'typeorm';
 import { Branch } from '../branches/branch.entity';
 import { Warehouse } from '../branches/warehouse.entity';
-import { BASE_LABEL, docQtyText, num, packName, UNIT_LABEL } from '../domain/stock-text';
+import { BASE_LABEL, docQtyText, num, packName, stockText, UNIT_LABEL } from '../domain/stock-text';
 import { fullName, User } from '../users/user.entity';
 import { Ingredient } from '../warehouse/ingredient.entity';
 import type { Purchase } from '../warehouse/purchase.entity';
@@ -20,6 +20,8 @@ export interface PurchaseNoticeLine {
   pack: string | null;
   /** 1 birlik narxi; eski kirimda `null` bo'lishi mumkin */
   price: number | null;
+  /** normasi bor mahsulot (butun tovuq) — omborga qo'shilgani: "Go'sht 37,734 kg, Qanot 5,469 kg"; oddiy qatorda `null` */
+  outputs: string | null;
 }
 
 export interface PurchaseNotice {
@@ -35,10 +37,16 @@ export async function loadPurchaseNotice(em: EntityManager, purchase: Purchase):
   const [warehouse, author, ingredients] = await Promise.all([
     em.findOneBy(Warehouse, { id: purchase.warehouseId }),
     em.findOneBy(User, { id: purchase.createdBy }),
-    em.findBy(Ingredient, { id: In(purchase.items.map((item) => item.ingredientId)) }),
+    em.findBy(Ingredient, {
+      id: In(purchase.items.flatMap((item) => [item.ingredientId, ...(item.outputs ?? []).map((o) => o.ingredientId)])),
+    }),
   ]);
   const branch = warehouse?.branchId ? await em.findOneBy(Branch, { id: warehouse.branchId }) : null;
   const ingredient = new Map(ingredients.map((i) => [i.id, i]));
+  const nameOf = (id: string) => {
+    const found = ingredient.get(id);
+    return found ? found.name.uz || found.name.ru || found.name.en : id;
+  };
   return {
     number: purchase.number,
     warehouseName:
@@ -54,12 +62,21 @@ export async function loadPurchaseNotice(em: EntityManager, purchase: Purchase):
       const found = ingredient.get(item.ingredientId);
       const unit = found?.unit ?? 'pcs';
       return {
-        name: found ? found.name.uz || found.name.ru || found.name.en : item.ingredientId,
+        name: nameOf(item.ingredientId),
         qty: item.qty,
         unit: item.packSize === null ? UNIT_LABEL[unit] : packName(unit),
         amount: docQtyText(item.qty, unit, item.packSize),
         pack: item.packSize === null ? null : `1 ${packName(unit)} = ${num(item.packSize)} ${BASE_LABEL[unit]}`,
         price: item.price,
+        outputs: item.outputs
+          ? item.outputs
+              .map((output) => {
+                const out = ingredient.get(output.ingredientId);
+                const amount = out ? stockText(output.qty, out.unit, out.packSize) : num(output.qty);
+                return `${nameOf(output.ingredientId)} ${amount}`;
+              })
+              .join(', ')
+          : null,
       };
     }),
   };
@@ -81,8 +98,11 @@ const lineSum = (line: PurchaseNoticeLine) => Math.round(line.qty * (line.price 
  *    1 dona narxi: 16 800 so'm · jami: 168 000 so'm
  * • Tuxum — 1 qadoq + 20 dona (1 qadoq = 30 dona)
  *    1 qadoq narxi: 50 000 so'm · jami: 83 333 so'm
+ * • Tovuq — 64 kg
+ *    1 kg narxi: 30 000 so'm · jami: 1 920 000 so'm
+ *    omborga: Go'sht 34,5 kg, Qanot 5 kg
  *
- * Kirim summasi: 351 333 so'm
+ * Kirim summasi: 2 271 333 so'm
  * Izoh: Haftalik kirim
  * ```
  */
@@ -92,6 +112,7 @@ export function purchaseNoticeText(notice: PurchaseNotice): string {
     line.price === null
       ? '   narxi kiritilmagan'
       : `   1 ${line.unit} narxi: ${som(line.price)} · jami: ${som(lineSum(line))}`,
+    ...(line.outputs ? [`   omborga: ${line.outputs}`] : []),
   ]);
   const total = Math.round(notice.lines.reduce((sum, line) => sum + line.qty * (line.price ?? 0), 0));
   return [

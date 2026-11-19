@@ -29,6 +29,11 @@ export interface PurchaseItem {
   price: number | null;
   /** hujjat yozilgan paytdagi qadoq hajmi (asosiy birlikda) — mahsulotniki keyin o'zgarsa ham shu bilan hisoblanadi */
   packSize: number | null;
+  /**
+   * Normasi bor mahsulot (butun tovuq, 2026-11-19): omborga o'zi emas, shular qo'shilgan — har biri **asosiy birlikda**
+   * (g / ml / dona), o'sha paytdagi norma bo'yicha. Oddiy qatorda yo'q.
+   */
+  outputs?: { ingredientId: string; qty: number }[];
 }
 
 export interface TransferItem {

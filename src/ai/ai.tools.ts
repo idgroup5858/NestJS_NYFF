@@ -444,7 +444,8 @@ export class AiTools {
           'immediately, no admin approval) created in a period: money spent (approved = received purchases), old ' +
           'purchases still awaiting approval, spending per ingredient and the latest purchase documents. Use it for ' +
           '"how much was spent on products / ingredients". Items counted in packs of pieces (eggs) may have a ' +
-          'fractional qty and a breakdown ("1 qadoq + 20 dona") — quote the breakdown.',
+          'fractional qty and a breakdown ("1 qadoq + 20 dona") — quote the breakdown. Items with a yield norm ' +
+          '(whole chicken) were not stocked themselves — addedToStockAs lists what went to stock (boneless meat, wings).',
         parameters: {
           type: Type.OBJECT,
           properties: {
@@ -528,6 +529,17 @@ export class AiTools {
                 unit: unitLabel(unit, i.packSize),
                 ...(unit === 'pcs' && i.packSize !== null && { breakdown: docQtyText(i.qty, unit, i.packSize) }),
                 price: i.price,
+                // normasi bor mahsulot (butun tovuq) omborga o'zi emas, chiqqanlari bo'lib qo'shilgan
+                ...(i.outputs && {
+                  addedToStockAs: i.outputs
+                    .map((o) => {
+                      const found = ingredient.get(o.ingredientId);
+                      return found
+                        ? `${found.name.uz} ${stockText(o.qty, found.unit, found.packSize)}`
+                        : `${o.ingredientId} ${o.qty}`;
+                    })
+                    .join(', '),
+                }),
               };
             }),
           })),

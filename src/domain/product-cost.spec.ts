@@ -26,6 +26,12 @@ describe('taom tannarxi (retsept × oxirgi narx)', () => {
     ).toBe(15000 + 2000 + 1500);
   });
 
+  it("shaurma: retseptda 100 g pishgan go'sht (1000 g → 655 g) — tannarx 153 g yarim tayyordan", () => {
+    const withCooked = new Map(ingredients).set('meat', { unit: 'kg', packSize: null, lastPrice: 48608, cookYield: 655 });
+    // 153 × 48 608 / 1000 = 7 437,02
+    expect(recipeCost([{ ingredientId: 'meat', qty: 100 }], withCooked)).toBe(7437);
+  });
+
   it("narxi yo'q mahsulot, topilmagan mahsulot yoki bo'sh retsept — noma'lum", () => {
     expect(recipeCost([{ ingredientId: 'bun', qty: 1 }, { ingredientId: 'sauce', qty: 30 }], ingredients)).toBeNull();
     expect(recipeCost([{ ingredientId: 'missing', qty: 1 }], ingredients)).toBeNull();

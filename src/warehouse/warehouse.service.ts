@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Brackets, DataSource, EntityManager, In } from 'typeorm';
 import { Warehouse } from '../branches/warehouse.entity';
-import type { Role } from '../common/enums';
+import type { Role, StockUnit } from '../common/enums';
 import { fail } from '../common/errors';
 import { newId } from '../common/ids';
 import { assertUnused } from '../common/in-use';
@@ -11,6 +11,7 @@ import type { LocalizedText, ProductionItem, PurchaseItem, RecipeLine, TransferI
 import { nextCounter } from '../database/counters';
 import { producedUnitPrice, productionCost } from '../domain/production';
 import { convertPrice, fromBase, sameScale, toBase, unitSize } from '../domain/units';
+import { normOutputPrice, normSplit, type YieldNorm } from '../domain/yield-norm';
 import { Ingredient } from './ingredient.entity';
 import { Production } from './production.entity';
 import { PurchaseEvents } from './purchase-events';
@@ -76,6 +77,25 @@ export interface IngredientUsage {
 /** Qadoq hajmining yuqori chegarasi (asosiy birlikda): 1 dona = 1 t / 1000 l / 1 mln dona. */
 const MAX_PACK_SIZE = 1_000_000;
 
+/** Normadagi chiqishlar soni chegarasi. */
+const MAX_NORM_OUTPUTS = 10;
+
+/** Pishganda chiqishi 1000 g dan: 1…10 000 g (guruch kabi og'irlashadigani ham). */
+const MAX_COOK_YIELD = 10_000;
+
+/** SQL sharti: shu mahsulot (`$1`) boshqa mahsulot normasida chiqish sifatida bor. */
+const IN_NORM = `"yieldNorm" -> 'outputs' @> jsonb_build_array(jsonb_build_object('ingredientId', $1::text))`;
+
+/** Ikki norma bir xilmi (jsonb kalit tartibini o'zgartiradi — matn bilan solishtirib bo'lmaydi). */
+function sameNorm(a: YieldNorm | null, b: YieldNorm | null): boolean {
+  if (a === null || b === null) return a === b;
+  return (
+    a.qty === b.qty &&
+    a.outputs.length === b.outputs.length &&
+    a.outputs.every((o, i) => o.ingredientId === b.outputs[i].ingredientId && o.qty === b.outputs[i].qty)
+  );
+}
+
 /** Qo'lda yoziladigan qoldiqning yuqori chegarasi (asosiy birlikda): 1000 t / 1 mln l / 1 mlrd dona — `int` ustunga sig'adi. */
 const MAX_STOCK_QTY = 1_000_000_000;
 
@@ -111,6 +131,11 @@ export class WarehouseService {
    * ([ingredientUsage]). kg / l ↔ dona: narx yuborilmasa bo'shatiladi (28 000 / kg dan "28 / dona" — ma'nosiz); tasdiq
    * kutayotgan eski kirimda bo'lsa — `pending_purchase` (tasdiqlanganda miqdor yangi birlikda hisoblanib, omborga
    * noto'g'ri son qo'shilardi: 12,5 kg → 13 dona). kg ↔ l — ikkalasi ×1000, sonlar to'g'ri qoladi: faqat birlik almashadi.
+   *
+   * Norma ([yieldNorm]) va pishganda chiqishi ([cookYield]) — faqat admin (2026-11-19; ta'minotchi o'sha qiymatni
+   * yuborsa — mumkin, boshqasini — `forbidden`): ular kirim va sotuvda ombordan qancha qo'shilishi / ayrilishini
+   * belgilaydi. Birlik kg / l ↔ dona o'zgarsa — ikkalasi o'chadi (norma chiqishlari boshqa o'lchamda qoladi, dona
+   * "pishmaydi"); mahsulot boshqa mahsulot normasida bo'lsa, bunday o'zgarish — `invalid_input`.
    */
   async saveIngredient(
     input: (CreateIngredientDto | UpdateIngredientDto) & { id?: string },
@@ -124,6 +149,21 @@ export class WarehouseService {
     if (packSize != null && (!Number.isInteger(packSize) || packSize < 1 || packSize > MAX_PACK_SIZE)) {
       fail('invalid_qty', 'packSize');
     }
+    const cookYield = input.cookYield;
+    if (cookYield != null && (!Number.isInteger(cookYield) || cookYield < 1 || cookYield > MAX_COOK_YIELD)) {
+      fail('invalid_qty', 'cookYield');
+    }
+    /** berilmagan — `undefined` (o'zgarmaydi); ortiqcha maydonlarsiz nusxa */
+    const norm: YieldNorm | null | undefined =
+      input.yieldNorm == null
+        ? input.yieldNorm
+        : {
+            qty: input.yieldNorm.qty,
+            outputs: input.yieldNorm.outputs.map((o) => ({ ingredientId: o.ingredientId, qty: o.qty })),
+          };
+    const adminOnly = (field: string) => {
+      if (actorRole !== 'admin') fail('forbidden', field);
+    };
     const id = input.id;
     if (id) {
       return this.dataSource.transaction(async (em) => {
@@ -138,7 +178,21 @@ export class WarehouseService {
             [id],
           );
           if (pending.length > 0) fail('pending_purchase');
+          const inNorm: unknown[] = await em.query(`SELECT 1 FROM ingredients WHERE ${IN_NORM} LIMIT 1`, [id]);
+          if (inNorm.length > 0) fail('invalid_input', 'yieldNorm');
         }
+
+        let nextCook = cookYield;
+        if (nextCook !== undefined && nextCook !== current.cookYield) adminOnly('cookYield');
+        if (unit === 'pcs') {
+          if (nextCook != null) fail('invalid_input', 'cookYield');
+          if (nextCook === undefined && current.cookYield !== null) nextCook = null;
+        }
+        let nextNorm = norm;
+        const renorm = nextNorm !== undefined && !sameNorm(nextNorm, current.yieldNorm);
+        if (renorm) adminOnly('yieldNorm');
+        if (renorm && nextNorm) await this.checkNorm(em, id, unit, nextNorm);
+        if (nextNorm === undefined && rescale && current.yieldNorm !== null) nextNorm = null;
         const repack = packSize !== undefined && packSize !== current.packSize;
         let repriced = lastPrice;
         if (lastPrice === undefined && current.lastPrice !== null) {
@@ -155,11 +209,21 @@ export class WarehouseService {
           ...(reunit && { unit }),
           ...(repack && { packSize }),
           ...(repriced !== undefined && { lastPrice: repriced }),
+          ...(nextNorm !== undefined && { yieldNorm: nextNorm }),
+          ...(nextCook !== undefined && { cookYield: nextCook }),
         });
         return this.getIngredient(em, id);
       });
     }
     const unit = input.unit ?? fail('invalid_input', 'unit');
+    if (cookYield != null) {
+      adminOnly('cookYield');
+      if (unit === 'pcs') fail('invalid_input', 'cookYield');
+    }
+    if (norm) {
+      adminOnly('yieldNorm');
+      await this.checkNorm(this.dataSource.manager, null, unit, norm);
+    }
     const ingredient: Ingredient = {
       id: newId('ing'),
       name,
@@ -168,6 +232,8 @@ export class WarehouseService {
       packSize: packSize ?? null,
       lastPrice: lastPrice ?? null,
       consumable: input.consumable ?? false,
+      yieldNorm: norm ?? null,
+      cookYield: cookYield ?? null,
       active: input.active,
     };
     await this.dataSource.manager.insert(Ingredient, ingredient);
@@ -175,8 +241,42 @@ export class WarehouseService {
   }
 
   /**
-   * Ombor mahsulotini o'chirish — hech qayerda ishlatilmagan bo'lsa: taom retseptida, kirimda, ko'chirishda,
-   * tayyorlashda, qoldiq harakatida, chiqimda yo'q. Aks holda `in_use` — faolsizlantirish kerak. Qoldiq yozuvlari
+   * Norma to'g'rimi: namuna > 0; chiqishlar 1…10 ta, takrorsiz, mahsulotning o'zi emas (`invalid_input`), har biri > 0,
+   * jami namunadan ko'p emas (`invalid_qty`). Chiqqanlar butun mahsulot bilan bir o'lchamda — kg / l yoki dona (narx
+   * og'irligi bo'yicha bo'linadi) va o'zlarining normasi yo'q; mahsulotning o'zi boshqa normada chiqish bo'lmaydi
+   * (zanjir yo'q — kirimda bir marta bo'linadi). Aks holda `invalid_input`. [selfId] — yangi mahsulotda `null`.
+   */
+  private async checkNorm(em: EntityManager, selfId: string | null, unit: StockUnit, norm: YieldNorm): Promise<void> {
+    const sample = toBase(norm.qty, unit);
+    if (!(norm.qty > 0) || sample < 1 || sample > MAX_STOCK_QTY) fail('invalid_qty', 'yieldNorm');
+    const ids = norm.outputs.map((output) => output.ingredientId);
+    if (
+      ids.length === 0 ||
+      ids.length > MAX_NORM_OUTPUTS ||
+      new Set(ids).size !== ids.length ||
+      (selfId !== null && ids.includes(selfId))
+    ) {
+      fail('invalid_input', 'yieldNorm');
+    }
+    const outputs = await this.ingredientMap(em, ids);
+    let total = 0;
+    for (const output of norm.outputs) {
+      const ingredient = outputs.get(output.ingredientId) ?? fail('not_found', `ingredient ${output.ingredientId}`);
+      if (!sameScale(ingredient.unit, unit) || ingredient.yieldNorm !== null) fail('invalid_input', 'yieldNorm');
+      const base = toBase(output.qty, ingredient.unit);
+      if (!(output.qty > 0) || base < 1) fail('invalid_qty', 'yieldNorm');
+      total += base;
+    }
+    if (total > sample) fail('invalid_qty', 'yieldNorm');
+    if (selfId !== null) {
+      const inNorm: unknown[] = await em.query(`SELECT 1 FROM ingredients WHERE ${IN_NORM} LIMIT 1`, [selfId]);
+      if (inNorm.length > 0) fail('invalid_input', 'yieldNorm');
+    }
+  }
+
+  /**
+   * Ombor mahsulotini o'chirish — hech qayerda ishlatilmagan bo'lsa: taom retseptida, boshqa mahsulot normasida,
+   * kirimda, ko'chirishda, tayyorlashda, qoldiq harakatida, chiqimda yo'q. Aks holda `in_use` — faolsizlantirish kerak. Qoldiq yozuvlari
    * (harakatsiz — 0) u bilan o'chadi.
    */
   async removeIngredient(id: string): Promise<void> {
@@ -184,6 +284,8 @@ export class WarehouseService {
       await this.getIngredient(em, id);
       await assertUnused(em, id, {
         recipes: `SELECT 1 FROM products WHERE ${containsIngredient('recipe')} LIMIT 1`,
+        // boshqa mahsulot normasida chiqish (normaning o'zi mahsulot bilan o'chadi)
+        norms: `SELECT 1 FROM ingredients WHERE ${IN_NORM} LIMIT 1`,
         purchases: `SELECT 1 FROM purchases WHERE ${containsIngredient('items')} LIMIT 1`,
         transfers: `SELECT 1 FROM transfers WHERE ${containsIngredient('items')} LIMIT 1`,
         productions: `SELECT 1 FROM productions WHERE "ingredientId" = $1::text OR ${containsIngredient('items')} LIMIT 1`,
@@ -468,14 +570,19 @@ export class WarehouseService {
   /**
    * Kirim (ta'minotchi yoki admin; 2026-11-08 dan admin tasdiqlamaydi): mahsulotlar darhol omborga qo'shiladi, kirim
    * `approved` bo'lib saqlanadi. Narxni (1 birlik / 1 dona) kirituvchi o'zi yozadi — har mahsulotning "oxirgi narxi" shunga
-   * yangilanadi; yozilmasa — oxirgi narx, u ham yo'q bo'lsa `invalid_price`. Saqlangach — Telegram'ga "Yangi kirim".
+   * yangilanadi; yozilmasa — oxirgi narx, u ham yo'q bo'lsa `invalid_price`. Normasi bor mahsulot (butun tovuq) —
+   * chiqqanlari bo'lib qo'shiladi (`receive`). Saqlangach — Telegram'ga "Yangi kirim".
    */
   async createPurchase(input: CreatePurchaseDto, createdBy: string, now = new Date()): Promise<Purchase> {
     const purchase = await this.dataSource.transaction(async (em) => {
       if (input.items.length === 0) fail('empty_order');
       await this.getWarehouse(em, input.warehouseId);
-      // narx va qadoq hajmi bir vaqtda o'zgarib qolmasin — qatorlar qulflanadi
-      const ingredients = await this.ingredientMap(em, input.items.map((line) => line.ingredientId), true);
+      // narx va qadoq hajmi bir vaqtda o'zgarib qolmasin — qatorlar (normadagi chiqishlar ham) qulflanadi
+      const ingredients = await this.ingredientMap(
+        em,
+        await this.withNormOutputs(em, input.items.map((line) => line.ingredientId)),
+        true,
+      );
       const ingredientOf = (id: string) => ingredients.get(id) ?? fail('not_found', `ingredient ${id}`);
       const items: PurchaseItem[] = input.items.map((line) => {
         const ingredient = ingredientOf(line.ingredientId);
@@ -488,11 +595,12 @@ export class WarehouseService {
       // qatordagi qadoq — mahsulotning hozirgi qadog'i: narx shu birlikda
       for (const item of items) await em.update(Ingredient, item.ingredientId, { lastPrice: item.price });
 
+      const id = newId('pur');
       const created: Purchase = {
-        id: newId('pur'),
+        id,
         number: await nextCounter(em, 'purchase'),
         warehouseId: input.warehouseId,
-        items,
+        items: await this.receive(em, id, input.warehouseId, items, ingredients, now),
         note: input.note?.trim() ?? '',
         status: 'approved',
         createdBy,
@@ -501,17 +609,65 @@ export class WarehouseService {
         decidedAt: null,
       };
       await em.insert(Purchase, created);
-      const deltas = items.map((item) => ({
-        ingredientId: item.ingredientId,
-        qty: toBase(item.qty, ingredientOf(item.ingredientId).unit, item.packSize),
-      }));
-      // sarf materialining eski qoldig'i — "Sarflandi" (narxi — yangilanishdan oldin o'qilgani)
-      await this.stock.writeOffConsumables(em, created.warehouseId, [...ingredients.values()], created.id, now);
-      await this.stock.applyDeltas(em, created.warehouseId, deltas, 'purchase', created.id, now);
       return created;
     });
     this.purchaseEvents.created(purchase);
     return purchase;
+  }
+
+  /**
+   * Kirim qatorlari omborga (yangi kirim, eski kirimni tasdiqlash). Normasi bor mahsulot (butun tovuq, 2026-11-19)
+   * **o'zi qo'shilmaydi** — normadagi nisbatda chiqqanlari (go'sht, qanot) qo'shiladi va qatorga `outputs` (asosiy
+   * birlikda) yoziladi; chiqqanlarning "oxirgi narxi" — kirim narxidan, og'irligi bo'yicha teng (shu kirimda o'zining
+   * alohida qatori bo'lsa — o'sha qator narxi qoladi). Sarf materialining eski qoldig'i avval "Sarflandi" — [ingredients]
+   * narx yozilishidan oldin o'qilgan (eski partiya eski narxda). Harakatlar — `purchase`, [purchaseId] bilan.
+   * Qaytaradi — qatorlar (`outputs` bilan).
+   */
+  private async receive(
+    em: EntityManager,
+    purchaseId: string,
+    warehouseId: string,
+    items: PurchaseItem[],
+    ingredients: Map<string, Ingredient>,
+    now: Date,
+  ): Promise<PurchaseItem[]> {
+    const ingredientOf = (id: string) => ingredients.get(id) ?? fail('not_found', `ingredient ${id}`);
+    const unitOf = (id: string) => ingredientOf(id).unit;
+    const lineIds = new Set(items.map((item) => item.ingredientId));
+    const deltas: StockDelta[] = [];
+    const prices = new Map<string, number>();
+    const received = items.map((item): PurchaseItem => {
+      const ingredient = ingredientOf(item.ingredientId);
+      const qty = toBase(item.qty, ingredient.unit, item.packSize);
+      const norm = ingredient.yieldNorm;
+      if (!norm) {
+        deltas.push({ ingredientId: ingredient.id, qty });
+        return item;
+      }
+      const outputs = normSplit(qty, norm, ingredient.unit, unitOf).filter((output) => output.qty > 0);
+      deltas.push(...outputs);
+      if (item.price !== null) {
+        const lineSize = unitSize(ingredient.unit, item.packSize);
+        for (const { ingredientId } of norm.outputs) {
+          if (lineIds.has(ingredientId)) continue;
+          const output = ingredientOf(ingredientId);
+          const outputSize = unitSize(output.unit, output.packSize);
+          prices.set(ingredientId, normOutputPrice(item.price, lineSize, norm, ingredient.unit, unitOf, outputSize));
+        }
+      }
+      return { ...item, outputs };
+    });
+    for (const [ingredientId, lastPrice] of prices) await em.update(Ingredient, ingredientId, { lastPrice });
+    const receiving = [...new Set(deltas.map((delta) => delta.ingredientId))].map(ingredientOf);
+    await this.stock.writeOffConsumables(em, warehouseId, receiving, purchaseId, now);
+    await this.stock.applyDeltas(em, warehouseId, deltas, 'purchase', purchaseId, now);
+    return received;
+  }
+
+  /** [ids] va ularning normalaridagi chiqishlar — kirimda hammasi birga (bir tartibda) qulflanadi. */
+  private async withNormOutputs(em: EntityManager, ids: string[]): Promise<string[]> {
+    const rows = await em.find(Ingredient, { select: { id: true, yieldNorm: true }, where: { id: In(ids) } });
+    return [...ids, ...rows.flatMap((row) => row.yieldNorm?.outputs.map((output) => output.ingredientId) ?? [])];
   }
 
   /**
@@ -532,7 +688,11 @@ export class WarehouseService {
         if (typeof price !== 'number' || !Number.isInteger(price) || price < 0) fail('invalid_price', item.ingredientId);
         return { ...item, price };
       });
-      const ingredients = await this.ingredientMap(em, items.map((item) => item.ingredientId), true);
+      const ingredients = await this.ingredientMap(
+        em,
+        await this.withNormOutputs(em, items.map((item) => item.ingredientId)),
+        true,
+      );
       const ingredientOf = (item: PurchaseItem) =>
         ingredients.get(item.ingredientId) ?? fail('not_found', `ingredient ${item.ingredientId}`);
       for (const item of items) {
@@ -543,14 +703,10 @@ export class WarehouseService {
         await em.update(Ingredient, item.ingredientId, { lastPrice });
       }
 
-      const approved: Purchase = { ...purchase, items, status: 'approved', decidedBy: adminId, decidedAt: now };
-      await em.update(Purchase, id, { items, status: 'approved', decidedBy: adminId, decidedAt: now });
-      const deltas = items.map((item) => ({
-        ingredientId: item.ingredientId,
-        qty: toBase(item.qty, ingredientOf(item).unit, item.packSize),
-      }));
-      await this.stock.writeOffConsumables(em, purchase.warehouseId, [...ingredients.values()], purchase.id, now);
-      await this.stock.applyDeltas(em, purchase.warehouseId, deltas, 'purchase', purchase.id, now);
+      // normasi bor mahsulot — hozirgi norma bo'yicha (kirim yozilgan paytda norma bo'lmagan)
+      const received = await this.receive(em, purchase.id, purchase.warehouseId, items, ingredients, now);
+      const approved: Purchase = { ...purchase, items: received, status: 'approved', decidedBy: adminId, decidedAt: now };
+      await em.update(Purchase, id, { items: received, status: 'approved', decidedBy: adminId, decidedAt: now });
       return approved;
     });
   }

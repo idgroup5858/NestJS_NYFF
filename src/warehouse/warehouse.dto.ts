@@ -15,6 +15,30 @@ import type { IngredientGroup, MovementKind, PurchaseStatus, StockUnit } from '.
 import { LocalizedTextDto } from '../common/localized.dto';
 import { PageQuery } from '../common/pagination';
 
+/** Normadagi chiqish: chiqqan mahsulot va namunadan chiqqan miqdori (uning ombor birligida, qadoqsiz: kg / l / dona). */
+export class YieldOutputDto {
+  @IsString()
+  @MaxLength(40)
+  ingredientId: string;
+
+  /** > 0 — servisda `invalid_qty` */
+  @IsNumber()
+  qty: number;
+}
+
+/** Norma namunasi: [qty] butun mahsulotdan (ombor birligida, qadoqsiz) [outputs] chiqadi. */
+export class YieldNormDto {
+  /** > 0 — servisda `invalid_qty` */
+  @IsNumber()
+  qty: number;
+
+  /** 1…10 ta, takrorsiz, mahsulotning o'zi emas — servisda `invalid_input` */
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => YieldOutputDto)
+  outputs: YieldOutputDto[];
+}
+
 /** Qo'shish va tahrirlashda umumiy maydonlar (birlik — har birida o'zicha). */
 class IngredientFieldsDto {
   @ValidateNested()
@@ -51,6 +75,23 @@ class IngredientFieldsDto {
   @IsOptional()
   @IsBoolean()
   consumable?: boolean;
+
+  /**
+   * Norma — namuna: [qty] shu mahsulotdan [outputs] chiqadi (faqat admin; boshqa qiymat yuborgan ta'minotchi —
+   * `forbidden`). Berilmasa — o'zgarmaydi, `null` — normasiz. Kirimda mahsulot o'zi emas, chiqqanlari omborga qo'shiladi.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => YieldNormDto)
+  yieldNorm?: YieldNormDto | null;
+
+  /**
+   * Pishganda chiqishi: 1000 g xomdan necha g pishgan, butun 1…10 000 (faqat admin, faqat kg / l mahsulotda). Berilmasa
+   * — o'zgarmaydi, `null` — yo'q. Berilgan bo'lsa retseptdagi son pishgan miqdor, sotuvda xomi ayriladi.
+   */
+  @IsOptional()
+  @IsNumber()
+  cookYield?: number | null;
 }
 
 export class UpdateIngredientDto extends IngredientFieldsDto {

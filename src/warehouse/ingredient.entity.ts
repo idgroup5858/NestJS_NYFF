@@ -2,6 +2,7 @@ import { Column, Entity, PrimaryColumn } from 'typeorm';
 import { bigintNumber, ID_LENGTH } from '../common/columns';
 import type { IngredientGroup, StockUnit } from '../common/enums';
 import type { LocalizedText } from '../common/types';
+import type { YieldNorm } from '../domain/yield-norm';
 
 /**
  * Ombor mahsuloti (xomashyo, qadoq). Hech qayerda ishlatilmagan bo'lsa o'chiriladi; retseptda yoki tarixda bo'lsa —
@@ -48,6 +49,23 @@ export class Ingredient {
    */
   @Column({ default: false })
   consumable: boolean;
+
+  /**
+   * Norma (2026-11-19, faqat admin): bir marta o'lchangan namuna — 64 kg tovuqdan 34,5 kg yarim tayyor go'sht va 5 kg
+   * qanot chiqadi. Berilgan bo'lsa kirimda bu mahsulot o'zi omborga qo'shilmaydi — shu nisbatda chiqqanlari qo'shiladi
+   * (`WarehouseService.receive`), narx ularga og'irligi bo'yicha bo'linadi. Chiqqanlar shu mahsulot bilan bir o'lchamda
+   * (kg / l yoki dona), o'zlarining normasi yo'q. `null` — oddiy mahsulot.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  yieldNorm: YieldNorm | null;
+
+  /**
+   * Pishganda chiqishi (2026-11-19, faqat admin, kg / l da): 1000 g xomdan shuncha g pishgan — 655. Berilgan bo'lsa
+   * taom retseptidagi son **pishgan** miqdor: sotuvda ombordan xomi ayriladi (100 g → 153 g), tannarx ham shundan.
+   * `null` — retseptdagi son o'zi.
+   */
+  @Column('int', { nullable: true })
+  cookYield: number | null;
 
   @Column({ default: true })
   active: boolean;

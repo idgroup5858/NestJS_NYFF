@@ -416,6 +416,8 @@ export function buildBase(now: Date): DemoBase {
         packSize: null,
         lastPrice: price,
         consumable: false,
+        yieldNorm: null,
+        cookYield: null,
         active: true,
       })),
     ),
