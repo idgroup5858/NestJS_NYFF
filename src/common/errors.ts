@@ -43,6 +43,7 @@ export type ErrorCode =
   | 'pending_purchase'
   // ── mobil ilovada karta bilan to'lov (Milliy Ecom / NBU) ──
   | 'card_unavailable'
+  | 'card_declined'
   // ── kuryer ──
   | 'off_duty'
   | 'already_taken'
@@ -107,6 +108,7 @@ const STATUS: Partial<Record<ErrorCode, HttpStatus>> = {
   telegram_unreachable: HttpStatus.BAD_GATEWAY,
   ai_not_configured: HttpStatus.SERVICE_UNAVAILABLE,
   card_unavailable: HttpStatus.SERVICE_UNAVAILABLE,
+  card_declined: HttpStatus.PAYMENT_REQUIRED,
 };
 
 /** `message` — o'zbekcha standart matn (loglar va matnni o'zi tarjima qilmaydigan mijozlar uchun). */
@@ -147,6 +149,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   shift_open_elsewhere: "Boshqa filialda ochiq smenangiz bor — avval o'sha yerda topshiring yoki adminga ayting",
   pending_purchase: "Bu mahsulot tasdiq kutayotgan eski kirimda bor — avval «Kirimlar» da tasdiqlang yoki rad eting",
   card_unavailable: "Karta bilan to'lov hozir ishlamayapti — naqd to'lovni tanlang",
+  card_declined: "Kartadan pul yechilmadi — boshqa kartani tanlang yoki bir martalik to'lov qiling",
   off_duty: 'Avval «Ishdaman» ni yoqing',
   already_taken: 'Bu buyurtmani boshqa kuryer oldi',
   other_branch: "Qo'lingizda boshqa filial buyurtmalari bor",

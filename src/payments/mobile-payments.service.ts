@@ -5,9 +5,10 @@ import { fail } from '../common/errors';
 import { newSecret, sha256 } from '../common/ids';
 import { uuidv7 } from '../nbu-test/nbu-crypto';
 import type { Order } from '../orders/order.entity';
-import type { MobileOrderDto } from '../orders/order.dto';
 import { OrdersService } from '../orders/orders.service';
 import { mobileCardConfig, mobileCardSetup, RETURN_PATH } from './mobile-card.config';
+import { MobileCardsService } from './mobile-cards.service';
+import type { MobilePaymentDto } from './mobile-payment.dto';
 import { MobilePayment } from './mobile-payment.entity';
 import { NbuClient, NbuError, readNbuPayment, type NbuPaymentInfo } from './nbu.client';
 
@@ -40,6 +41,8 @@ const CHECK_IN_BACKGROUND_MS = 60_000;
 const EXPIRY_GRACE_MS = 60_000;
 /** Bankka ulanib bo'lmasa — to'lovni "muddati o'tdi" deyishdan oldin shuncha kutiladi (pul yechilgan bo'lishi mumkin). */
 const UNREACHABLE_GIVE_UP_MS = 30 * 60_000;
+/** Saqlangan kartadan yechish — bank sahifasi yo'q; javob kelmay qolsa holat shu muddatgacha so'raladi. */
+const SAVED_CARD_EXPIRY_MS = 5 * 60_000;
 
 /** Bank xabari `mobile_payments.bank` ga (obyekt bo'lmasa — o'ralib). */
 function bankRecord(raw: unknown): object | null {
@@ -69,6 +72,7 @@ export class MobilePaymentsService implements OnModuleInit {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly orders: OrdersService,
     private readonly nbu: NbuClient,
+    private readonly cards: MobileCardsService,
   ) {}
 
   onModuleInit() {
@@ -93,13 +97,15 @@ export class MobilePaymentsService implements OnModuleInit {
    * `PUBLIC_URL` yozilgan bo'lsa — o'sha.
    */
   async create(
-    dto: MobileOrderDto,
+    dto: MobilePaymentDto,
     origin: string | null,
     now = new Date(),
-  ): Promise<{ payment: MobilePaymentView; paymentUrl: string; returnUrl: string; trackingToken: string }> {
+    clientKey?: string,
+  ): Promise<{ payment: MobilePaymentView; paymentUrl: string | null; returnUrl: string | null; trackingToken: string }> {
     const config = mobileCardConfig() ?? fail('card_unavailable');
-    const base = config.publicUrl ?? origin ?? fail('card_unavailable', 'server manzili aniqlanmadi');
     if (dto.online.payment !== 'card') fail('invalid_input', 'online.payment: card');
+    // saqlangan karta — shu telefonniki (boshqa telefon kartasi — `not_found`)
+    const saved = dto.cardId ? await this.cards.tokenFor(clientKey, dto.cardId) : null;
     const prepared = await this.orders.prepareMobile(dto, now);
     const lines = dto.items.map(({ productId, qty }) => ({ productId, qty }));
     const items = await this.orders.quoteMobile(prepared.branchId, dto.type, lines);
@@ -107,6 +113,29 @@ export class MobilePaymentsService implements OnModuleInit {
     if (total <= 0) fail('invalid_amount');
 
     const id = uuidv7();
+    const trackingToken = newSecret(24);
+    const draft = {
+      id,
+      status: 'waiting' as const,
+      branchId: prepared.branchId,
+      type: dto.type,
+      lines,
+      items,
+      note: dto.note?.trim() ?? '',
+      online: prepared.online,
+      deliveryFee: prepared.deliveryFee,
+      total,
+      trackingTokenHash: sha256(trackingToken),
+      orderId: null,
+      error: null,
+      bank: null,
+      createdAt: now,
+      paidAt: null,
+      checkedAt: null,
+    };
+    if (saved) return this.chargeSaved({ ...draft, cardId: saved.cardId }, saved.cardToken, trackingToken, now);
+
+    const base = config.publicUrl ?? origin ?? fail('card_unavailable', 'server manzili aniqlanmadi');
     const returnUrl = `${base}${RETURN_PATH}`;
     let bank: { paymentUrl: string; transactionId: string | null };
     try {
@@ -122,32 +151,53 @@ export class MobilePaymentsService implements OnModuleInit {
       fail('card_unavailable');
     }
 
-    const trackingToken = newSecret(24);
     const payment: MobilePayment = {
-      id,
-      status: 'waiting',
-      branchId: prepared.branchId,
-      type: dto.type,
-      lines,
-      items,
-      note: dto.note?.trim() ?? '',
-      online: prepared.online,
-      deliveryFee: prepared.deliveryFee,
-      total,
-      trackingTokenHash: sha256(trackingToken),
+      ...draft,
+      cardId: null,
       paymentUrl: bank.paymentUrl,
       transactionId: bank.transactionId,
-      orderId: null,
-      error: null,
-      bank: null,
-      createdAt: now,
       expiresAt: new Date(now.getTime() + config.sessionSeconds * 1000),
-      paidAt: null,
-      checkedAt: null,
     };
     await this.dataSource.manager.insert(MobilePayment, payment);
     this.logger.log(`To'lov ochildi: ${id}, ${total} so'm, filial ${prepared.branchId}, qaytish — ${returnUrl}`);
     return { payment: paymentView(payment), paymentUrl: bank.paymentUrl, returnUrl, trackingToken };
+  }
+
+  /**
+   * Saqlangan kartadan: yozuv avval (bank callback'i `CHARGE` javobdan oldin kelsa ham topsin), keyin `/payment/charge`
+   * — natija darhol. `SUCCESS` — buyurtma shu so'rovning o'zida yaratiladi; `FAILED` / bank xatosi — `card_declined`
+   * (pul yechilmagan); tarmoq xatosi — natija noma'lum: `waiting`, ilova holatni so'raydi (server bankdan so'raydi).
+   */
+  private async chargeSaved(
+    draft: Omit<MobilePayment, 'paymentUrl' | 'transactionId' | 'expiresAt'>,
+    cardToken: string,
+    trackingToken: string,
+    now: Date,
+  ): Promise<{ payment: MobilePaymentView; paymentUrl: null; returnUrl: null; trackingToken: string }> {
+    const payment: MobilePayment = {
+      ...draft,
+      paymentUrl: null,
+      transactionId: null,
+      expiresAt: new Date(now.getTime() + SAVED_CARD_EXPIRY_MS),
+    };
+    await this.dataSource.manager.insert(MobilePayment, payment);
+    let info: NbuPaymentInfo;
+    try {
+      info = await this.nbu.charge({ orderId: payment.id, cardToken, amount: payment.total * 100 });
+    } catch (error) {
+      if (error instanceof NbuError) {
+        await this.close(payment.id, 'failed', { error: error.message }, now);
+        this.logger.warn(`Kartadan yechilmadi (${payment.id}, karta ${payment.cardId}): ${error.message}`);
+        fail('card_declined', error.message.slice(0, 200));
+      }
+      this.logger.warn(`Kartadan yechish (${payment.id}) javobsiz: ${(error as Error).message} — holat bankdan so'raladi`);
+      return { payment: paymentView(payment), paymentUrl: null, returnUrl: null, trackingToken };
+    }
+    await this.apply(payment.id, info, info, now);
+    const row = await this.dataSource.manager.findOneByOrFail(MobilePayment, { id: payment.id });
+    if (row.status === 'failed') fail('card_declined');
+    this.logger.log(`Saqlangan kartadan: ${payment.id}, ${payment.total} so'm — ${row.status}`);
+    return { payment: paymentView(row), paymentUrl: null, returnUrl: null, trackingToken };
   }
 
   /**

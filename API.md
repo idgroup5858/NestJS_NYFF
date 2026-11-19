@@ -172,6 +172,7 @@ error" }`). `code` bo'lmasa — umumiy "Xatolik yuz berdi" ko'rsating.
 | `too_many_attempts` | 429 | ✔ | Ko'p marta xato kiritildi — birozdan keyin urinib ko'ring | PIN bloki (`detail`: qolgan soniya, `"287s"` — 2026-11-04 dan blokni qo'ygan 5-xatoning o'zida ham, `"300s"`; offline kassada ham) yoki IP chegarasi (`detail` yo'q, `Retry-After` sarlavhasi, soniya). Web PIN pad blok paytida o'chadi va `detail` bo'yicha "4:59 dan keyin" sanaydi (`detail` siz — 1 daqiqa). TV / kiosk kodi uchun blok yo'q ([4.4](#44-tv-va-kiosk)) |
 | `branch_closed` | 409 | ✔ | Filial hozir buyurtma qabul qilmayapti | mobil: tanlangan filial yopiq (`detail`: branchId) yoki dostavka uchun ochiq filial yo'q |
 | `location_required` | 400 | ✔ | Yetkazib berish joyini xaritada belgilang (GPS) | mobil dostavkada `online.location` yo'q |
+| `card_declined` | 402 | ✔ | Kartadan pul yechilmadi — boshqa kartani tanlang yoki bir martalik to'lov qiling | `POST /mobile/payments` saqlangan karta bilan: bank rad etdi (`FAILED`, mablag' yetmaydi va h.k.; `detail` — bank xabari), pul yechilmagan ([5.8](#58-boglangan-kartalar)) |
 | `card_unavailable` | 503 | ✔ | Karta bilan to'lov hozir ishlamayapti — naqd to'lovni tanlang | `POST /mobile/payments`: serverda karta sozlanmagan (NBU sozlamalari to'liq emas) yoki bank to'lov ochmadi / javob bermadi ([5.7](#57-karta-bilan-tolov-milliy-ecom--nbu)) |
 | `off_duty` | 409 | ✔ | Avval «Ishdaman» ni yoqing | kuryer "Ishdaman" o'chiq holda buyurtma olmoqchi |
 | `already_taken` | 409 | ✔ | Bu buyurtmani boshqa kuryer oldi | |
@@ -603,6 +604,38 @@ logga yoziladi. Fon ishi (har 30 s): callback kelmay qolgan to'lovni har daqiqad
 (`expiresAt` + 1 daqiqa) — bank "to'lanmagan" desa `expired`, bankka ulanib bo'lmasa — 30 daqiqagacha kutadi. Muddati
 o'tgandan keyin kelgan "to'landi" ham buyurtma bo'ladi.
 
+### 5.8 Bog'langan kartalar
+
+2026-11-19. Mijoz kartasini bir marta bog'laydi (bank sahifasi, **pul yechilmaydi**), keyin shu kartadan bank
+sahifasisiz, darhol to'laydi. **Login yo'q — karta telefonga bog'lanadi**: ilova birinchi ishga tushganda maxfiy kalit
+yaratadi (32 tasodifiy bayt, base64url — 43 belgi) va saqlaydi; kartalar so'rovlarida `X-Client-Key: <kalit>`
+(32–128 belgi `A–Z a–z 0–9 _ -`; yo'q / noto'g'ri — `401 unauthorized`). Serverda kalitning faqat sha256 xeshi, bankka —
+undan yasalgan `clientId` (`cl_…`). **Bank tokeni (`cardToken`) faqat serverda** — ilovaga berilmaydi; ilova kartani
+`id` va yashirin raqam (`maskedPan`) bilan ko'radi. Boshqa telefon kartani ko'rmaydi va ishlata olmaydi (`not_found`).
+Ilova qayta o'rnatilsa — yangi kalit, karta qayta qo'shiladi. Kartalar faqat karta to'lovi yoqiq serverda ishlaydi
+([5.7](#57-karta-bilan-tolov-milliy-ecom--nbu)).
+
+**Bog'lash:**
+1. `POST /api/mobile/cards/bind` (`X-Client-Key`) → `201 { binding: { id, status: "pending", card: null }, paymentUrl,
+   returnUrl }`. `paymentUrl` ni WebView'da oching — to'lovdagidek, `returnUrl` bilan boshlanadigan manzil ushlanadi.
+2. Bank tokenni callback bilan yuboradi (`purpose: CARD_BINDING`, `cardToken`, `maskedPan` — `9860********4764`).
+3. `GET /api/mobile/cards/bind/{id}` (`X-Client-Key`) — har 2 s: `{ id, status: pending | active | failed, card }`.
+   `active` — `card: { id, maskedPan, createdAt }`. Bank bir xil kartani qayta bog'lasa — ro'yxatda bitta.
+
+**Ro'yxat va o'chirish:** `GET /api/mobile/cards` → `[{ id, maskedPan, createdAt }]` (yangisi birinchi);
+`DELETE /api/mobile/cards/{id}` → `204` — bankda uziladi (bank xato qaytarsa ham bazadan o'chadi), boshqa ishlatilmaydi.
+
+**Saqlangan kartadan to'lov:** `POST /api/mobile/payments` ([5.7](#57-karta-bilan-tolov-milliy-ecom--nbu)) tanasiga
+`"cardId": "<karta id>"` va `X-Client-Key` sarlavhasi. Server `/payment/charge` bilan darhol yechadi:
+
+| Natija | Javob |
+|---|---|
+| to'landi | `201`, `payment.status: "paid"`, `orderId` bor, `paymentUrl` / `returnUrl` — `null`. Buyurtma o'sha zahoti filialda; ilova `GET /mobile/orders/{orderId}` (shu `trackingToken`) |
+| bank rad etdi (mablag' yetmaydi va h.k.) | `402 card_declined` — pul yechilmagan |
+| bank javob bermadi | `201`, `payment.status: "waiting"` — natija noma'lum, `GET /mobile/payments/{id}` bilan so'rang (server bankdan so'raydi) |
+
+Eng kam summa — 1 000 so'm (bank: 100 000 tiyin).
+
 ---
 
 ## 6. Ma'lumot turlari
@@ -724,6 +757,13 @@ interface MobilePayment {
   expiresAt: string               // bank sahifasi shu vaqtgacha ochiq
   orderId: string | null          // to'langandan keyin yaratilgan buyurtma
   error: string | null            // to'langan, lekin buyurtma yaratilmadi — xato kodi
+}
+
+/** Telefonga bog'langan karta (5.8) — bank tokenisiz. */
+interface MobileCard {
+  id: string
+  maskedPan: string | null        // "9860********4764"
+  createdAt: string
 }
 ```
 
@@ -979,7 +1019,11 @@ tashlanadi); buyurtma izohi `note?: string ≤500`. Narx, nom — bazadan (taom 
 | `POST /mobile/orders` | ochiq | [5.4](#54-buyurtma-berish) | `201 { order: CustomerOrder, trackingToken: string }` | [5.4](#54-buyurtma-berish) jadvali |
 | `GET /mobile/orders/:id` | ochiq + `X-Order-Token` / `?token=` | | `CustomerOrder` | `not_found` |
 | `GET /mobile/payments/methods` | ochiq | | `{ cash: true, card: boolean }` | |
-| `POST /mobile/payments` | ochiq; IP: 20 / 60 s | `MobileOrderDto`, `online.payment: 'card'` ([5.7](#57-karta-bilan-tolov-milliy-ecom--nbu)) | `201 { payment: MobilePayment, paymentUrl, returnUrl, trackingToken }` | `card_unavailable`, `invalid_input`, [5.4](#54-buyurtma-berish) jadvali |
+| `POST /mobile/payments` | ochiq; IP: 20 / 60 s; saqlangan kartada — `X-Client-Key` | `MobileOrderDto`, `online.payment: 'card'`, `cardId?` ([5.7](#57-karta-bilan-tolov-milliy-ecom--nbu), [5.8](#58-boglangan-kartalar)) | `201 { payment: MobilePayment, paymentUrl, returnUrl, trackingToken }` (saqlangan kartada `paymentUrl` / `returnUrl` — `null`) | `card_unavailable`, `card_declined`, `invalid_input`, `unauthorized`, `not_found` (karta), [5.4](#54-buyurtma-berish) jadvali |
+| `GET /mobile/cards` | `X-Client-Key` | | `[{ id, maskedPan, createdAt }]` | `unauthorized` |
+| `POST /mobile/cards/bind` | `X-Client-Key`; IP: 10 / 60 s | | `201 { binding: { id, status, card }, paymentUrl, returnUrl }` | `unauthorized`, `card_unavailable` |
+| `GET /mobile/cards/bind/:id` | `X-Client-Key` | | `{ id, status: 'pending' \| 'active' \| 'failed', card }` | `unauthorized`, `not_found` |
+| `DELETE /mobile/cards/:id` | `X-Client-Key` | | `204` (bankda uziladi) | `unauthorized`, `not_found` |
 | `GET /mobile/payments/:id` | ochiq + `X-Order-Token` / `?token=` | | `MobilePayment` | `not_found` |
 | `GET /mobile/payments/return` | ochiq | query: `result=success\|failure`, `id` | HTML (bank qaytaradigan sahifa — ilova uni ochmasdan ushlaydi) | |
 | `POST /callback` | bank: Basic `NBU_CALLBACK_USERNAME` / `NBU_CALLBACK_PASSWORD` | bank to'lov natijasi (`orderId`, `status`, `amount`, `transactionId`, …) | `200 { status: "accepted" }` | `401` |

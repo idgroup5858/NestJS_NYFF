@@ -8,6 +8,7 @@ import { Category } from '../menu/category.entity';
 import { Product } from '../menu/product.entity';
 import { Order } from '../orders/order.entity';
 import { MobilePayment } from '../payments/mobile-payment.entity';
+import { MobileCard } from '../payments/mobile-card.entity';
 import { Shift } from '../shifts/shift.entity';
 import { TelegramChat } from '../telegram/telegram-chat.entity';
 import { User } from '../users/user.entity';
@@ -39,6 +40,7 @@ export const ENTITIES = [
   Shift,
   Order,
   MobilePayment,
+  MobileCard,
   Expense,
   AiMessage,
   TelegramChat,

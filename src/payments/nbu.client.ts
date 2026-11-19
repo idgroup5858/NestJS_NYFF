@@ -65,6 +65,34 @@ export function readNbuPayment(value: unknown, orderId?: string): NbuPaymentInfo
   };
 }
 
+/** Kartani bog'lash natijasi (callback, `purpose: CARD_BINDING`). */
+export interface NbuCardBinding {
+  orderId: string | null;
+  state: NbuPaymentState;
+  cardToken: string | null;
+  /** `9860********4764` */
+  maskedPan: string | null;
+}
+
+/**
+ * Haqiqiy callback (2026-11-19): `{ transactionId, orderId, status, amount: 0, purpose: "CARD_BINDING", clientId,
+ * maskedPan, cardToken, … }` — hujjatdagi ro'yxatda `cardToken` va `maskedPan` yo'q, lekin keladi.
+ */
+export function readNbuCardBinding(value: unknown): NbuCardBinding {
+  const outer = (value ?? {}) as Record<string, unknown>;
+  const data = (outer.orderId === undefined && outer.data && typeof outer.data === 'object' ? outer.data : outer) as Record<
+    string,
+    unknown
+  >;
+  const info = readNbuPayment(data);
+  return {
+    orderId: info.orderId,
+    state: info.state,
+    cardToken: text(data.cardToken) ?? text(data.token),
+    maskedPan: text(data.maskedPan) ?? text(data.card) ?? text(data.pan),
+  };
+}
+
 /** Bank sahifasi havolasi bo'lishi mumkin bo'lgan maydonlar (avval aniq nomlar, keyin "url" / "link" so'zi borlari). */
 const URL_KEYS = ['paymenturl', 'payment_url', 'paymentlink', 'checkouturl', 'redirecturl', 'formurl', 'url', 'link', 'href'];
 /** Biz yuborgan qaytish manzillari javobda qaytarilishi mumkin — ular bank sahifasi emas. */
@@ -160,6 +188,50 @@ export class NbuClient {
     // bank javobi shakli hali aniqlanmoqda — logda ko'rinib tursin (maxfiy narsa yo'q: havola, tranzaksiya, holat)
     this.logger.log(`payment/init javobi: ${preview(json)}`);
     return { paymentUrl, transactionId: text(data.transactionId) ?? findText(json, 'transactionId') };
+  }
+
+  /**
+   * Kartani bog'lash (`REDIRECT`, pul yechilmaydi): javobda bank sahifasi havolasi; karta tokeni keyin callback'da
+   * (`purpose: CARD_BINDING`, `cardToken`, `maskedPan`) keladi. [clientId] — mijozning bizdagi id'si.
+   */
+  async bind(input: {
+    orderId: string;
+    clientId: string;
+    successUrl: string;
+    failureUrl: string;
+    sessionTimeout: number;
+  }): Promise<{ paymentUrl: string; transactionId: string | null }> {
+    const { data, json } = await this.authorized('payment/bind', '/payment/bind', {
+      currency: 860,
+      orderId: input.orderId,
+      clientId: input.clientId,
+      paymentType: 'REDIRECT',
+      sessionTimeout: input.sessionTimeout,
+      successUrl: input.successUrl,
+      failureUrl: input.failureUrl,
+    });
+    const paymentUrl = (isHttp(data.url) ? data.url.trim() : null) ?? findPaymentUrl(json);
+    if (!paymentUrl) throw new NbuError(`payment/bind: javobda havola yo'q — javob: ${preview(json)}`);
+    return { paymentUrl, transactionId: text(data.transactionId) };
+  }
+
+  /**
+   * Bog'langan kartadan yechish — bank sahifasisiz, natija darhol (`data.status`: `SUCCESS` / `FAILED`). Bank xato
+   * qaytarsa — `NbuError` (pul yechilmagan); tarmoq xatosi — natija noma'lum (holat keyin so'raladi).
+   */
+  async charge(input: { orderId: string; cardToken: string; amount: number }): Promise<NbuPaymentInfo> {
+    const { data } = await this.authorized('payment/charge', '/payment/charge', {
+      orderId: input.orderId,
+      cardToken: input.cardToken,
+      amount: input.amount,
+      currency: 860,
+    });
+    return readNbuPayment(data, input.orderId);
+  }
+
+  /** Bog'langan kartani uzish. */
+  async unbind(input: { clientId: string; cardToken: string }): Promise<void> {
+    await this.authorized('payment/unbind', '/payment/unbind', { clientId: input.clientId, cardToken: input.cardToken });
   }
 
   /** To'lov holati `orderId` bo'yicha. */

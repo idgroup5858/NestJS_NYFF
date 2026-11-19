@@ -57,6 +57,10 @@ export class MobilePayment {
   @Column({ type: 'varchar', length: 64, nullable: true })
   transactionId: string | null;
 
+  /** saqlangan kartadan to'langanda — qaysi karta (`mobile_cards.id`); bank sahifasi orqali — `null` */
+  @Column({ type: 'varchar', length: ID_LENGTH, nullable: true })
+  cardId: string | null;
+
   /** to'langandan keyin yaratilgan buyurtma */
   @Column({ type: 'varchar', length: ID_LENGTH, nullable: true })
   orderId: string | null;

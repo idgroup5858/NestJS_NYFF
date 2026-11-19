@@ -3,8 +3,10 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AttemptsGuard } from '../auth/attempts.guard';
 import { Public } from '../auth/decorators';
-import { MobileOrderDto, TrackingQuery } from '../orders/order.dto';
+import { TrackingQuery } from '../orders/order.dto';
 import { requestOrigin } from './mobile-card.config';
+import { CLIENT_KEY_HEADER } from './mobile-cards.service';
+import { MobilePaymentDto } from './mobile-payment.dto';
 import { MobilePaymentsService } from './mobile-payments.service';
 
 /** Bank to'lovdan keyin brauzerni shu sahifaga qaytaradi. Ilova WebView'da uni ochmasdan ushlaydi — bu zaxira. */
@@ -74,8 +76,8 @@ export class MobilePaymentsController {
   @UseGuards(AttemptsGuard)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post()
-  create(@Body() dto: MobileOrderDto, @Req() req: Request) {
-    return this.payments.create(dto, requestOrigin(req.host, req.protocol));
+  create(@Body() dto: MobilePaymentDto, @Req() req: Request, @Headers(CLIENT_KEY_HEADER) clientKey?: string) {
+    return this.payments.create(dto, requestOrigin(req.host, req.protocol), new Date(), clientKey);
   }
 
   /** To'lov holati: `X-Order-Token` sarlavhasi yoki `?token=`. */
