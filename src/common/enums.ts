@@ -66,7 +66,11 @@ export type OrderType = (typeof ORDER_TYPES)[number];
 export const ORDER_SOURCES = ['cashier', 'kiosk', 'mobile'] as const;
 export type OrderSource = (typeof ORDER_SOURCES)[number];
 
-export const MOBILE_PLATFORMS = ['android', 'ios'] as const;
+/**
+ * Mijoz buyurtmani qayerdan berdi. `telegram` — Telegram mini app (web, `ReactJS_NYFF/src/telegram`); mini app olib
+ * tashlansa ham qiymat qoladi — eski buyurtmalarda yozilgan.
+ */
+export const MOBILE_PLATFORMS = ['android', 'ios', 'telegram'] as const;
 export type MobilePlatform = (typeof MOBILE_PLATFORMS)[number];
 
 /**

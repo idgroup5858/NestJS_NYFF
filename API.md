@@ -335,6 +335,11 @@ Kiosk kodsiz bo'lsa — filial id'sini bilgan har kim (kiosk manzilini rasmga ol
 Ilova hech narsani o'zi hisoblamaydi: filialni tanlash, narx, hudud narxi, ochiq / yopiq — hammasi serverda. Ilova
 natijani ko'rsatadi. Barcha mobil endpointlar ochiq (token yo'q).
 
+**Telegram mini app** (2026-11-20) — web ilovaning `/shorva/telegram` sahifasi (`ReactJS_NYFF/src/telegram`, rejasi —
+`ReactJS_NYFF/docs/TELEGRAM.md`) shu bo'limdagi endpointlarni o'zgarishsiz ishlatadi, `online.platform: "telegram"`.
+Serverda alohida kod yo'q: bot tokeni kerak emas, Telegram akkauntiga bog'lanmaydi (kartalar — 5.8 dagidek `X-Client-Key`,
+brauzer xotirasida). Bank sahifasi alohida oynada ochiladi, natija 5.7 dagidek so'raladi.
+
 ### 5.1 Filiallar
 
 `GET /api/branches` → `Branch[]` ([6.1](#61-filial-va-yetkazib-berish)). Har birida `onlineState` (hozirgi holat) va
@@ -697,7 +702,7 @@ interface OrderItem {
 }
 
 interface OnlineInfo {            // faqat mobil buyurtmada
-  platform: 'android' | 'ios'
+  platform: 'android' | 'ios' | 'telegram'   // telegram — Telegram mini app (web, 5-bo'limdagi oqim bilan bir xil)
   name: string
   phone: string
   address: string                 // olib ketishda ""; dostavkada ham "" bo'lishi mumkin (joy xaritadan tanlangan)
